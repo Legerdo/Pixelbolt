@@ -5,6 +5,8 @@ export const FLUID_PRESETS = [
   { file: 'campfire', title: 'Campfire', note: 'Gas · loop' }, { file: 'explosion', title: 'Explosion', note: 'Gas · one-shot' },
   { file: 'smoke-puff', title: 'Smoke puff', note: 'Gas · one-shot' }, { file: 'steam-vent', title: 'Steam vent', note: 'Gas · loop' },
   { file: 'magic-swirl', title: 'Magic swirl', note: 'Gas · loop' }, { file: 'torch', title: 'Torch', note: 'Gas · loop' },
+  { file: 'wall-torch', title: 'Wall torch', note: 'Flame, see-through smoke, embers and light on the wall, in an iron bracket · loop' },
+  { file: 'chimney-smoke', title: 'Chimney smoke', note: 'See-through smoke curling up from a brick chimney and thinning out · loop' },
   { file: 'splash', title: 'Splash', note: 'Liquid · one-shot' }, { file: 'waterfall', title: 'Waterfall', note: 'Liquid · loop' },
   { file: 'drip', title: 'Drip', note: 'Liquid · loop' }, { file: 'potion', title: 'Bubbling potion', note: 'Liquid · loop' },
   { file: 'honey', title: 'Honey', note: 'Viscous liquid · loop' }, { file: 'slime', title: 'Slime', note: 'Yield-stress liquid · one-shot' },

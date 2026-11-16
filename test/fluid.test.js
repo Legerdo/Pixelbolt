@@ -40,15 +40,21 @@ golden.test('every fluid example compiles to its golden recipe, using only its p
   for (const name of FLUID_SHOWCASE) {
     const { source, recipe, project } = await example(name);
     golden.equal(name, sha(recipe), { recipe, note: ART });
-    const keys = new Set(Object.keys(source.palette)), colours = new Set(Object.values(source.palette).map(hex => hex.toLowerCase()));
+    const keys = new Set(Object.keys(source.palette)), solid = new Set(Object.values(source.palette).map(value => parseColor(value)).filter(colour => colour[3] === 255).map(colour => colour.slice(0, 3).join()));
     for (const frame of recipe.frames) for (const op of frame.ops ?? []) {
       // An obstacle partly off the canvas (dam-break's plank as it lifts away) is drawn as a copy of its visible part.
       assert.ok(['grid', 'stamp', 'copy'].includes(op.op), `${name} ${frame.name}: ${op.op}`);
       if (op.op === 'grid') for (const row of op.rows) for (const char of row) assert.ok(char === '.' || keys.has(char), `${name} ${frame.name} draws ${char}`);
     }
-    // No colour outside the palette, by construction: every opaque pixel is a palette colour.
-    const hex = (data, at) => `#${[data[at], data[at + 1], data[at + 2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
-    for (const frame of project.frames) for (let at = 0; at < frame.data.length; at += 4) if (frame.data[at + 3]) assert.ok(colours.has(hex(frame.data, at)), `${name} ${frame.name} has ${hex(frame.data, at)}`);
+    // No colour outside the palette, by construction: every opaque pixel is one of the palette's opaque colours, and a
+    // see-through pixel (a see-through colour, or several over one another: smoke over light on a wall) appears only
+    // where the palette has see-through colours.
+    const sheer = solid.size < keys.size;
+    for (const frame of project.frames) for (let at = 0; at < frame.data.length; at += 4) {
+      const pixel = [...frame.data.subarray(at, at + 4)], colour = pixel.slice(0, 3).join();
+      if (pixel[3] === 255) assert.ok(solid.has(colour), `${name} ${frame.name} has ${colour}`);
+      else if (pixel[3]) assert.ok(sheer, `${name} ${frame.name} has a see-through pixel (${pixel.join()}) and no see-through colour in its palette`);
+    }
     assert.deepEqual(project.warnings, [], name);
   }
   // Compiling again gives the same recipe.
@@ -1682,15 +1688,18 @@ test('live frames use only palette colours, and keys name each pixel\'s colour',
     // The live runner doesn't step bodies yet, and refuses a liquid with them (test/fluid-bodies.test.js).
     if (Object.values(source.effects).some(effect => effect.bodies)) continue;
     const live = createLiveFluid(source, { warmup: 6 }), { width, height } = live, colours = new Map();
-    for (const [key, value] of Object.entries(source.palette)) colours.set(key, parseColor(value).join());
+    for (const [key, value] of Object.entries(source.palette)) colours.set(key, parseColor(value));
     live.push({ x: width / 2, y: height / 2, vx: 1.5, vy: -1, radius: 6 }).step(2).puff({ x: width / 3, y: height / 3, radius: 3 }).step(3);
     const { rgba, keys } = live.render();
     assert.equal(rgba.length, width * height * 4);
     assert.deepEqual(keys.map(row => row.length), Array(height).fill(width));
     keys.forEach((row, y) => [...row].forEach((key, x) => {
-      const at = (y * width + x) * 4, pixel = [...rgba.subarray(at, at + 4)].join();
+      const at = (y * width + x) * 4, pixel = [...rgba.subarray(at, at + 4)].join(), colour = colours.get(key);
       if (key === '.') assert.equal(rgba[at + 3], 0, `${name} ${x},${y}`);
-      else assert.equal(pixel, colours.get(key), `${name} ${x},${y} draws ${key}`);
+      else if (colour[3] === 255) assert.equal(pixel, colour.join(), `${name} ${x},${y} draws ${key}`);
+      // A see-through colour lies over whatever is drawn beneath it (the wall torch's smoke over its light on the
+      // wall): the pixel is a mix at least as opaque as the colour, and the key names its top layer.
+      else assert.ok(rgba[at + 3] >= colour[3], `${name} ${x},${y} draws ${key} at alpha ${rgba[at + 3]}, under its own ${colour[3]}`);
     }));
     assert.ok(keysCount(keys, key => key !== '.') > 0, name);
   }

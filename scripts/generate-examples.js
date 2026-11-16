@@ -534,6 +534,76 @@ const torch = fluidSource('torch', 16, 32, { r: '#c23b2e', o: '#f57f2a', y: '#ff
     { name: 'embers', at: [8.5, 15], radius: 1.5, rate: 1, sparks: { count: 0.15, life: [5, 8], colors: ['W', 'y', 'o'], trail: true, angle: [255, 285], speed: [0.3, 0.5] } }],
   look: [fireRamp(['r', 'o', 'y', 'W'], [0.32, 0.44, 0.64, 0.98], 0.5)]
 }, { torch: ['kGGGGGk', 'kgGGGgk', '.kgggk.', '.kBbbk.', '.kBbbk.', '.kBbbk.', '.kBbbk.', '.kBbbk.', '.kBbbk.', '..kkk..'] });
+// Two effects drawn as finished assets rather than one flame or one plume: at about 64 x 96, with the thing the gas
+// comes from, see-through colours for smoke and light, and 32 frames. Light on a wall is a decoration under
+// everything (`solid: false`): rings of see-through colour, each feathered into the next through an ordered pattern.
+// `lightRings` gives the rows of the rings' own box and where that box goes; the pattern is anchored to the canvas, so
+// two sets of rings feather on the same pixels.
+const BAYER4 = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+const lightRings = (at, radii, keys, stretch = 1, feather = 0.5) => {
+  const rx = Math.ceil(radii.at(-1)), ry = Math.ceil(radii.at(-1) * stretch), x0 = Math.floor(at[0]) - rx, y0 = Math.floor(at[1]) - ry;
+  return { x: x0, y: y0, rows: shapeRows(2 * rx + 1, 2 * ry + 1, (i, j) => {
+    const x = x0 + i, y = y0 + j, dx = x + 0.5 - at[0], dy = (y + 0.5 - at[1]) / stretch, d = Math.sqrt(dx * dx + dy * dy), band = radii.findIndex(r => d < r);
+    if (band < 0) return undefined;
+    const inner = band ? radii[band - 1] : 0, edge = ((d - inner) / (radii[band] - inner) - (1 - feather)) / feather;
+    return edge > (BAYER4[y & 3][x & 3] + 0.5) / 16 ? keys[band + 1] : keys[band];
+  }) };
+};
+// A wall torch: an iron cup on a wooden handle, clamped to a wall plate by a band. The flame tapers because its heat
+// falls off from the middle of its source, and only its core reaches white. The smoke is the flame's own, thin enough
+// to be gone before the top edge. A second, brighter set of rings near the flame is shown and hidden by keys, so the
+// light flickers; it is shown on the first and the last frames, so the loop closes on no change of light. The fire's
+// `halo` is the light that follows the flame itself.
+const TORCH_AT = [32, 60], TORCH_LIGHT = [TORCH_AT[0], TORCH_AT[1] - 13];
+const torchLight = lightRings(TORCH_LIGHT, [7, 12, 17, 22, 27], ['G', 'g', 'e', 'c', 'a', undefined], 1.1), torchFlare = lightRings(TORCH_LIGHT, [6, 11, 16], ['e', 'c', 'a', undefined], 1.1);
+const wallTorch = fluidSource('wall-torch', 64, 96, {
+  r: '#b8322f', o: '#f0772b', y: '#ffcc4d', W: '#fff6d1', s: '#8f8a9a40', S: '#9e9aaa73', T: '#b4b0bfa6',
+  a: '#ff8a2a0d', c: '#ff93301a', e: '#ffa03a26', g: '#ffb04a33', G: '#ffc86a44',
+  k: '#1c1418', i: '#353846', I: '#565b6e', J: '#8d94a6', h: '#e39a56', w: '#45291b', b: '#6a4128', B: '#93603a'
+}, {
+  frames: 32, duration: 60, loop: true, seed: 4, buoyancy: 0.45, vorticity: 0.6, dissipation: 0.055, cooling: 0.12, drag: 0.02,
+  obstacles: [{ symbol: 'light', x: torchLight.x, y: torchLight.y, draw: 'under', solid: false },
+    { symbol: 'flare', x: torchFlare.x, y: torchFlare.y, draw: 'under', solid: false, keys: [[3, false], [6, true], [8, false], [13, true], [17, false], [20, true], [21, false], [25, true], [27, false], [30, true]].map(([frame, show]) => ({ frame, show })) },
+    { symbol: 'holder', x: TORCH_AT[0] - 8, y: TORCH_AT[1] }],
+  emitters: [{ name: 'flame', at: [TORCH_AT[0], TORCH_AT[1] - 2], radius: 7, rate: 1, temperature: 1.4, density: 0.3, falloff: 0.75, velocity: [0, -1.8], noise: 1.1, flicker: 0.4 },
+    { name: 'embers', at: [TORCH_AT[0], TORCH_AT[1] - 18], radius: 4, rate: 1, sparks: { count: 0.4, life: [10, 20], colors: ['W', 'y', 'y', 'o', 'o'], trail: true, angle: [245, 295], speed: [0.5, 1.2], drag: 0.05 } }],
+  look: [{ field: 'density', colors: ['s', 'S', 'T'], thresholds: [0.05, 0.12, 0.24], dither: 0 },
+    { ...fireRamp(['r', 'o', 'y', 'W'], [0.36, 0.5, 0.72, 1.08], 0), halo: { color: 'g', width: 3 } }],
+  cleanup: { strays: true }
+}, {
+  holder: ['..khhhhhhhhhhk..', '..kJJIIIIIIiik..', '..kJIIIIIIIiik..', '...kJIIIIIiik...', '....kJIIIiik....', '.....kkkkkk.....',
+    '.....kBbbwk.....', '.....kBbwwk.....', '.....kBBbwk.....', '.....kBbbwk.....',
+    '.kkkkkBbbwkkkkk.', '.kJIIkBbbwkIIik.', '.kIJIkBbwwkIJik.', '.kIIIkBBbwkIIik.',
+    'kkkkkkkkkkkkkkkk', 'kJJIIIIIIIIIIiik', 'kIIIIIIIIIIIiiik', 'kkkkkkkkkkkkkkkk',
+    '.kIIIkBbbwkIIik.', '.kIJIkBbwwkIJik.', '.kiiikBbbwkiiik.', '.kkkkkBbbwkkkkk.',
+    '.....kBBbwk.....', '.....kBbbwk.....', '.....kBbwwk.....', '.....kBbbwk.....', '.....kBbbwk.....',
+    '......kbwk......', '......kbwk......', '.......kk.......'],
+  light: torchLight.rows, flare: torchFlare.rows
+});
+// Smoke from a cottage chimney: a clay pot on a stone cap on a brick stack that the canvas cuts off, lit from the upper
+// left. Courses are three pixels of brick and one of mortar, each half a brick along from the one above. The source
+// swings from side to side once a cycle and puffs twice, so the column snakes and bulges as it rises; the smoke is
+// three see-through bands with a lit side and no dither, and fades before the top edge.
+const CHIMNEY_POT = ['kkkkkkkkkkkk', 'kPPppppppnnk', 'kkkkkkkkkkkk', '.kPpppppnnk.', '.kPpppppnnk.', '.kPPppppnnk.', '.kPpppppnnk.', '.kPpppppnnk.', '.kPpppppnnk.', 'kkPPppppnnkk'];
+const CHIMNEY_CAP = ['.kkkkkkkkkkkkkkkkkkkkkkkkkkkk.', 'kCCCCCCCCCCCCCCCCCCCCCCcccccck', 'kCccccccccccccccccccccccccxxxk', 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkk'];
+const chimneySmoke = fluidSource('chimney-smoke', 64, 96, {
+  s: '#7d798a4d', S: '#8f8b9c80', T: '#9793a4c4', l: '#c4c1cecc', k: '#22181a', m: '#4a2f2c', d: '#7a3b2e', q: '#9c4a36', Q: '#b85f43',
+  C: '#9a97a3', c: '#73707d', x: '#4f4c59', P: '#cf8259', p: '#b0613f', n: '#8a452f'
+}, {
+  frames: 32, duration: 80, loop: true, seed: 7, buoyancy: 0.3, vorticity: 0.45, dissipation: 0.065, cooling: 0.04, drag: 0.02,
+  obstacles: [{ symbol: 'stack', x: 20, y: 74 }, { symbol: 'cap', x: 17, y: 70 }, { symbol: 'pot', x: 26, y: 60 }],
+  emitters: [{ name: 'smoke', at: [32, 57], radius: 5.5, rate: 1, density: 0.9, temperature: 0.6, falloff: 0.8, velocity: [0, -0.9], noise: 0.5, flicker: 0.3,
+    pulse: { amplitude: 0.8, period: 16 }, orbit: { radius: [2.5, 0], period: 32 } }],
+  look: [{ field: 'density', colors: ['s', 'S', 'T'], thresholds: [0.06, 0.16, 0.34], dither: 0 }, { field: 'light', colors: ['l'], thresholds: [0.5], dither: 0 }],
+  cleanup: { strays: true }
+}, {
+  pot: CHIMNEY_POT, cap: CHIMNEY_CAP,
+  stack: shapeRows(24, 26, (x, y) => {
+    if (x === 0 || x === 23) return 'k';
+    const course = y >> 2, row = y & 3, along = (x + (course & 1 ? 4 : 0)) & 7, shade = x > 16;
+    return row === 3 || along === 7 ? 'm' : row === 0 ? (shade ? 'q' : 'Q') : along === 6 || shade ? 'd' : 'q';
+  })
+});
 // Water: a body colour, then depth bands from a one-pixel highlight on the surface down to the deep colour.
 const water = { B: '#1d3f7a', b: '#2f6fc0', c: '#5fb4e8', w: '#dff6ff' }, stone = { r: '#5b5568', R: '#433e50', k: '#2b2735' };
 const waterLook = (deep, band = 4) => [{ field: 'density', colors: ['b'], thresholds: [0.5], dither: 0 }, { field: 'depth', colors: ['w', 'c', 'b', 'B'], thresholds: [1, 2, band, deep], dither: 0 }];
@@ -864,7 +934,7 @@ const dryIce = fluidSource('dry-ice', 56, 40, { ...iceColours, T: '#a8794e', t: 
   fill: [{ x: 12, y: 13, w: 12, h: 6, frozen: true, temperature: -1 }], emitters: [],
   look: [{ field: 'density', colors: ['i'], thresholds: [0.5], dither: 0 }]
 }, { table: dryTable, floor: shapeRows(56, 2, () => 'k') });
-const fluids = { campfire, 'smoke-puff': smokePuff, explosion, 'steam-vent': steamVent, 'magic-swirl': magicSwirl, torch, splash, waterfall, drip, potion, honey, slime, 'roof-snow': roofSnow, 'dam-break': damBreak, 'dust-wave': dustWave, 'slime-burst': slimeBurst, 'honey-drop': honeyDrop, aquarium, 'honey-dipper': honeyDipper, glug, 'ice-melt': iceMelt, 'pond-freeze': pondFreeze, 'boiling-pot': boilingPot, 'frost-window': frostWindow, 'dry-ice': dryIce };
+const fluids = { campfire, 'smoke-puff': smokePuff, explosion, 'steam-vent': steamVent, 'magic-swirl': magicSwirl, torch, 'wall-torch': wallTorch, 'chimney-smoke': chimneySmoke, splash, waterfall, drip, potion, honey, slime, 'roof-snow': roofSnow, 'dam-break': damBreak, 'dust-wave': dustWave, 'slime-burst': slimeBurst, 'honey-drop': honeyDrop, aquarium, 'honey-dipper': honeyDipper, glug, 'ice-melt': iceMelt, 'pond-freeze': pondFreeze, 'boiling-pot': boilingPot, 'frost-window': frostWindow, 'dry-ice': dryIce };
 
 // Isometric art to start from: a tile set drawn with `box` and a scene that lays it out on a 2:1 grid with
 // `layout: "iso"`. Every frame is 32x64 and its last 16 rows are its cell, a 32x16 diamond. A ground tile is that
