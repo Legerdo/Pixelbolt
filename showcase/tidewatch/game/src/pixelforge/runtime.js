@@ -36,8 +36,14 @@ const anchorPixels = entry => entry.anchorPx ?? entry.anchor ?? { x: 0, y: 0 };
  * the full source canvas. Trimmed frames are offset back into place; flipX mirrors around the source canvas.
  * Positions snap to the nearest whole pixel of the context, so a sprite moving by fractions of a pixel stays crisp:
  * a canvas blends the edges of an image drawn between pixels, even with smoothing off.
+ * rotate turns the frame about (x, y), in radians, clockwise. A turned sprite keeps clean square pixels only where
+ * each of its pixels covers several of the canvas's: turned on a canvas of one canvas pixel to an art pixel, its
+ * edges break into steps that change with every angle. So draw what turns (and what should glide, not step, from
+ * place to place) on a canvas at the screen's own resolution with scale 3 or more, laid over the canvas the
+ * grid-aligned world is drawn on, and keep smoothing off.
  */
-export function drawFrame(context, sheet, name, x, y, { scale = 1, flipX = false, anchor = true } = {}) {
+export function drawFrame(context, sheet, name, x, y, { scale = 1, flipX = false, anchor = true, rotate = 0 } = {}) {
+  if (typeof rotate !== 'number' || !Number.isFinite(rotate)) throw new Error('Draw rotate must be a number of radians');
   if (!Number.isInteger(scale) || scale < 1 || scale > 32) throw new Error('Draw scale must be an integer from 1 to 32');
   if (!Object.hasOwn(sheet.atlas.frames, name)) throw new Error(`Unknown frame: ${name}`);
   const entry = sheet.atlas.frames[name], { frame } = entry;
@@ -46,6 +52,16 @@ export function drawFrame(context, sheet, name, x, y, { scale = 1, flipX = false
   const left = Math.round(x) - (flipX ? source.w - origin.x : origin.x) * scale, top = Math.round(y) - origin.y * scale;
   const dx = flipX ? source.w - offset.x - offset.w : offset.x;
   context.imageSmoothingEnabled = false;
+  if (rotate) {
+    // About (x, y): the frame is drawn with its anchor at the origin of a turned (and, flipped, mirrored) context.
+    context.save();
+    context.translate(Math.round(x), Math.round(y));
+    context.rotate(rotate);
+    if (flipX) context.scale(-1, 1);
+    context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, (offset.x - origin.x) * scale, (offset.y - origin.y) * scale, frame.w * scale, frame.h * scale);
+    context.restore();
+    return;
+  }
   if (!flipX) { context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, left + dx * scale, top + offset.y * scale, frame.w * scale, frame.h * scale); return; }
   context.save();
   context.translate(left + (dx + offset.w) * scale, top + offset.y * scale);

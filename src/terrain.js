@@ -2,6 +2,8 @@
 // description drawn into a template two tiles wide and three tall, the seam check that compares every quarter join a
 // map can make with the way the template itself continues, and a test map that shows every tile of a set. Seeded
 // hashing and + − × ÷ only, as in craft.js, so a description always draws the same pixels. No I/O.
+// What a description may say (the fills, the edges, round) is listed by `pixelbolt help terrain` and MCP pixel_help
+// { topic: "autotile", name: "terrain" }: read that, not this file, to find an option.
 import { fail, isObject } from './core.js';
 import { hash, random } from './craft.js';
 import { tilePieces, templatePiece, neighbourMask } from './autotile.js';

@@ -54,3 +54,20 @@ test('P-086: drawFrame lands the anchor pixel on (x, y) from new atlases, and re
   draws.length = 0; drawFrame(context, { image: {}, atlas }, 'a', 100, 100, { anchor: false });
   assert.deepEqual(draws[0].slice(0, 2), [100 + entry.spriteSourceSize.x, 100 + entry.spriteSourceSize.y]);
 });
+
+test('P-168: drawFrame turns a frame about (x, y): the anchor at the origin of a turned context, mirrored there when flipped', () => {
+  const calls = [];
+  const context = { set imageSmoothingEnabled(value) { calls.push(['smooth', value]); }, drawImage: (...args) => calls.push(['draw', ...args.slice(5)]), save: () => calls.push(['save']), restore: () => calls.push(['restore']),
+    translate: (...args) => calls.push(['translate', ...args]), rotate: angle => calls.push(['rotate', angle]), scale: (...args) => calls.push(['scale', ...args]) };
+  // A frame trimmed to 4 x 6 at (2, 1) of an 8 x 8 canvas, anchored at pixel (4, 7).
+  const frames = { a: { frame: { x: 0, y: 0, w: 4, h: 6 }, duration: 100, sourceSize: { w: 8, h: 8 }, spriteSourceSize: { x: 2, y: 1, w: 4, h: 6 }, anchor: { x: 0.5, y: 0.875 }, anchorPx: { x: 4, y: 7 } } };
+  const sheet = { image: {}, atlas: { frames, animations: {} } };
+  drawFrame(context, sheet, 'a', 10.4, 20.6, { scale: 3, rotate: Math.PI / 2 });
+  assert.deepEqual(calls, [['smooth', false], ['save'], ['translate', 10, 21], ['rotate', Math.PI / 2], ['draw', -6, -18, 12, 18], ['restore']]);
+  calls.length = 0; drawFrame(context, sheet, 'a', 10, 20, { scale: 3, rotate: -0.3, flipX: true });
+  assert.deepEqual(calls, [['smooth', false], ['save'], ['translate', 10, 20], ['rotate', -0.3], ['scale', -1, 1], ['draw', -6, -18, 12, 18], ['restore']]);
+  // With no turn it is drawn as it always was: no context is turned.
+  calls.length = 0; drawFrame(context, sheet, 'a', 10, 20, { scale: 3 });
+  assert.deepEqual(calls, [['smooth', false], ['draw', 10 - 12 + 6, 20 - 21 + 3, 12, 18]]);
+  for (const rotate of [NaN, Infinity, '1', null]) assert.throws(() => drawFrame(context, sheet, 'a', 0, 0, { rotate }), /Draw rotate must be a number of radians/);
+});

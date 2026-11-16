@@ -11,6 +11,12 @@ export const HELP_TOPICS = {
   poses: '../poses.schema.json', scenes: '../scene.schema.json', autotile: '../autotile.schema.json', fx: '../fx.schema.json', fluid: '../fluid.schema.json', wave: '../wave.schema.json', crystal: '../crystal.schema.json', powder: '../powder.schema.json', bodies: '../bodies.schema.json', normals: '../normals.schema.json'
 };
 export const TOPICS = [...Object.keys(HELP_TOPICS), 'presets', 'preset'];
+// Words an agent reaches for that are a topic under another name, or one part of a topic: [topic, its part]. They
+// are taken wherever a topic is and are not listed among the topics, so the listing stays short. (Agents drawing
+// ground tiles from another project read terrain.js for the fills, where `help terrain` answered "unknown topic".)
+export const TOPIC_ALIASES = { terrain: ['autotile', 'terrain'], tiles: ['autotile'], tileset: ['autotile'], tilesets: ['autotile'] };
+// The topic and part a request means: an alias gives its topic, and its part unless the request names one.
+export const resolveTopic = (topic, name) => { const to = Object.hasOwn(TOPIC_ALIASES, topic ?? '') ? TOPIC_ALIASES[topic] : null; return to ? [to[0], name ?? to[1]] : [topic, name]; };
 // Topics whose file is JSON (the schemas and the example), which MCP returns parsed.
 export const jsonTopic = topic => HELP_TOPICS[topic]?.endsWith('.json') ?? false;
 // The guide and the workflow are long (the workflow passes 200 KB, and its fluid section 60), so a reply is never a

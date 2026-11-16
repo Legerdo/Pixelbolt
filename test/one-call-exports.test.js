@@ -164,6 +164,13 @@ test('variants that are the frames of an animation are said so, and an outline w
   const base = { version: 1, name: 'crate', width: 8, height: 8, palette: { a: '#b07e52', k: '#2a1c18' } }, body = { op: 'rect', x: 2, y: 2, w: 3, h: 3, color: 'a' }, outline = { op: 'outline', color: 'k' };
   assert.deepEqual(renderProject({ ...base, frames: [{ name: 'f', layers: [{ name: 'body', ops: [body] }], ops: [outline] }] }).warnings, ["An outline drew nothing: project.frames[0].ops[0] surrounds what its own buffer holds, and a frame's ops and each of its layers are buffers apart. Put the outline at the end of the layer it should surround."]);
   assert.deepEqual(renderProject({ ...base, frames: [{ name: 'f', layers: [{ name: 'body', ops: [body, outline] }] }] }).warnings, []);
+  // P-166: a frame palette recolours the frame's own drawing. A frame that continues another and draws nothing has
+  // nothing for its palette to recolour: it is the same picture again, and the reply says so.
+  assert.deepEqual(renderProject({ ...base, frames: [{ name: 'f', ops: [body] }, { name: 'glint', from: 'f', palette: { a: '#ffffff' } }] }).warnings,
+    [`Frame "glint" sets a palette but draws nothing of its own, so the palette changes nothing: it continues "f" in that frame's exact colours. A frame palette recolours the frame's own drawing: stamp the symbol again in this frame, or copy from "f" with remap.`]);
+  assert.match(renderProject({ ...base, frames: [{ name: 'f', ops: [body] }, { name: 'g', from: 'f', palette: { a: '#ffffff' } }, { name: 'h', palette: { a: '#ffffff' }, ops: [] }] }).warnings[0], /^Frame "g" \(and 1 more frame\) sets a palette but draws nothing of its own, so the palette changes nothing: it continues "f"/);
+  // A frame that draws with its palette, over what it continues or alone, says nothing.
+  assert.deepEqual(renderProject({ ...base, frames: [{ name: 'f', ops: [body] }, { name: 'g', from: 'f', palette: { a: '#ffffff' }, ops: [body] }, { name: 'h', palette: { a: '#ffffff' }, layers: [{ name: 'body', ops: [body] }] }] }).warnings, []);
   // In a frame that draws nothing at all, an effect's empty frame, it is no mistake.
   assert.deepEqual(renderProject({ ...base, frames: [{ name: 'f', ops: [outline] }, { name: 'g', ops: [body, outline] }] }).warnings, []);
 });

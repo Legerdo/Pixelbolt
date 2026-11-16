@@ -29,7 +29,7 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            prints its outline; a path prints one part (help bodies effects.bodies)
   pixelbolt validate <file.json|-> [--fps 30]
                                            Validate and describe a project; --fps lists durations off that video frame grid
-  pixelbolt inspect <file.json|-> [--out sheet.png] [--grid]
+  pixelbolt inspect <file.json|-> [--out sheet.png] [--grid] [--stack a+b,a+c] [--under other.json:frame]
                                            See every frame; writes only --out
   pixelbolt patch <file.json|-> --changes <changes.json|-> [--out new.json] [--image diff.png]
                                            Preview edits; writes only --out and --image
@@ -117,6 +117,9 @@ before/after image beside --out, and the pixels that changed);
 --animation name --every 100 draws a cell per 100 ms of playback, so holds and quick steps show as they play,
 and lists the pixels each step changes;
 --grid adds palette-key rows; --scale 1-16 and --background color style the sheet.
+--stack body+plate+fin,body+plate2 draws each group of frames laid over one another in one cell, the first at
+the bottom: parts a game stacks, seen as it stacks them. --under ground.json:tile draws that frame of another
+recipe (its first frame without :name) under every cell, repeated: a sprite on the ground it will lie on.
 --view color|silhouette|grayscale|onion|tile|parts (each pixel coloured by the layer or pose part that drew it);
 --palette lists each palette key with its colour, its pixels and the layers or pose parts it colours (ramps
 together, dark to light): which keys to change for a colour variant;
@@ -160,7 +163,7 @@ const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'ope
 const OPTIONS = {
   init: ['force'],
   validate: ['fps'],
-  inspect: ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata'],
+  inspect: ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
   patch: ['changes', 'out', 'image', 'force'],
   render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'normal'],
   gif: ['out', 'animation', 'scale', 'background', 'force', 'preset', 'size', 'frames', 'sheet', 'fps'],
@@ -300,11 +303,21 @@ function linkPalette(recipe, input, outFile) {
   const shared = path.resolve(input.baseDir, link.reference), reference = path.relative(path.dirname(path.resolve(outFile)), shared).split(path.sep).join('/');
   return restorePaletteReference({ palette: { $ref: reference } }, recipe, { palettes: [{ ...link, where: 'project' }] });
 }
-function inspectOptions({ frames, animation, region, grid, scale, background, view, native, diagnostics, 'max-cells': maxCells, step, offset, every }) {
+function inspectOptions({ frames, animation, region, grid, scale, background, view, native, diagnostics, 'max-cells': maxCells, step, offset, every, stack }) {
+  if (stack !== undefined && !stack.split(',').every(group => group.split('+').every(Boolean))) throw new Error('--stack expects groups of frame names: body+plate,body+fin (frames joined by +, cells by commas)');
   for (const [key, value] of [['step', step], ['offset', offset], ['every', every]]) if (value !== undefined && !/^\d+$/.test(value)) throw new Error(`--${key} expects a whole number`);
   if (region !== undefined && !/^\d+,\d+,\d+,\d+$/.test(region)) throw new Error('--region expects four whole numbers: x,y,w,h');
   const [x, y, w, h] = region?.split(',').map(Number) ?? [];
-  return { ...(frames !== undefined && { frames: frames.split(',') }), ...(animation !== undefined && { animation }), ...(region !== undefined && { region: { x, y, w, h } }), ...(grid && { grid }), ...(scale !== undefined && { scale: Number(scale) }), ...(background !== undefined && { background }), ...(view !== undefined && { view }), ...(native && { native }), ...(diagnostics && { diagnostics }), ...(maxCells !== undefined && { maxCells: Number(maxCells) }), ...(step !== undefined && { step: Number(step) }), ...(offset !== undefined && { offset: Number(offset) }), ...(every !== undefined && { every: Number(every) }) };
+  return { ...(stack !== undefined && { stack: stack.split(',').map(group => group.split('+')) }), ...(frames !== undefined && { frames: frames.split(',') }), ...(animation !== undefined && { animation }), ...(region !== undefined && { region: { x, y, w, h } }), ...(grid && { grid }), ...(scale !== undefined && { scale: Number(scale) }), ...(background !== undefined && { background }), ...(view !== undefined && { view }), ...(native && { native }), ...(diagnostics && { diagnostics }), ...(maxCells !== undefined && { maxCells: Number(maxCells) }), ...(step !== undefined && { step: Number(step) }), ...(offset !== undefined && { offset: Number(offset) }), ...(every !== undefined && { every: Number(every) }) };
+}
+// --under file.json[:frame]: that frame of another recipe (its first without a name), as the picture inspect lays
+// under every cell. (A colon after a drive letter is part of the path.)
+async function readUnder(value, layerOptions) {
+  const at = value.lastIndexOf(':'), named = at > 1 && !/[\\/]/.test(value.slice(at + 1)), file = named ? value.slice(0, at) : value, frameName = named ? value.slice(at + 1) : undefined;
+  const { document } = await readResolved(file, '--under'), other = renderProject(Object.hasOwn(COMPILERS, document?.format ?? '') ? COMPILERS[document.format](document).recipe : document, layerOptions);
+  const frame = frameName === undefined ? other.frames[0] : other.frames.find(f => f.name === frameName);
+  if (!frame) throw new Error(`--under ${file} has no frame ${JSON.stringify(frameName)}; its frames: ${other.frames.slice(0, 12).map(f => f.name).join(', ')}${other.frames.length > 12 ? ` and ${other.frames.length - 12} more` : ''}`);
+  return { width: other.width, height: other.height, data: frame.data };
 }
 // A folder output named like a file (scene.png) is a mix-up that would make a folder of that name: name what to use.
 function folderOut(command, out, instead) {
@@ -428,9 +441,9 @@ async function presetsText(name, full, find, out, force) {
 }
 // `help <topic> [section]`: what MCP pixel_help returns for the topic, so a shell reads one section of a long guide
 // instead of the whole file. A section name may be quoted or not.
-async function helpTopic([topic, ...words]) {
-  const { TOPICS, SECTIONED, isSchema, helpText } = await import('../src/help.js');
-  const name = words.length ? words.join(' ') : undefined;
+async function helpTopic([asked, ...words]) {
+  const { TOPICS, SECTIONED, isSchema, helpText, resolveTopic } = await import('../src/help.js');
+  const [topic, name] = resolveTopic(asked, words.length ? words.join(' ') : undefined);
   if (['quickstart', 'quick-start', 'start'].includes(topic)) {
     if (name !== undefined) throw new Error('the quick start has no sections; run pixelbolt help quickstart');
     return helpText(undefined, undefined, 'cli');
@@ -644,7 +657,7 @@ try {
       const { image: referenceImage, ...comparisonReport } = comparison ?? {};
       const view = options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
-        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }) });
+        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) });
       // --beside: the same view of more recipes under this one, in one image.
       let drawn = view, besideFiles = [];
       if (options.beside !== undefined) {

@@ -463,7 +463,7 @@ Or use CSS alone:
 
 CSS honors reduced-motion preferences. The Canvas API leaves autoplay decisions to the application. Atlas paths in `SpritePlayer.load` resolve relative to the atlas URL.
 
-A game drawing many sprites into one canvas can use the same module's helpers. `drawFrame` places a frame by its anchor (when the recipe declares one), restores trimmed frames to their original offset and snaps fractional positions to whole pixels, so a sprite moving at sub-pixel speeds keeps hard edges:
+A game drawing many sprites into one canvas can use the same module's helpers. `drawFrame` places a frame by its anchor (when the recipe declares one), restores trimmed frames to their original offset and snaps fractional positions to whole pixels, so a sprite moving at sub-pixel speeds keeps hard edges. `rotate` (radians, about the anchor) turns it. A turned sprite keeps clean square pixels only where each of its pixels covers several of the canvas's, so draw what turns, and what should glide from place to place and not step, on a second canvas at the screen's own resolution with `scale` 3 or more, laid over the canvas the grid-aligned world is drawn on:
 
 ```html
 <script type="module">

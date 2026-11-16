@@ -24,7 +24,7 @@ import { resolveReferences, assertInside } from './resolve.js';
 import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepAnimations } from './resize.js';
 import { tilemapOf } from './autotile.js';
 import { listPresets, briefListing, findListing, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from './presets.js';
-import { TOPICS, SECTIONED, helpText, jsonTopic, isSchema } from './help.js';
+import { TOPICS, SECTIONED, helpText, jsonTopic, isSchema, resolveTopic } from './help.js';
 import { skillCommand } from './skill.js';
 import { discoverRequest, discoverResult, completeResult } from './mcp-discover.js';
 
@@ -344,6 +344,8 @@ export function createToolRunner({ directory, root, version }) {
       const preview = ui && pictureTools.has(name) ? (await import('./mcp-preview.js')).previewMeta : null;
       const { project: spec, revision, changes, ...options } = args;
       if (name === 'pixel_help') {
+        // (A word that is another topic's part, `terrain`, is read as that topic and part.)
+        { const [topic, part] = resolveTopic(args.topic, args.name); if (topic !== args.topic) { args.topic = topic; if (part !== undefined) args.name = part; } }
         // Markdown topics come back as written (the guide and workflow with their sections listed first); JSON ones without the files' indentation.
         if (args.topic !== undefined && !TOPICS.includes(args.topic)) throw new PixelError('topic', `expected one of ${TOPICS.join(', ')}`);
         if (args.name !== undefined && args.topic !== 'preset' && !SECTIONED.has(args.topic) && !isSchema(args.topic)) throw new PixelError('name', 'name goes with topic "preset" (the preset whose source to return), "guide", "workflow" and "craft" (the section to return) or a schema topic (the part to return, such as "effects")');
@@ -633,6 +635,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
     reference: { type: 'string', description: 'Revision to compare against: adds a before/after image and the changed pixels.' }, beside: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8, description: 'Revisions drawn under this one in the same view and image, to compare variants.' },
     frames: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 1024, description: 'Frame names to show, in order; * and ? match, as in "flash-*". Default: every frame.' },
     animation: { type: 'string', description: 'Show one animation in playback order instead of frames.' },
+    stack: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'Cells of frames laid over one another, bottom first, instead of frames: [["body", "plate"]].' },
     region: { type: 'object', properties: { x: coordinate(0, 4095), y: coordinate(0, 4095), w: coordinate(1, 4096), h: coordinate(1, 4096) }, required: ['x', 'y', 'w', 'h'], additionalProperties: false, description: 'Crop every frame to this canvas rectangle.' },
     grid: { type: 'boolean', description: 'Also return palette-key text grids with x/y rulers (at most 16,384 pixels).' },
     scale: { type: 'integer', minimum: 1, maximum: 16, description: 'Contact sheet scale. Default: the largest that fits about 1024 px.' },

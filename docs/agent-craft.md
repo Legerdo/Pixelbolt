@@ -60,6 +60,7 @@ A team colour, a season, an enemy version, an arctic fox: the same sprite or cha
 - Everything drawn with a key: `[{"set": "palette.o", "value": "#d8e0ea"}, ...]`. Change a whole ramp together, keeping it dark to light.
 - One part and not another that shares its key (the plume, not the shield's emblem in the same red): recolour that part's layer in every frame, `{"set": "frames[*].layers[plume].palette", "value": {"s": "#6a2c91", "t": "#9b59d0"}}`.
 - `inspect <recipe> --beside <variant.json>,<other.json> --animation run --out <compare.png>` shows the versions in one image, each under its file name.
+- Parts drawn as separate frames for a game to stack (plates over a body, an item on a tile) are judged stacked: `inspect <recipe> --stack body,body+plate,body+plate+fin --out <look.png>`, and `--under <ground.json>:<tile>` to see them on their ground.
 - Name the variant in the same patch, `{"set": "name", "value": "fox-arctic"}`, so its sheet and atlas carry the name, and render each into its own folder. The patch reply says how many frames and pixels changed and which colours.
 
 ## Effects

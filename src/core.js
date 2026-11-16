@@ -310,6 +310,9 @@ export function renderProject(spec, options = {}) {
   const clip = (path, pixels = 1) => clipped.set(path, (clipped.get(path) ?? 0) + pixels);
   // Outlines that found nothing in their buffer to surround, by the operation's path.
   const hollow = [];
+  // Frames that set a palette and draw nothing of their own, as [name, the frame continued or undefined]: a frame
+  // palette recolours the frame's own drawing, so there it changes nothing.
+  const idlePalettes = [];
   const rendered = new Map(), frameNames = new Set();
   // Colours a frame takes from an earlier frame as exact RGBA, which its own palettes need not name: what the frame it
   // continues (`from`) or copies from recoloured with a frame or layer palette, and what that frame took the same way.
@@ -773,6 +776,7 @@ export function renderProject(spec, options = {}) {
       }
     }
     activePalette = overrides ? { ...palette, ...overrides } : palette;
+    if (overrides && Object.keys(overrides).length && ![frame.ops, frame.layers, frame.pixels].some(list => Array.isArray(list) && list.length)) idlePalettes.push([frameName, typeof frame.from === 'string' ? frame.from : undefined]);
     const frameAnchor = frame.anchor === undefined ? projectAnchor : point(frame.anchor, `${p}.anchor`);
     let points = null;
     if (frame.points !== undefined) {
@@ -897,6 +901,13 @@ export function renderProject(spec, options = {}) {
   // (an effect's empty frame) it is no mistake.
   const idle = hollow.filter(path => frames[Number(/frames\[(\d+)\]/.exec(path)?.[1])]?.data.some((value, i) => i % 4 === 3 && value));
   if (idle.length) warnings.push(`An outline drew nothing: ${idle[0]}${idle.length > 1 ? ` and ${idle.length - 1} more` : ''} surrounds what its own buffer holds, and a frame's ops and each of its layers are buffers apart. Put the outline at the end of the layer it should surround.`);
+  // A frame continued with `from` keeps that frame's pixels as exact colours, and a frame palette recolours only what
+  // the frame itself draws: with nothing drawn, the frame is the same picture again. (A lit fuse and a relic's glint
+  // were written so and never showed.)
+  if (idlePalettes.length) {
+    const [frameName, from] = idlePalettes[0], more = idlePalettes.length > 1 ? ` (and ${idlePalettes.length - 1} more frame${idlePalettes.length > 2 ? 's' : ''})` : '';
+    warnings.push(`Frame "${frameName}"${more} sets a palette but draws nothing of its own, so the palette changes nothing${from ? `: it continues "${from}" in that frame's exact colours` : ''}. A frame palette recolours the frame's own drawing: stamp the symbol again in this frame${from ? `, or copy from "${from}" with remap` : ''}.`);
+  }
   if (clipping.length) warnings.push(`Some drawing falls outside the canvas and is clipped: ${clipping[0].path} (${clipping[0].pixels} px)${clipping.length > 1 ? ` and ${clipping.length - 1} more location${clipping.length > 2 ? 's' : ''}` : ''}.`);
   return {
     name: projectName, width, height, frames, animations, palette, ramps,
@@ -1536,9 +1547,52 @@ export function stackViews(views) {
   return { ...first, sheet: { ...sheets[0], data, width, height }, stack };
 }
 
+// One picture laid over another, pixel for pixel (`top` over `bottom`, both RGBA of one size): what a game draws when
+// it stacks frames.
+function laidOver(bottom, top) {
+  const out = new Uint8ClampedArray(bottom);
+  for (let i = 0; i < top.length; i += 4) {
+    const a = top[i + 3];
+    if (a === 255 || !out[i + 3]) { if (a) out.set(top.subarray(i, i + 4), i); continue; }
+    if (!a) continue;
+    const under = out[i + 3] * (255 - a) / 255, all = a + under;
+    for (let c = 0; c < 3; c++) out[i + c] = Math.round((top[i + c] * a + out[i + c] * under) / all);
+    out[i + 3] = Math.round(all);
+  }
+  return out;
+}
+// `stack` and `under` are for art that is only judged laid over other art. stack: a list of cells, each a list of
+// frame names drawn in order, the first at the bottom (a body, then the plate and the fin a game draws over it): the
+// sheet has one cell a group, named "body+plate+fin", and everything else (region, scale, view, grid) reads those
+// cells as frames. under: { width, height, data } (RGBA), a picture from elsewhere (a ground tile of another recipe)
+// repeated from the top left under every cell, so a sprite is seen on what it will lie on.
 export function inspectProject(project, options = {}) {
-  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides']);
-  const { width, height, frames } = project;
+  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under']);
+  const { width, height } = project;
+  if (options.stack !== undefined) {
+    if (options.frames !== undefined || options.animation !== undefined) fail('inspect.stack', 'stack names the frames of each cell itself; omit frames and animation');
+    if (options.view === 'parts') fail('inspect.view', 'parts colours one frame by its layers; a stack is several frames, so omit view or stack');
+    list(options.stack, 'inspect.stack', 256);
+    if (!options.stack.length) fail('inspect.stack', 'list at least one cell: [["body", "plate"]]');
+    const stacked = options.stack.map((group, g) => {
+      const p = `inspect.stack[${g}]`;
+      list(group, p, 16);
+      if (!group.length) fail(p, 'a cell lists one to sixteen frame names, the bottom one first');
+      const layers = group.map((ref, n) => project.frames.find(f => f.name === ref) ?? fail(`${p}[${n}]`, `unknown frame ${JSON.stringify(ref)}`));
+      return { name: group.join('+'), duration: layers[0].duration, data: layers.slice(1).reduce((data, frame) => laidOver(data, frame.data), layers[0].data) };
+    });
+    project = { ...project, frames: stacked, animations: {}, ownerNames: undefined };
+  }
+  if (options.under !== undefined) {
+    const under = object(options.under, 'inspect.under', ['width', 'height', 'data']), uw = integer(under.width, 'inspect.under.width', 1, 4096), uh = integer(under.height, 'inspect.under.height', 1, 4096);
+    if (!(under.data instanceof Uint8ClampedArray || under.data instanceof Uint8Array) || under.data.length !== uw * uh * 4) fail('inspect.under.data', `expected the ${uw}×${uh} picture as RGBA bytes`);
+    if (options.grid || options.diagnostics) fail('inspect.under', 'grid and diagnostics read the recipe\'s own pixels; omit under for them');
+    if (options.view !== undefined && options.view !== 'color') fail('inspect.under', 'under shows a frame on another picture, in colour; omit view');
+    const ground = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) ground.set(under.data.subarray(((y % uh) * uw + x % uw) * 4, ((y % uh) * uw + x % uw) * 4 + 4), (y * width + x) * 4);
+    project = { ...project, frames: project.frames.map(frame => ({ ...frame, data: laidOver(ground, frame.data) })), ownerNames: undefined };
+  }
+  const { frames } = project;
   if (options.frames !== undefined && options.animation !== undefined) fail('inspect', 'choose frames or animation, not both');
   let cells = frames.map((_, i) => i);
   if (options.animation !== undefined) {

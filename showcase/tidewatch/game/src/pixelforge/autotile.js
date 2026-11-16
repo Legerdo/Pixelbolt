@@ -1,5 +1,6 @@
 // Browser-compatible autotile rules and tilemap legends, shared by scene tilemaps, the recipe `tilemap` operation and
-// the autotile compiler. No I/O.
+// the autotile compiler. No I/O. (What an autotile source may say is listed by `pixelbolt help autotile`; a terrain
+// description's options by `pixelbolt help terrain`.)
 import { hash, random } from './craft.js';
 // A tile is split into four quadrants. Each quadrant looks at two orthogonal neighbours and the diagonal between
 // them, and becomes one of five pieces: o (outer corner), h (horizontal edge), v (vertical edge), i (inner corner)

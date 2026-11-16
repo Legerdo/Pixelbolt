@@ -148,6 +148,15 @@ test('CLI help topics print what pixel_help returns, and one section of a long g
   assert.ok(help('fx').stdout.length < 4096 && Object.hasOwn(JSON.parse(help('bodies', 'effects.bodies').stdout).items.properties, 'radius'));
   assert.match(JSON.parse(help('bodies', 'effects.pins').stderr).error, /the bodies schema has no "effects\.pins"; effects holds frames, duration/);
   assert.equal(JSON.parse(help('preset', 'smoke-puff').stdout).name, 'smoke-puff');
+  // P-169: words that are another topic's part or its other name are taken as that topic: terrain is the autotile
+  // schema's terrain part, tiles and tileset the autotile topic. They are not listed among the topics.
+  assert.equal(help('terrain').stdout, help('autotile', 'terrain').stdout);
+  assert.ok(Object.hasOwn(JSON.parse(help('terrain').stdout).properties, 'fill'));
+  // (A part named after it is read as a path in the autotile schema, as after autotile itself.)
+  assert.equal(help('terrain', 'terrain.fill').stdout, help('autotile', 'terrain.fill').stdout);
+  assert.equal(help('tiles').stdout, help('autotile').stdout);
+  assert.equal(help('tileset').stdout, help('autotile').stdout);
+  assert.doesNotMatch(JSON.parse(help('nope').stderr).error, /terrain|tileset/);
   for (const [args, message] of [[['nope'], /Unknown help topic "nope"; topics: quickstart, guide, workflow/], [['workflow', 'no such part'], /has no section "no such part" and no paragraph that mentions it; its sections are /], [['example', 'x'], /help example has no sections; guide, workflow and craft do, and a schema takes a path/], [['schema', 'x'], /the recipe schema has no "x"; it holds \$schema, version, name, width/], [['preset'], /needs a preset name/]]) {
     const out = help(...args);
     assert.deepEqual([out.status, out.stdout], [1, ''], args.join(' '));
