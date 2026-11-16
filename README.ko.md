@@ -1,6 +1,6 @@
 # Pixelbolt
 
-[English](https://github.com/skulitom/Pixelbolt/blob/main/README.md) · [简体中文](https://github.com/skulitom/Pixelbolt/blob/main/README.zh-CN.md) · [日本語](https://github.com/skulitom/Pixelbolt/blob/main/README.ja.md) · 한국어 · [Español](https://github.com/skulitom/Pixelbolt/blob/main/README.es.md)
+[English](https://github.com/skulitom/Pixelbolt/blob/main/README.md) · [简体中文](https://github.com/skulitom/Pixelbolt/blob/main/README.zh-CN.md) · [日本語](https://github.com/skulitom/Pixelbolt/blob/main/README.ja.md) · 한국어 · [Español](https://github.com/skulitom/Pixelbolt/blob/main/README.es.md) · [Português](https://github.com/skulitom/Pixelbolt/blob/main/README.pt-BR.md) · [Русский](https://github.com/skulitom/Pixelbolt/blob/main/README.ru.md)
 
 > 이 문서는 영어 README를 한국어로 요약한 것입니다. 기능의 자세한 내용, 제한 사항, 최신 변경 사항은 [영어 README](https://github.com/skulitom/Pixelbolt/blob/main/README.md)를 확인하세요. 내용이 다르면 영어 README가 우선합니다.
 
