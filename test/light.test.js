@@ -328,4 +328,16 @@ test('the shine fields of a particle effect in the schema match the compiler, an
     assert.equal(lightAt(recipe, i, 14, 60), 'D', `frame ${i}: the pillar's outer side`);
     assert.notEqual(lightAt(recipe, i, 22, 60), 'D', `frame ${i}: the pillar beside the opening`);
   });
+  // The arc: its left prong carries the arc's light while the second strike crosses, and the dark in the gap before it.
+  const arc = compileEffects(await read('examples/electric-arc.fx.json'));
+  assert.equal(arc.warnings, undefined);
+  assert.equal(arc.metadata.effects['electric-arc'].seam.jump, 0);
+  assert.deepEqual([10, 14].map(frame => lightAt(arc.recipe, frame, 34, 30)), ['D', 'h']);
+  // The crystal: the light at its heart climbs the tall crystal to the top of the pulse and sinks again, and the
+  // crystals beside the heart are never dark.
+  const ice = compileEffects(await read('examples/ice-crystal.fx.json'));
+  assert.equal(ice.warnings, undefined);
+  assert.equal(ice.metadata.effects['ice-crystal'].seam.jump, 0);
+  assert.deepEqual([0, 18, 31].map(frame => lightAt(ice.recipe, frame, 47, 45)), ['D', 'i', 'D']);
+  assert.ok(ice.recipe.frames.every((frame, i) => lightAt(ice.recipe, i, 46, 56) !== 'D'));
 });
