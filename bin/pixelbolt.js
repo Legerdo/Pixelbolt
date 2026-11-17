@@ -131,8 +131,9 @@ recipe (its first frame without :name) under every cell, repeated: a sprite on t
 together, dark to light): which keys to change for a colour variant;
 --beside b.json,c.json draws the same view of up to eight more recipes under this one, in the one image, each
 under its file name, to compare variants (the reply's stack says where each starts);
---native adds a 1x PNG; --diagnostics adds advisory evidence (past 8 frames, totals and the three frames with the
-most to clean up; --full lists every frame).
+--native adds a 1x PNG (none when the sheet is 1x already); --diagnostics adds advisory evidence (past 8 frames,
+totals and the three frames with the most to clean up, their findings, and the rest of the findings counted; --full
+lists every frame).
 --guides '{"horizon":40,"vanish":[[64,40]],"iso":{"tile":[32,16]}}' (or a file) draws perspective guides over the
 enlarged sheet; scene --image takes the same.
 --motion name --speed px/s reviews contacts, ground, pose spread, loop seam and gait, and draws the limb arcs.

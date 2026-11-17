@@ -13,6 +13,7 @@ import { inspectMotion } from '../src/motion.js';
 import { encodePNG } from '../src/png.js';
 import { decodePNG } from '../src/import.js';
 import { createToolRunner } from '../src/mcp.js';
+import { compileEffects } from '../src/fx.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PNG_PIXELS = 16777216;
@@ -57,9 +58,21 @@ test('every refuses to drop cells that do not fit, naming the every that does', 
   // Never thinned instead: the sampling of a sheet by time always reads as playback.
   assert.throws(() => inspectProject(project, { animation: 'run', every: 40 }), { path: 'inspect.every',
     message: 'inspect.every: 5120 ms at one cell per 40 ms is 128 cells, and one 4096-pixel sheet of 512×512 cells holds 56; choose every 92 or more' });
-  // maxCells below the cells every makes is refused the same way.
-  assert.throws(() => inspectProject(renderProject(screen(32, 32, 16, { plays: 4 })), { animation: 'run', every: 80, maxCells: 10 }),
-    { path: 'inspect.every', message: 'inspect.every: 5120 ms at one cell per 80 ms is 64 cells, and maxCells allows 10; choose every 512 or more' });
+  // A sheet of big frames holding fewer than maxCells is refused the same way.
+  assert.throws(() => inspectProject(project, { animation: 'run', every: 80, maxCells: 100, scale: 1 }),
+    { path: 'inspect.every', message: 'inspect.every: 5120 ms at one cell per 80 ms is 64 cells, and one 4096-pixel sheet of 512×512 cells holds 49; choose every 105 or more' });
+});
+
+test('a maxCells below the cells every makes thins them evenly, as before big frames, at any scale', () => {
+  // Main showed 10 evenly spaced cells of the 64 here; the branch had refused them.
+  const project = renderProject(screen(32, 32, 16, { plays: 4 }));
+  for (const scale of [undefined, 2]) {
+    const view = inspectProject(project, { animation: 'run', every: 80, maxCells: 10, ...(scale && { scale }) });
+    assert.deepEqual([view.cells.length, view.sampling.positions, view.sampling.method],
+      [10, [0, 7, 14, 21, 28, 35, 42, 49, 56, 63], 'one cell per 80 ms of playback, then evenly spaced, including endpoints; a frame fills a cell for each 80 ms it is held']);
+  }
+  // Big frames too, when it is maxCells and not the sheet that drops cells.
+  assert.equal(inspectProject(renderProject(screen(512, 512, 16, { plays: 4 })), { animation: 'run', every: 80, maxCells: 12 }).cells.length, 12);
 });
 
 test('the parts legend has room kept for it when big frames are fitted, and the sheet with it encodes', () => {
@@ -155,11 +168,20 @@ test('views stacked beside one another stay within 8,000 pixels tall, each sheet
   // Small frames take a smaller scale rather than nine sheets of 1024 pixels.
   const small = renderProject(screen(64, 64, 16)), nine = scale => Array.from({ length: 9 }, (_, i) => ({ ...inspectProject(small, { scale, sheets: 9 }), name: `v${i}` }));
   assert.ok(stackViews(nine()).sheet.height <= 8000);
-  // A scale asked for is kept, so a stack that passes the height is refused by stackViews.
-  assert.throws(() => stackViews(nine(4)), error => error instanceof PixelError && error.path === 'beside' && /^beside: the 9 sheets stacked would be \d+×9612 pixels, taller than the 8,000 a model reads an image at; compare fewer recipes/.test(error.message));
+  // A scale asked for is drawn as asked, as before beside had shares: only the one PNG bounds the stack.
+  const asked = stackViews(nine(4));
+  assert.deepEqual([asked.sheet.height, asked.sheet.scale], [9612, 4]);
+  encodes(asked.sheet);
   // A frame too tall for its share even alone is refused with how many recipes fit.
   assert.throws(() => inspectProject(renderProject(screen(256, 1024, 4)), { sheets: 9 }), { path: 'inspect.sheets',
     message: 'inspect.sheets: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 888 each of 9 sheets stacked in one image may take (8,000 in all); compare at most 6 other recipes, or show a smaller region' });
+  // So is a tile of one, above both shares (this was a sheet "above the 4096-pixel limit", which neither side is),
+  // and a wide tile within its share of the height but not of the pixels.
+  assert.throws(() => inspectProject(renderProject(screen(256, 1024, 4)), { view: 'tile', sheets: 8 }), { path: 'inspect.sheets',
+    message: 'inspect.sheets: one row of 768×3072 cells is 3100 pixels tall with its gutters and label, past the 1000 each of 8 sheets stacked in one image may take (8,000 in all); compare at most 1 other recipe, or show a smaller region' });
+  assert.throws(() => inspectProject(renderProject(screen(1024, 256, 4)), { view: 'tile', sheets: 9 }), { path: 'inspect.sheets',
+    message: 'inspect.sheets: one row of 3072×768 cells is 3076×796 pixels with its gutters and label, past the 1,864,135 pixels each of 9 sheets stacked in one image may take (16,777,216 in all); compare at most 5 other recipes, or show a smaller region' });
+  assert.equal(inspectProject(renderProject(screen(1024, 256, 4)), { view: 'tile', sheets: 6 }).cells.length, 1);
   // The CLI passes the share: three copies beside a 512x512 animation.
   const dir = await folder(t, 'sheets-stack'), cli = cliIn(dir);
   await writeFile(path.join(dir, 'a.json'), JSON.stringify(screen(512, 512, 16, { plays: 4 })));
@@ -187,4 +209,46 @@ test('motion review keeps both sides of its strip within 4096, in the squarest g
   assert.equal(inspectMotion(renderProject(screen(256, 256, 16)), { animation: 'run', speed: 20 }).trajectory.lanes, 8);
   // Travel wider than the image is said as travel.
   assert.equal(inspectMotion(renderProject(screen(64, 64, 32)), { animation: 'run', speed: 4000 }).trajectory.reason, 'Travel exceeds the 4096-pixel width: 9920 pixels of travel beside a 64-pixel frame.');
+});
+
+test('a sheet already at scale 1 is its own native sheet: said once, not drawn, written or sent twice', async t => {
+  const recipe = screen(320, 180, 4), view = inspectProject(renderProject(recipe), { native: true });
+  assert.deepEqual([view.sheet.scale, view.nativeSheet, view.native], [1, undefined, 'same as sheet']);
+  // An enlarged sheet keeps its native one, and so does a sheet with guides drawn over it.
+  const small = inspectProject(renderProject(screen(32, 32, 4)), { native: true });
+  assert.deepEqual([small.sheet.scale, small.nativeSheet.scale, small.native], [8, 1, undefined]);
+  assert.ok(inspectProject(renderProject(recipe), { native: true, guides: { horizon: 90 } }).nativeSheet);
+  const dir = await folder(t, 'sheets-native'), cli = cliIn(dir);
+  await writeFile(path.join(dir, 'wide.json'), JSON.stringify(recipe));
+  const made = cli('inspect', 'wide.json', '--native', '--out', 'wide.png');
+  assert.equal(made.status, 0, made.stderr);
+  const reply = JSON.parse(made.stdout);
+  assert.deepEqual([reply.native, reply.nativeSheet, reply.nativeImage], ['same as sheet', undefined, undefined]);
+  await assert.rejects(readFile(path.join(dir, 'wide.native.png')), { code: 'ENOENT' });
+  const call = await runner(t), { info, images } = await call('pixel_inspect', { project: recipe, native: true });
+  assert.deepEqual([info.native, info.nativeSheet, images.length], ['same as sheet', undefined, 1]);
+});
+
+test('diagnostics of a long full-screen effect list findings only for the frames kept and add up the rest', async t => {
+  // 48 frames of 320x180 rain: every frame has stray splash pixels. The reply was 19.9 KB of coordinates.
+  const rain = compileEffects({ format: 'pixelforge-fx', version: 1, name: 'rain', width: 320, height: 180,
+    palette: { W: '#dceeff', b: '#9cc4e8', d: '#5f86b0' },
+    symbols: { drop: ['W'], splash1: ['.W.', 'W.W'], splash2: ['b...b'], mist: ['d'] },
+    effects: { rain: { frames: 48, duration: 60, seed: 3, loop: true, edges: ['left', 'right', 'top'], emitters: [
+      { name: 'drops', at: [170, -8], area: [400, 1], rate: 6, angle: [100, 104], speed: [9, 11], life: [20, 22], floor: 176, shapes: ['drop'], trail: { color: 'b', length: 2 } },
+      { from: 'drops', when: 'floor', burst: 3, angle: [200, 340], speed: [0.6, 1.4], gravity: [0, 0.25], life: [3, 4], shapes: [['splash1', 'splash2', 'mist']] }] } } }).recipe;
+  const dir = await folder(t, 'sheets-diagnostics'), cli = cliIn(dir);
+  await writeFile(path.join(dir, 'rain.json'), JSON.stringify(rain));
+  const made = cli('inspect', 'rain.json', '--diagnostics', '--native', '--out', 'rain.png');
+  assert.equal(made.status, 0, made.stderr);
+  assert.ok(made.stdout.length < 4096, `${made.stdout.length} bytes`);
+  const { diagnostics } = JSON.parse(made.stdout), kept = diagnostics.frames.map(row => row.frame);
+  assert.deepEqual([diagnostics.frameTotals.frames, kept.length, diagnostics.omitted], [48, 3, 45]);
+  assert.ok(diagnostics.findings.every(finding => kept.includes(finding.frame)));
+  const full = JSON.parse(cli('inspect', 'rain.json', '--diagnostics', '--full').stdout).diagnostics;
+  const others = full.findings.filter(finding => finding.code === 'isolated' && !kept.includes(finding.frame));
+  assert.equal(diagnostics.findingTotals.isolated, `${others.reduce((sum, finding) => sum + finding.count, 0)} pixels in ${others.length} frames`);
+  assert.equal(full.findingTotals, undefined);
+  const call = await runner(t), { info } = await call('pixel_inspect', { project: rain, diagnostics: true });
+  assert.deepEqual(info.diagnostics.findingTotals, diagnostics.findingTotals);
 });
