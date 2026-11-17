@@ -45,7 +45,7 @@ const oneEdit = (a, b) => {
   return a.slice(i + (a.length >= b.length ? 1 : 0)) === b.slice(i + (b.length >= a.length ? 1 : 0));
 };
 // The name in `names` that `key` most likely meant: a known alias, the same name in other case, or a one-letter typo.
-function meant(key, names, aliases) {
+export function meant(key, names, aliases = {}) {
   if (own(aliases, key) && names.includes(aliases[key])) return aliases[key];
   const lower = key.toLowerCase();
   return names.find(n => n.toLowerCase() === lower) ?? (key.length > 3 ? names.find(n => n.length > 3 && oneEdit(lower, n.toLowerCase())) : undefined);

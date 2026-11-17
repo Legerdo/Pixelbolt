@@ -78,7 +78,9 @@ test('a PNG imports as frames up to 1024 a side and 262,144 pixels, each one gri
   assert.equal(renderProject(recipe).width, 320);
   const sheet = importPNG(png(1280, 360), { frame: [640, 360], padding: 0 }).recipe;
   assert.deepEqual([sheet.width, sheet.height, sheet.frames.length], [640, 360, 2]);
-  assert.throws(() => importPNG(png(1024, 512)), { message: 'import: a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and an imported frame is one; give frame, the size of one frame in a sheet' });
+  // A PNG imported whole is a still up to a still's limits (big-frames-cli.test.js follows it through); split by
+  // frame, each frame is held to an animation frame's.
+  assert.deepEqual([importPNG(png(1024, 512)).recipe.width, importPNG(png(1024, 512)).recipe.frames.length], [1024, 1]);
   assert.throws(() => importPNG(png(1280, 360), { frame: [1280, 360] }), { message: 'import: frame: a 1280×360 frame is 460,800 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and an imported frame is one' });
 });
 

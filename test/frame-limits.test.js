@@ -24,7 +24,7 @@ test('one per-frame limit: frameFits and frameAreaProblem, worded from CANVAS_SI
   const png = encodePNG(new Uint8ClampedArray(1024 * 512 * 4).fill(255), 1024, 512);
   const fx = { format: 'pixelforge-fx', version: 1, name: 'fx', width: 1024, height: 512, palette: { d: '#fff' }, symbols: { d: ['d'] }, effects: { e: { frames: 2, emitters: [{ at: [4, 4], burst: 1, shapes: ['d'] }] } } };
   const scene = { format: 'pixelforge-scene', version: 1, name: 's', width: 64, height: 64, assets: { big: { ...animation, frames: [{ name: 'f0' }] } }, instances: [{ asset: 'big', at: [0, 0] }] };
-  for (const [where, run] of [['project: ', () => renderProject(animation)], ['size: ', () => readSize('1024x512')], ['import: ', () => importPNG(png)], ['fx: ', () => compileEffects(fx)], ['scene.assets.big: ', () => prepareScene(scene)]]) {
+  for (const [where, run] of [['project: ', () => renderProject(animation)], ['size: ', () => readSize('1024x512')], ['import: frame: ', () => importPNG(png, { frame: [1024, 512] })], ['fx: ', () => compileEffects(fx)], ['scene.assets.big: ', () => prepareScene(scene)]]) {
     assert.ok(message(run).startsWith(where + area), where);
   }
 });

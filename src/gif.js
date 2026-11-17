@@ -199,7 +199,8 @@ export function encodeGIF(frames, width, height, { loop = true, scale = 1, backg
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * scale > 65535 || height * scale > 65535) throw new PixelError('gif', 'invalid dimensions');
   if (frames.length * width * height * scale * scale > MAX_PIXELS) {
     const fits = largestScale(frames.length * width * height, MAX_PIXELS, scale);
-    throw new PixelError('gif', `${frames.length} frames at ${width * scale}×${height * scale} exceed 67,108,864 pixels; ${fits ? `scale ${fits} is the largest that fits, or shorten the animation` : 'shorten the animation'}`);
+    // One frame has no animation to shorten.
+    throw new PixelError('gif', `${plural(frames.length, 'frame')} at ${width * scale}×${height * scale} exceed${frames.length === 1 ? 's' : ''} 67,108,864 pixels; ${fits ? `scale ${fits} is the largest that fits${frames.length === 1 ? '' : ', or shorten the animation'}` : 'shorten the animation'}`);
   }
   const area = width * height, indexed = [], delays = [];
   let partialAlpha = 0, carry = 0;
