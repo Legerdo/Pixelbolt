@@ -82,8 +82,9 @@ test('too many drawing operations says how many the effect needs and the frames 
       { from: 'drop', when: 'death', burst: 2, angle: [200, 340], speed: [0.5, 1.2], gravity: [0, 0.3], life: [2, 3], shapes: ['splash'] }] } } });
   // Before: "the effect needs more than 20000 drawing operations; lower counts or frames", and then "about 69 frames fit
   // at this density: lower burst, rate or trail, or frames", which compile --frames did not change.
-  refusal(() => compileEffects(rain(70)), /^fx\.effects\.rain: the 70 frames the effect makes need about 20,251 drawing operations \(289 a frame\) and a recipe makes at most 20,000, so frames 69 fits \(pixelbolt compile --frames 69\): it keeps that many of each animation's, evenly spaced, without cutting the effect short; or lower burst, rate or trail$/);
-  assert.equal(keepFrames(compilePreset(rain(70), { frames: 69 }).recipe, 69).recipe.frames.length, 69);
+  refusal(() => compileEffects(rain(70)), /^fx\.effects\.rain: the 70 frames the effect makes need about 20,251 drawing operations \(289 a frame\) and a recipe makes at most 20,000, so frames 35 fits \(pixelbolt compile --frames 35\): it keeps that many of each animation's, evenly spaced, without cutting the effect short; or lower burst, rate or trail$/);
+  // 69 fit too, but would thin the 70-frame loop unevenly: 35 is the most that fit and divide it.
+  assert.equal(keepFrames(compilePreset(rain(70), { frames: 35 }).recipe, 35).recipe.frames.length, 35);
   assert.equal(compileEffects(rain(69)).recipe.frames.length, 69);
 });
 
