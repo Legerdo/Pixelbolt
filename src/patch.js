@@ -234,7 +234,8 @@ export function patchRecipe(recipe, changes) {
         parseColor(pixel.color, next.palette ?? {}, `${pp}.color`);
         pixels.set(`${pixel.x},${pixel.y}`, structuredClone(pixel));
       });
-      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame holds at most ${FRAME_LIST}: split the region into smaller changes, or redraw a large area with the frame's operations`);
+      // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
+      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with the frame's operations (a set or insert at frames[${frame.name}].ops), or change a smaller region`);
       if (pixels.size) frame.pixels = [...pixels.values()];
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);

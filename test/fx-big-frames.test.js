@@ -79,11 +79,39 @@ test('an effect drawn behind a character makes three frames for each of its own,
   const source = frames => ({ ...rain(512, 512), effects: { plain: dot(4), behind: dot(frames, 'back') } });
   const { recipe } = compileEffects(source(4));
   assert.deepEqual([recipe.frames.length, Object.keys(recipe.animations)], [16, ['plain', 'behind', 'behind-back', 'behind-front']]);
-  refused(source(5), 'fx.effects', "the effects make 19 frames (an effect drawn behind a character also makes its -back and -front parts): 19 frames of 512×512 are 4,980,736 pixels; a recipe's frames hold at most 4,194,304 in all, so 16 frames of 512×512 fit: use fewer frames or a smaller canvas; behind draws behind a character, so it makes three frames for each of its own, and 4 of its own fit");
+  refused(source(5), 'fx.effects', "the effects make 19 frames (an effect drawn behind a character also makes its -back and -front parts): 19 frames of 512×512 are 4,980,736 pixels; a recipe's frames hold at most 4,194,304 in all, so 16 frames of 512×512 fit: use fewer frames or a smaller canvas; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and 4 of its own fit");
+  // The effect is known to draw behind before its frames are counted, so even when its own frames alone are too many,
+  // the first refusal counts all three parts and says how many fit: following it compiles.
+  refused(source(13), 'fx.effects', /^fx\.effects: the effects make 43 frames .*16 frames of 512×512 fit: use fewer frames or a smaller canvas; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and 4 of its own fit$/);
+  // A layer drawn behind counts the same as an emitter.
+  const ring = frames => ({ frames, looks: { hot: { colors: ['s'], thresholds: [0.2] } }, layers: [{ kind: 'ring', look: 'hot', at: [256, 256], radius: [4, 20], depth: 'split' }] });
+  refused({ ...rain(512, 512), effects: { plain: dot(4), behind: ring(13) } }, 'fx.effects', /; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and 4 of its own fit$/);
+  assert.equal(compileEffects({ ...rain(512, 512), effects: { plain: dot(4), behind: ring(4) } }).recipe.frames.length, 16);
   // With no room left, it says so.
-  refused({ ...rain(512, 512), effects: { plain: dot(15), behind: dot(1, 'back') } }, 'fx.effects', /: use fewer frames or a smaller canvas; behind draws behind a character, so it makes three frames for each of its own, and not one of its own fits$/);
+  refused({ ...rain(512, 512), effects: { plain: dot(15), behind: dot(1, 'back') } }, 'fx.effects', /: use fewer frames or a smaller canvas; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and not one of its own fits$/);
   // An effect that draws nothing behind keeps the plain total.
   refused({ ...rain(512, 512), effects: { plain: dot(4), more: dot(13) } }, 'fx.effects', /^fx\.effects: the effects make 17 frames \(an effect drawn behind a character also makes its -back and -front parts\): 17 frames of 512×512 are 4,456,448 pixels; .*16 frames of 512×512 fit: use fewer frames or a smaller canvas$/);
+});
+
+test('a turned effect counts every copy, and the reply names the effect as written and how many of its own frames fit', () => {
+  // 512x512: 16 frames fit. Four turned copies drawn behind a character make 12 frames for each of the effect's own.
+  const slash = (frames, depth) => ({ ...rain(512, 512), effects: { slash: { frames, turn: { angles: [0, 90, 180, 270] }, emitters: [{ at: [256, 256], burst: 1, shapes: ['drop'], ...(depth && { depth }) }] } } });
+  refused(slash(3, 'back'), 'fx.effects', /^fx\.effects: the effects make 36 frames .*16 frames of 512×512 fit: use fewer frames or a smaller canvas; slash makes 4 turned copies and draws behind a character, so each frame of its own makes 12 of the recipe's, and 1 of its own fits$/);
+  const { recipe } = compileEffects(slash(1, 'back'));
+  assert.equal(recipe.frames.length, 12);
+  // Turned only: each frame of its own makes 4.
+  refused(slash(5), 'fx.effects', /; slash makes 4 turned copies, so each frame of its own makes 4 of the recipe's, and 4 of its own fit$/);
+  assert.equal(compileEffects(slash(4)).recipe.frames.length, 16);
+});
+
+test('the 256-frame cap says the same: what the effects make, and how many frames of an effect drawn behind fit', () => {
+  // 64x64: the area holds 1,024 frames, so the recipe's 256 is the limit. 100 plain frames leave 156, so 52 of an effect
+  // drawn behind a character.
+  const dot = (frames, depth) => ({ frames, emitters: [{ at: [4, 4], burst: 1, shapes: ['drop'], ...(depth && { depth }) }] });
+  const source = frames => ({ ...rain(64, 64), effects: { plain: dot(100), behind: dot(frames, 'back') } });
+  refused(source(60), 'fx.effects', "the effects make 280 frames (an effect drawn behind a character also makes its -back and -front parts); a recipe holds at most 256; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and 52 of its own fit");
+  assert.equal(compileEffects(source(52)).recipe.frames.length, 256);
+  refused({ ...rain(64, 64), effects: { plain: dot(200), more: dot(57) } }, 'fx.effects', 'the effects make 257 frames (an effect drawn behind a character also makes its -back and -front parts); a recipe holds at most 256');
 });
 
 test('a particle shape stays at most 256 a side: a canvas-sized sprite from a recipe belongs to a sprite emitter or an aura', () => {

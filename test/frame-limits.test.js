@@ -39,17 +39,22 @@ test('the recipe tilemap operation takes cells up to 1024 a side, as a scene til
   assert.throws(() => renderProject(map([1025, 8])), { message: 'project.frames[0].ops[0].tile: cells are 1–1024 pixels wide and tall, as a scene tilemap\'s are' });
 });
 
-test('a patch whose merged pixel corrections would pass 262,144 fails at its value, saying to split the region', () => {
+test('a patch whose merged pixel corrections would pass 262,144 fails at its value, saying what works', () => {
   // A 600x600 still: a recolour of all of it is a bounded list (two writes a pixel at most), but its 360,000
   // corrections are more than a frame's pixels list holds.
   const still = { version: 1, name: 'wall', width: 600, height: 600, palette: { k: '#102030', s: '#a0c0f0' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 'k' }] }] };
+  const refusal = at => `changes[${at}].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with the frame's operations (a set or insert at frames[f].ops), or change a smaller region`;
   const whole = { recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y: 0, w: 600, h: 600 } };
-  assert.throws(() => patchRecipe(still, [whole]), error => error instanceof PixelError && error.path === 'changes[0].value'
-    && error.message === 'changes[0].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame holds at most 262,144: split the region into smaller changes, or redraw a large area with the frame\'s operations');
-  // Corrections already on the frame count too: two halves that each fit pass it together.
+  assert.throws(() => patchRecipe(still, [whole]), error => error instanceof PixelError && error.path === 'changes[0].value' && error.message === refusal(0));
+  // Corrections already on the frame count too, so splitting the change never gets past it: two halves that each fit
+  // pass it together.
   const half = y => ({ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y, w: 600, h: 300 } });
   assert.equal(patchRecipe(still, [half(0)]).recipe.frames[0].pixels.length, 180000);
-  assert.throws(() => patchRecipe(still, [half(0), half(300)]), { message: 'changes[1].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame holds at most 262,144: split the region into smaller changes, or redraw a large area with the frame\'s operations' });
+  assert.throws(() => patchRecipe(still, [half(0), half(300)]), { message: refusal(1) });
+  // What the reply suggests works: the frame's operations redraw the area, and a smaller region still fits as corrections.
+  const redrawn = patchRecipe(still, [{ set: 'frames[f].ops', value: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 's' }] }]).recipe;
+  assert.equal(redrawn.frames[0].pixels, undefined);
+  assert.equal(patchRecipe(still, [{ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y: 0, w: 400, h: 400 } }]).recipe.frames[0].pixels.length, 160000);
 });
 
 test('the schemas keep autotile templates at 256 rows, take tilemap cells to 1024, and say what a normal pass keeps', async () => {

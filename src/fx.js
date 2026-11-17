@@ -14,7 +14,7 @@
 import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
 import { patternProblem, ditherThreshold, traceLine, random, hash, sinDeg, cosDeg, ease, EASINGS, rotateRows } from './craft.js';
-import { readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker, paletteKey } from './shapes.js';
+import { LAYER_DEPTHS, readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker, paletteKey } from './shapes.js';
 import { createLight, spreadLight, readLight, meanOfFive, lightCodes, codeGrid, DRAWN, SURFACE, SHINING } from './light.js';
 import { compileFluid } from './fluid.js';
 import { compileWaves } from './wave.js';
@@ -1078,7 +1078,32 @@ export function compileEffects(source, { stats = false } = {}) {
     // residue: true says a one-shot is meant to end with its last frame still drawn (debris at rest, a mark on the
     // ground), so the review below doesn't warn about it.
     const stays = flag(effect.residue, `${path}.residue`);
-    for (const { name, view } of turnsOf(effect, base, path, width, height)) {
+    // The recipe's limits on frames, checked once an effect, before anything is simulated or painted rather than after.
+    // Each frame of an effect is one of the recipe's for each turned copy, and three for each when the effect draws
+    // anything behind a character (its -back and -front parts too). That is read from the depths written, the same
+    // test as `split` below once the emitters and layers are read, so the first refusal already counts it; the reply
+    // then names the effect as written and says how many of its own frames fit beside the effects before it.
+    const turns = turnsOf(effect, base, path, width, height);
+    const behind = (Array.isArray(effect.emitters) && effect.emitters.some(e => isObject(e) && e.depth !== 'front' && EMITTER_DEPTHS.includes(e.depth)))
+      || (Array.isArray(effect.layers) && effect.layers.some(l => isObject(l) && l.depth !== 'front' && LAYER_DEPTHS.includes(l.depth)));
+    const per = turns.length * (behind ? 3 : 1);
+    const budget = added => {
+      const before = totalFrames;
+      totalFrames += added;
+      const fits = Math.min(256, Math.floor(FRAME_AREA / (width * height)));
+      const own = () => {
+        if (per === 1) return '';
+        const room = Math.max(0, Math.floor((fits - before) / per));
+        const why = [...(turns.length > 1 ? [`makes ${turns.length} turned copies`] : []), ...(behind ? ['draws behind a character'] : [])].join(' and ');
+        return `; ${base} ${why}, so each frame of its own makes ${per} of the recipe's, and ${room > 1 ? `${room} of its own fit` : room ? '1 of its own fits' : 'not one of its own fits'}`;
+      };
+      const lead = `the effects make ${totalFrames} frames (an effect drawn behind a character also makes its -back and -front parts)`;
+      if (totalFrames > 256) fail('fx.effects', `${lead}; a recipe holds at most 256${own()}`);
+      const tooMany = frameTotalProblem(totalFrames, width, height);
+      if (tooMany) fail('fx.effects', `${lead}: ${tooMany}${own()}`);
+    };
+    let charged = false;
+    for (const { name, view } of turns) {
     if (lightPoint) pointed.add(name);
       // Effect names become animation and frame names, which must be unique ignoring case for portable bundles.
       // seen maps each name taken to the effect whose back or front part it is, or to null.
@@ -1086,18 +1111,7 @@ export function compileEffects(source, { stats = false } = {}) {
       seen.set(name.toLowerCase(), null);
       touching.set(name, turnedEdges(edges, view));
       const count = integer(effect.frames, `${path}.frames`, 1, 256), loop = effect.loop ?? false;
-      // The recipe's limits on frames, checked before anything is simulated or painted rather than after. Once an
-      // effect is known to draw behind a character (`split`), each of its frames is three of the recipe's, so the reply
-      // also says how many of its own frames fit beside the effects before it.
-      const budget = (added, split = false) => {
-        totalFrames += added;
-        if (totalFrames > 256) fail('fx.effects', `the effects make ${totalFrames} frames; a recipe holds at most 256`);
-        const tooMany = frameTotalProblem(totalFrames, width, height);
-        if (!tooMany) return;
-        const room = Math.max(0, Math.floor((Math.floor(FRAME_AREA / (width * height)) - (totalFrames - 3 * count)) / 3));
-        fail('fx.effects', `the effects make ${totalFrames} frames (an effect drawn behind a character also makes its -back and -front parts): ${tooMany}${split ? `; ${name} draws behind a character, so it makes three frames for each of its own, and ${room ? `${room} of its own fit` : 'not one of its own fits'}` : ''}`);
-      };
-      budget(count);
+      if (!charged) { charged = true; budget(count * per); }
       if (typeof loop !== 'boolean') fail(`${path}.loop`, 'expected a boolean');
       if (loop && stays) fail(`${path}.residue`, 'residue accepts what a one-shot still draws on its last frame; a loop has no last frame to leave');
       const durations = Array.isArray(effect.duration)
@@ -1160,7 +1174,8 @@ export function compileEffects(source, { stats = false } = {}) {
           if (seen.has(part.toLowerCase())) fail(path, `${name} draws something behind a character, so it also makes the animation ${part}; another effect has that name, so rename one`);
           seen.set(part.toLowerCase(), name);
         }
-        budget(count * 2, true);
+        // Counted with the rest of the effect above; read from the depths written, `behind` agrees with `split`.
+        if (!behind) budget(count * 2);
       }
       const empty = () => Array.from({ length: count }, () => []);
       const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view, solid: shine?.solid }, context)
