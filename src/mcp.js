@@ -423,12 +423,12 @@ export function createToolRunner({ directory, root, version }) {
         const summary = { ok: true, revision: await keep(recipe, sources), base: baseId, edits, ...(applied.rebased && { rebased: true }), ...briefComparison(report), ...(image && { image: { region: image.region, frames: image.frames, ...(image.omitted && { omitted: image.omitted }), scale: image.sheet.scale } }), warnings: after.warnings };
         return { content: [textContent(withResolved(summary, resolved)), ...(image ? [imageContent(image.sheet)] : [])], ...(preview && preview(after)) };
       } else if (name === 'pixel_render') {
-        const { animation, listFiles, sequence, share, embedRecipe, saveAs, overwrite } = options, expect = readExpect(options.expect);
+        const { animation, listFiles, sequence, share, embedRecipe, saveAs, overwrite } = options;
         for (const key of ['share', 'embedRecipe']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new PixelError(key, 'expected a boolean');
         if (options.scale !== undefined && (!Number.isInteger(options.scale) || options.scale < 1 || options.scale > 16)) throw new PixelError('scale', 'expected a whole number from 1 to 16: how many times to enlarge every exported pixel');
         // columns: sheet.columns for this export the same way (a one-row strip), from 1 to the frame count.
         if (options.columns !== undefined && (!Number.isInteger(options.columns) || options.columns < 1 || options.columns > 256)) throw new PixelError('columns', 'expected a whole number from 1 to the frame count: how many frames across the sheet');
-        const from = await recipeFrom(spec, revision), { resolved, sources } = from;
+        const from = await recipeFrom(spec, revision), { resolved, sources } = from, expect = readExpect(options.expect, from.recipe);
         if (options.columns !== undefined && from.recipe?.sheet?.trim === true) throw new PixelError('columns', 'columns lays the sheet out as a grid, and this recipe\'s sheet.trim packs each frame by its visible bounds, which ignores columns; pixel_patch {"set": "sheet.trim", "value": false} first');
         const forExport = { ...(options.scale !== undefined && { scale: options.scale }), ...(options.columns !== undefined && { columns: options.columns }) };
         // Only a sheet that is an object or missing takes them: any other is left for the renderer to refuse as project.sheet.
