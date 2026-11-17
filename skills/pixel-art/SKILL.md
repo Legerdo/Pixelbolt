@@ -56,4 +56,4 @@ Run `help` as `node bin/pixelbolt.js help <topic> ["<section>"]`; over MCP, `pix
 - `help workflow "<section>"`: long techniques for poses, scenes, tiles, effects and lighting. `help workflow` lists its sections, and a long section lists its parts.
 - Files: `docs/agent-quick-start.md`, `docs/agent-craft.md`, `docs/agent-guide.md`, `docs/art-workflow.md`, `docs/game-integration.md`, and `schema.json` with the per-format schemas beside it.
 
-Limits: an animation frame is at most 256 × 256 pixels and a project 256 frames; `help craft "Limits"` has the rest.
+Limits: an animation frame is at most 1024 pixels a side and 262,144 in all (320 × 180, 640 × 360 and 512 × 512 fit), and a project 256 frames holding 4,194,304 pixels (72 frames of 320 × 180); `help craft "Limits"` has the rest.
