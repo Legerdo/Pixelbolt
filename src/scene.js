@@ -177,7 +177,7 @@ export function prepareScene(source) {
     for (const key of ['recipe', 'normal', 'emissive']) if (entry[key] !== undefined) {
       const spec = key === 'recipe' ? themed(entry[key], scenePalette, assetPalette) : entry[key];
       // A still larger than an animation frame renders on its own; scenes keep their assets to the frame's side and area.
-      if (spec?.width > CANVAS_SIDE || spec?.height > CANVAS_SIDE || spec?.width * spec?.height > FRAME_PIXELS) fail(`scene.assets.${id}`, `a scene asset is at most ${CANVAS_SIDE} pixels a side and 262,144 pixels (320×180, 640×360 and 512×512 fit), and this one is ${spec.width}×${spec.height}; a larger still renders on its own, not in a scene`);
+      if (spec?.width > CANVAS_SIDE || spec?.height > CANVAS_SIDE || spec?.width * spec?.height > FRAME_PIXELS) fail(`scene.assets.${id}`, `a scene asset is at most ${CANVAS_SIDE} pixels a side and ${FRAME_PIXELS.toLocaleString('en-US')} pixels (320×180, 640×360 and 512×512 fit), and this one is ${spec.width}×${spec.height}; a larger still renders on its own, not in a scene`);
       const area = spec?.width * spec?.height * spec?.frames?.length;
       if (!Number.isFinite(area) || (sourceArea += area) > 4194304) fail(`scene.assets.${id}`, 'combined scene source passes exceed 4,194,304 pixels or have invalid dimensions');
       passes[key] = renderProject(spec);
