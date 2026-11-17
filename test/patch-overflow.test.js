@@ -89,11 +89,14 @@ test('the overflow advice names a new top layer when the top layer is offset or 
   assert.throws(() => patchRecipe(over({ x: 0, y: 0, opacity: 1 }), [recolor]), { message: `changes[0].value: ${advice('frames[f0].layers[l].ops')}` });
 });
 
+// A 600x600 still drawn in k, recolour to s over its rows from y, and a redraw of all of it in s by its operations.
+const still = (pixels = undefined) => ({ version: 1, name: 'wall', width: 600, height: 600, palette: { k: '#102030', s: '#a0c0f0' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 'k' }], ...(pixels && { pixels }) }] });
+const half = (y, h = 300) => ({ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y, w: 600, h } });
+const redraw = { insert: 'frames[f].ops[-]', value: { op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 's' } };
+const stillAdvice = at => `changes[${at}].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with the frame's operations (a set of frames[f].ops or an insert at frames[f].ops[-]), or change a smaller region`;
+
 test('the overflow note counts the recipe\'s own corrections, names the earlier changes that add the rest, and following it works', () => {
-  const still = (pixels = undefined) => ({ version: 1, name: 'wall', width: 600, height: 600, palette: { k: '#102030', s: '#a0c0f0' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 'k' }], ...(pixels && { pixels }) }] });
-  const half = (y, h = 300) => ({ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y, w: 600, h } });
-  const head = at => `changes[${at}].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with the frame's operations (a set of frames[f].ops or an insert at frames[f].ops[-]), or change a smaller region. The frame's 180,000 pixel corrections still draw over its operations: `;
-  const redraw = { insert: 'frames[f].ops[-]', value: { op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 's' } };
+  const head = at => `${stillAdvice(at)}. The frame's 180,000 pixel corrections still draw over its operations: `;
   // Two halves: the corrections are the first change's, so the old advice, removing frames[f].pixels, is refused.
   assert.throws(() => patchRecipe(still(), [half(0), half(300)]), { message: `${head(1)}changes[0] adds 180,000 of them; drop or shrink it` });
   assert.throws(() => patchRecipe(still(), [{ remove: 'frames[f].pixels' }, half(300)]), { message: 'changes[0].remove: nothing to remove at frames[0].pixels' });
@@ -103,11 +106,50 @@ test('the overflow note counts the recipe\'s own corrections, names the earlier 
   assert.equal(patchRecipe(still(), [half(0, 100), half(300)]).recipe.frames[0].pixels.length, 240000);
   // The recipe's own correction and the change's are counted apart, and each part of the advice works.
   const corrected = still([{ x: 1, y: 1, color: 'k' }]);
-  assert.throws(() => patchRecipe(corrected, [half(0), half(300)]), { message: `${head(1)}the recipe has 1 of them (remove frames[f].pixels to drop them) and changes[0] adds 179,999; drop or shrink it` });
+  assert.throws(() => patchRecipe(corrected, [half(0), half(300)]), { message: `${head(1)}the recipe has 1 of them (remove frames[f].pixels to drop it) and changes[0] adds 179,999; drop or shrink it` });
   assert.equal(changed(corrected, patchRecipe(corrected, [redraw]).recipe).pixels, 359999);
   assert.deepEqual(changed(corrected, patchRecipe(corrected, [{ remove: 'frames[f].pixels' }, redraw]).recipe), area);
   // Several earlier changes are each named with what they add.
   assert.throws(() => patchRecipe(still(), [{ paint: 'frames[f]', value: [{ x: 0, y: 0, color: 's' }] }, half(0), half(300)]), { message: `${head(2)}changes[0] adds 1 of them and changes[1] adds 179,999; drop or shrink them` });
+});
+
+test('a change that sets, removes or adds to a frame\'s corrections takes them over in the note, which never names more than the list holds', () => {
+  const kept = { x: 1, y: 1, color: 'k' }, top = Array.from({ length: 180000 }, (_, at) => ({ x: at % 600, y: Math.floor(at / 600), color: 'k' }));
+  const all = half(0, 600), one = { set: 'frames[f].pixels', value: [kept] };
+  // A set of the list after an earlier change: the note names the set, and the one correction it leaves, not changes[0].
+  assert.throws(() => patchRecipe(still(), [half(0), one, all]), { message: `${stillAdvice(2)}. The frame's 1 pixel correction still draws over its operations: changes[1] adds it; drop or shrink it` });
+  assert.deepEqual(changed(still(), patchRecipe(still(), [half(0), redraw]).recipe), area);
+  assert.equal(changed(still(), patchRecipe(still(), [one, redraw]).recipe).pixels, 359999, 'the old note named changes[0]; dropping it leaves the set');
+  // A set of the whole list, or of the frame, is named as what adds it; dropped, the redraw changes all of it.
+  assert.throws(() => patchRecipe(still(), [{ set: 'frames[f].pixels', value: top }, all]), { message: `${stillAdvice(1)}. The frame's 180,000 pixel corrections still draw over its operations: changes[0] adds 180,000 of them; drop or shrink it` });
+  assert.throws(() => patchRecipe(still(), [{ set: 'frames[f]', value: { ...still().frames[0], pixels: [kept] } }, all]), { message: `${stillAdvice(1)}. The frame's 1 pixel correction still draws over its operations: changes[0] adds it; drop or shrink it` });
+  assert.deepEqual(changed(still(), patchRecipe(still(), [redraw]).recipe), area);
+  assert.equal(changed(still(), patchRecipe(still(), [{ set: 'frames[f].pixels', value: top }, redraw]).recipe).pixels, 180000);
+  // A remove of the list clears what earlier changes added: the note names only the change after it.
+  assert.throws(() => patchRecipe(still(), [half(0), { remove: 'frames[f].pixels' }, half(300), all]), { message: `${stillAdvice(3)}. The frame's 180,000 pixel corrections still draw over its operations: changes[2] adds 180,000 of them; drop or shrink it` });
+  assert.deepEqual(changed(still(), patchRecipe(still(), [half(0), { remove: 'frames[f].pixels' }, redraw]).recipe), area);
+  // An insert into the recipe's list is counted apart from the recipe's own, and following both parts works.
+  const corrected = still([kept]), added = { insert: 'frames[f].pixels[-]', value: { x: 2, y: 2, color: 'k' } };
+  assert.throws(() => patchRecipe(corrected, [added, all]), { message: `${stillAdvice(1)}. The frame's 2 pixel corrections still draw over its operations: the recipe has 1 of them (remove frames[f].pixels to drop it) and changes[0] adds 1; drop or shrink it` });
+  assert.equal(changed(corrected, patchRecipe(corrected, [added, redraw]).recipe).pixels, 359998);
+  assert.deepEqual(changed(corrected, patchRecipe(corrected, [{ remove: 'frames[f].pixels' }, redraw]).recipe), area);
+  // One correction of the recipe's own reads in the singular, and removing it lets the redraw change every pixel.
+  assert.throws(() => patchRecipe(corrected, [all]), { message: `${stillAdvice(0)}. The frame's 1 pixel correction still draws over its operations (remove frames[f].pixels to drop it)` });
+  assert.equal(changed(corrected, patchRecipe(corrected, [redraw]).recipe).pixels, 359999);
+});
+
+test('a grid with more rows than a canvas up to 1024 tall is refused at its height, as on main', () => {
+  for (const side of [16, 256, 1024]) {
+    const canvas = { version: 1, name: 'c', width: 16, height: side, palette: { k: '#102030' }, frames: [{ name: 'f' }] };
+    for (const count of [side + 1, 1025]) assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: Array(count).fill('k') } }]), { path: 'changes[0].value.h', message: 'changes[0].value.h: expected an integer region inside the canvas' });
+    assert.equal(patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: Array(side).fill('k') } }]).recipe.frames[0].pixels.length, side);
+    // Rows that are no list of text are refused at rows on every canvas.
+    for (const rows of [[], [''], [1]]) assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows } }]), { path: 'changes[0].value.rows', message: 'changes[0].value.rows: expected 1–1024 equal-width rows' });
+  }
+  // On a still taller than 1024, a grid is at most 1024 rows, and 1024 of them are taken.
+  const tall = { version: 1, name: 'c', width: 16, height: 2048, palette: { k: '#102030' }, frames: [{ name: 'f' }] };
+  assert.throws(() => patchRecipe(tall, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: Array(1025).fill('k') } }]), { path: 'changes[0].value.rows', message: 'changes[0].value.rows: expected 1–1024 equal-width rows' });
+  assert.equal(patchRecipe(tall, [{ grid: 'frames[f]', value: { x: 0, y: 1024, rows: Array(1024).fill('k') } }]).recipe.frames[0].pixels.length, 1024);
 });
 
 test('a grid row wider than a canvas up to 1024 is refused at its width, as on main', () => {
