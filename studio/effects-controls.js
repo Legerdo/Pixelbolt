@@ -10,6 +10,7 @@ export const EFFECT_PRESETS = [
   { file: 'vortex', title: 'Vortex', note: 'Swirl and turbulence · loop' },
   { file: 'meteor', title: 'Meteor', note: 'Moving emitters · one-shot' },
   { file: 'shield', title: 'Shield bubble', note: 'Boiling ring and halo · loop' },
+  { file: 'stone-portal', title: 'Stone portal', note: 'An arch lit by its portal · loop' },
   { file: 'water', title: 'Cel water', note: 'Geyser, whip, ring, dome, curl' },
   { file: 'fire-spells', title: 'Fire spells', note: 'Projectile, impact, area, buff' },
   { file: 'ice-spells', title: 'Ice spells', note: 'Projectile, impact, area, buff' },

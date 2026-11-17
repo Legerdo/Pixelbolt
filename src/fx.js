@@ -5,12 +5,14 @@
 // or along a line; a child emitter spawns where its parent's particles end, land or travel; particles can face their
 // direction of travel and change colour over their life; cues mark frames for game code. Shape layers (src/shapes.js:
 // shockwave rings, slashes, beams, lightning, magic circles, impact stars, fireballs) bake into one grid per frame
-// between `behind` particles and the rest. Browser-compatible and deterministic: seeded hashing and polynomial
-// trigonometry, no Math.random.
+// between `behind` particles and the rest. An effect's `shine` is the light of what it draws in its brightest colours
+// (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels.
+// Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
 import { PixelError, parseColor, renderProject, FRAME_AREA, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
 import { patternProblem, ditherThreshold, traceLine, random, hash, sinDeg, cosDeg, ease, EASINGS, rotateRows } from './craft.js';
-import { readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker } from './shapes.js';
+import { readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker, paletteKey } from './shapes.js';
+import { createLight, spreadLight, readLight, meanOfFive, lightCodes, codeGrid, DRAWN, SURFACE, SHINING } from './light.js';
 import { compileFluid } from './fluid.js';
 import { compileWaves } from './wave.js';
 
@@ -357,7 +359,7 @@ const evenAngle = ([from, to], k, count) => (to - from >= 360 ? from + 360 * k /
 
 // Simulates one effect and returns its frames' operations plus counts for the metadata.
 function simulate(effect, context) {
-  const { frames, loop, seed, emitters, view } = effect, { width, height, symbols } = context;
+  const { frames, loop, seed, emitters, view, solid } = effect, { width, height, symbols } = context;
   // A symbol turned k × 45°, made once per compile and added to the recipe's symbols after every effect is read, so no
   // effect can name one another effect happened to make.
   const spun = (name, k) => {
@@ -404,6 +406,9 @@ function simulate(effect, context) {
   // Behind a character: the back particles' own two passes; between: stand-in sprites. Both stay empty unless an emitter
   // asks for them.
   const back = { output: perFrame(), behind: perFrame() }, between = perFrame();
+  // For the effect's light (see lightFrames): the grids that draw sprites, and each frame's pixels of the sprites the
+  // light can't pass (`solid`, the indexes of their emitters), or null.
+  const props = new WeakSet(), solids = solid?.size ? perFrame().map(() => null) : null;
   const stats = emitters.map(e => ({ ...(e.name && { name: e.name }), spawned: 0, maxAlive: 0, ...(e.sprite && { pixels: e.sprite.frames[0].cells.length }) }));
   let operations = 0, culled = 0;
   // A release gives each of the sprite's pixels the frame it leaves on: where the sweep's front reaches it between start
@@ -571,6 +576,12 @@ function simulate(effect, context) {
     // Draw oldest first, with `behind` emitters' particles under everyone else's. Particles partly off the canvas are
     // cropped into grid operations and trails keep only their on-canvas pixels, so nothing clips.
     const sheets = drawing ? emitters.map((e, index) => (e.sprite && (e.sprite.draw || e.pixel) ? sheet(e, index, t) : null)) : null;
+    // What is left of a solid sprite, before its own pixel particles are drawn into its sheet.
+    if (drawing && solids) for (const index of solid) {
+      if (!sheets[index]?.any) continue;
+      const mask = (solids[t - first] ??= new Uint8Array(width * height)), { chars } = sheets[index];
+      for (let c = 0; c < chars.length; c++) if (chars[c]) mask[c] = 1;
+    }
     if (drawing) for (const pass of layered ? [true, false] : [null]) alive.forEach((p, i) => {
       const e = p.emitter;
       if (pass !== null && e.behind !== pass) return;
@@ -640,6 +651,7 @@ function simulate(effect, context) {
         const rows = [];
         for (let y = y0; y <= y1; y++) { let row = ''; for (let x = x0; x <= x1; x++) { const code = s.chars[y * width + x]; row += code ? String.fromCharCode(code) : '.'; } rows.push(row); }
         const grid = { op: 'grid', x: x0, y: y0, rows };
+        props.add(grid);
         if (e.depth === 'between') between[t - first].push(grid);
         else (e.depth === 'back' ? leadingBack : leading)[e.behind].push(grid);
         operations++;
@@ -691,8 +703,123 @@ function simulate(effect, context) {
     if (operations > LIMITS.operations) fail(context.path, `the effect needs more than ${LIMITS.operations} drawing operations; lower counts or frames`);
   }
   // The next cycle's first frame, drawn as the recorded ones are, for the seam review only.
-  const next = loop ? { output: output.pop(), behind: behind.pop(), back: { output: back.output.pop(), behind: back.behind.pop() }, between: between.pop(), blobs: blobs.pop() } : null;
-  return { output, behind, back, between, blobs, next, operations, culled, stats, cues };
+  const next = loop ? { output: output.pop(), behind: behind.pop(), back: { output: back.output.pop(), behind: back.behind.pop() }, between: between.pop(), blobs: blobs.pop(), solid: solids ? solids.pop() : null } : null;
+  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids };
+}
+
+// What shines in an effect and how its light looks (`shine`). The pixels the effect draws in the colours of `keys`
+// shine, each as strongly as its key says (1 is a full light where a body of it is five pixels across; a thin bolt
+// wants more; 0 is for the dim colours of a fire, which give no light and take none), and their light spreads by the
+// flood in light.js (see lightFrames). Its colours lie on the sprites the effect draws (`colors`, and `dark` where no
+// light reaches: then a sprite is drawn as it looks fully lit, and the light is seen by what it leaves dark), on
+// whatever else it draws that does not shine (`smoke`) and on the empty pixels (`wall`). `solid` names the sprite
+// emitters whose sprite the light can't pass: it is lit on the side the light comes from and dark further in, and
+// shadows what is behind it; any other sprite is a flat thing the light lies on by how far it is. `emitters` is the
+// effect's emitters as read, or null while they have errors of their own.
+function readShine(value, path, context, emitters) {
+  if (!isObject(value)) fail(path, 'expected { keys, reach, thresholds } and colors, smoke or wall: the light of what the effect draws in the palette keys of keys');
+  const { palette, seed } = context, light = readLight(value, path, { palette, seed, key: paletteKey }, ['keys', 'solid'], { colors: 'the sprites the effect draws', smoke: 'what else it draws' });
+  if (!isObject(value.keys) || !Object.keys(value.keys).length || Object.keys(value.keys).length > 16) fail(`${path}.keys`, 'expected 1–16 palette keys that shine, each with how strongly it does (1 is a full light; 0 for a colour of the fire that gives none and takes none): { "W": 1, "y": 0.6, "r": 0 }');
+  // Kept by colour, so a remap or a tint to one of these colours shines as its key does.
+  const levels = new Map();
+  for (const [key, power] of Object.entries(value.keys)) {
+    paletteKey(key, `${path}.keys.${key}`, palette);
+    levels.set(parseColor(key, palette).join(), number(power, `${path}.keys.${key}`, 0, 8));
+  }
+  if (![...levels.values()].some(power => power > 0)) fail(`${path}.keys`, 'every key is 0, so nothing would shine');
+  const solid = new Set();
+  if (value.solid !== undefined) {
+    if (!Array.isArray(value.solid) || !value.solid.length || value.solid.length > LIMITS.emitters) fail(`${path}.solid`, 'expected the names of the sprite emitters whose sprite the light can\'t pass');
+    value.solid.forEach((name, i) => {
+      const at = `${path}.solid[${i}]`;
+      identifier(name, at);
+      if (value.solid.indexOf(name) !== i) fail(at, 'list each emitter once');
+      if (!emitters) return;
+      const matches = emitters.flatMap((e, k) => (e.name === name ? [k] : []));
+      if (matches.length !== 1) fail(at, matches.length ? `${matches.length} emitters are named ${JSON.stringify(name)}; give the sprite's emitter a unique name` : `no emitter in this effect is named ${JSON.stringify(name)}`);
+      if (!emitters[matches[0]].sprite?.draw) fail(at, `${name} draws no sprite; solid names sprite emitters that draw theirs (sprite: { symbol, draw: true })`);
+      solid.add(matches[0]);
+    });
+  }
+  return { ...light, levels, solid };
+}
+
+// The light of an effect's frames (readShine; the flood is light.js), as grid operations to draw last. Each frame is
+// taken as it is drawn: its operations are laid down in order, and the last thing on a pixel says what the pixel is to
+// the light: something that shines (a colour of `keys`), a sprite, anything else, or nothing. What shines becomes each
+// pixel's power as in a fluid's shine: the mean over the five by five pixels about it, so a body of light lights and a
+// lone spark barely does. The flood spreads that; the sprites listed in `solid` drink it. Then each pixel's light
+// moves `ease` of the way from the frame before's to what reached it. A loop's first frame follows its last: its light
+// is what the cycle played for ever comes to, so the loop runs on through its seam, and the frame after its last (the
+// seam review's) is lit exactly as frame 0 is.
+// `made` holds each frame's operations (opsAt), `after` those of the frame after a loop's last, and `run` what simulate
+// noted. The result gives each frame's grid, and for an effect with parts the back's and the front's: the wall's
+// light and the light on what the back draws go behind a character, the light on what the front draws before it, and
+// the light on a stand-in is in the whole effect only, since a game lights its own character.
+function lightFrames(shine, made, after, run, context) {
+  const { width, height, palette, symbols, spun, loop } = context, N = width * height, memory = createLight(width, height);
+  const level = new Float64Array(N), across = new Float64Array(N), power = new Float64Array(N), open = new Uint8Array(N);
+  // What a colour is to the light: its key's power if it is one of those that shine, −1 if it only shows, −2 if it is
+  // fully clear.
+  const tones = new Map();
+  const tone = color => {
+    let known = tones.get(color);
+    if (known === undefined) { const rgba = parseColor(color, palette); known = rgba[3] ? shine.levels.get(rgba.join()) ?? -1 : -2; tones.set(color, known); }
+    return known;
+  };
+  let shining = false;
+  // One frame as the light meets it: what each pixel is, the side that drew it (1 the back, 2 a stand-in, 3 the
+  // front; 0 nothing) when the effect has parts, and the light that reaches each pixel, or null when nothing shines.
+  const read = ({ ops, back, between, front }, solid) => {
+    const lists = back ? [back, between, front] : [ops], kinds = new Uint8Array(N), sides = back ? new Uint8Array(N) : null;
+    level.fill(0);
+    lists.forEach((list, k) => {
+      const put = (x, y, color, surface) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        const strength = tone(color);
+        if (strength === -2) return;
+        const c = y * width + x;
+        level[c] = strength > 0 ? strength : 0; kinds[c] = strength >= 0 ? SHINING : surface ? SURFACE : DRAWN;
+        if (sides) sides[c] = k + 1;
+      };
+      for (const op of list) {
+        if (op.op === 'pixel') put(op.x, op.y, op.color, false);
+        else if (op.op === 'line') traceLine(op.x, op.y, op.x2, op.y2, (x, y) => put(x, y, op.color, false));
+        else {
+          const rows = op.op === 'grid' ? op.rows : symbols[op.symbol] ?? spun.get(op.symbol).rows, surface = run.props.has(op), { remap } = op;
+          rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (!clear(row[i])) put(op.x + i, op.y + j, remap && Object.hasOwn(remap, row[i]) ? remap[row[i]] : row[i], surface); });
+        }
+      }
+    });
+    let any = false;
+    for (let c = 0; c < N && !any; c++) any = level[c] > 0;
+    if (!any) return { kinds, sides, light: null };
+    shining = true;
+    meanOfFive(level, across, power, width, height);
+    for (let c = 0; c < N; c++) if (power[c] > 1) power[c] = 1;
+    return { kinds, sides, light: Float32Array.from(spreadLight(memory, power, solid ?? open, shine.reach, shine.depth)) };
+  };
+  const reads = made.map((frame, i) => read(frame, run.solids ? run.solids[i] : null)), lit = new Float64Array(N), { ease: share } = shine;
+  const step = light => { for (let c = 0; c < N; c++) lit[c] += ((light ? light[c] : 0) - lit[c]) * share; };
+  if (loop) {
+    // Once round the cycle from the dark, then scaled to what going round it for ever comes to: every turn leaves
+    // (1 − ease) to the power of the frame count of the light it began with.
+    let left = 1;
+    for (const { light } of reads) { step(light); left *= 1 - share; }
+    for (let c = 0; c < N; c++) lit[c] /= 1 - left;
+  }
+  const grids = ({ kinds, sides }, light) => {
+    const codes = lightCodes(shine, light, kinds, width, height), whole = codeGrid(codes, width, height);
+    return whole && sides ? { whole, back: codeGrid(codes, width, height, c => sides[c] < 2), front: codeGrid(codes, width, height, c => sides[c] === 3) } : { whole };
+  };
+  let first = null;
+  const frames = reads.map((frame, i) => {
+    step(frame.light);
+    if (!i && after) first = Float64Array.from(lit);
+    return grids(frame, lit);
+  });
+  // The frame after a loop's last is read for what its pixels are, and lit as frame 0 is.
+  return { frames, next: after ? grids(read(after, run.next.solid), first) : null, shining };
 }
 
 // Frame durations eased from `from` to `to` milliseconds across the effect: `in` stays quick and slows at the end,
@@ -919,7 +1046,7 @@ export function compileEffects(source, { stats = false } = {}) {
   effects: for (const [base, effect] of Object.entries(source.effects)) {
     const path = `fx.effects.${base}`;
     identifier(base, path);
-    fields(effect, ['frames', 'duration', 'loop', 'seed', 'emitters', 'layers', 'looks', 'cleanup', 'turn', 'light', 'edges'], path);
+    fields(effect, ['frames', 'duration', 'loop', 'seed', 'emitters', 'layers', 'looks', 'cleanup', 'turn', 'light', 'edges', 'shine'], path);
     // light: true writes the light track into the frames as a point named light, which scene lights can follow.
     const lightPoint = flag(effect.light, `${path}.light`), edges = readEdges(effect.edges, `${path}.edges`);
     for (const { name, view } of turnsOf(effect, base, path, width, height)) {
@@ -971,6 +1098,13 @@ export function compileEffects(source, { stats = false } = {}) {
           emitters.push({ name: isObject(emitter) && typeof emitter.name === 'string' ? emitter.name : undefined });
         }
       });
+      // shine: the light of what the effect draws in its brightest colours (readShine). Emitters with errors of their own
+      // leave the names in its `solid` unchecked.
+      let shine = null;
+      if (effect.shine !== undefined) {
+        try { shine = readShine(effect.shine, `${path}.shine`, context, noted.length > before ? null : emitters); }
+        catch (error) { note(error, at => at === `${path}.shine` || at.startsWith(`${path}.shine.`)); }
+      }
       if (noted.length > before) continue effects;
       // An emitter spanning a loop goes round its keys every cycle, so a path, sweep, throttle, keyed rate or ring grow
       // must end where it starts; otherwise new particles jump at the loop point. Once per effect, not per turned copy.
@@ -994,9 +1128,9 @@ export function compileEffects(source, { stats = false } = {}) {
         budget(count * 2);
       }
       const empty = () => Array.from({ length: count }, () => []);
-      const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view }, context)
-        : { output: empty(), behind: empty(), back: { output: empty(), behind: empty() }, between: empty(), blobs: empty(), operations: 0, culled: 0, stats: [], cues: Array.from({ length: count }, () => ({})),
-          next: loop ? { output: [], behind: [], back: { output: [], behind: [] }, between: [], blobs: [] } : null };
+      const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view, solid: shine?.solid }, context)
+        : { output: empty(), behind: empty(), back: { output: empty(), behind: empty() }, between: empty(), blobs: empty(), operations: 0, culled: 0, stats: [], cues: Array.from({ length: count }, () => ({})), props: new WeakSet(), solids: null,
+          next: loop ? { output: [], behind: [], back: { output: [], behind: [] }, between: [], blobs: [], solid: null } : null };
       if (shapes) for (const layer of shapes.layers) if (layer.cue && !Object.hasOwn(run.cues[layer.t0], layer.cue)) run.cues[layer.t0][layer.cue] = [Math.floor(layer.at[0] + 0.5), Math.floor(layer.at[1] + 0.5)];
       const spawned = run.stats.reduce((sum, s) => sum + s.spawned, 0);
       if (spawned > LIMITS.spawned) fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; lower burst, rate or frames`);
@@ -1017,7 +1151,7 @@ export function compileEffects(source, { stats = false } = {}) {
         // Each side keeps the usual order (behind particles, shapes, particles, front looks), and the back side goes first.
         const back = [...drawn.back.behind, ...gridOp(grid?.parts.back), ...drawn.back.output, ...gridOp(over?.parts.back)];
         const front = [...drawn.behind, ...gridOp(grid?.parts.front), ...drawn.output, ...gridOp(over?.parts.front)];
-        return { ops: [...back, ...drawn.between, ...front], back, front };
+        return { ops: [...back, ...drawn.between, ...front], back, between: drawn.between, front };
       };
       const drawnAt = i => ({ output: run.output[i], behind: run.behind[i], back: { output: run.back.output[i], behind: run.back.behind[i] }, between: run.between[i], blobs: run.blobs[i] });
       // A loop's bands go into its first frame holding what its last frame leaves them: the cycle is painted once (on the
@@ -1033,18 +1167,27 @@ export function compileEffects(source, { stats = false } = {}) {
         memory.tape = null;
         settleHolds(memory, reads, width * height);
       }
-      const names = run.output.map((output, i) => {
-        const points = Object.keys(run.cues[i]).length ? run.cues[i] : null;
-        if (points) for (const [cue, at] of Object.entries(points)) cues.push({ name: cue, frame: i, at });
+      const made = run.output.map((output, i) => {
         if (tape) { memory.replay = tape[i]; tape[i] = null; }
-        const { ops, back, front } = opsAt(i, drawnAt(i), shapeWork);
+        const frame = opsAt(i, drawnAt(i), shapeWork);
         if (tape) memory.replay = null;
-        if (parts) for (const [side, sideOps] of [['back', back], ['front', front]]) partFrames[side].push({ name: `${parts[side]}-${i}`, duration: durations[i], ...(points && { points }), ...(sideOps.length && { ops: sideOps }) });
-        frames.push({ name: `${name}-${i}`, duration: durations[i], ...(points && { points }), ...(ops.length && { ops }) });
-        return `${name}-${i}`;
+        return frame;
       });
       // The frame after a loop's last, for the seam review; it takes its own painting budget and joins no animation.
-      if (loop) { const own = { spent: 0 }; nextFrames.push({ name: `${name}-next`, duration: 100, ...((ops => ops.length && { ops })(opsAt(count, run.next, own).ops)) }); probed.spent += own.spent; }
+      let after = null;
+      if (loop) { const own = { spent: 0 }; after = opsAt(count, run.next, own); probed.spent += own.spent; }
+      // The effect's light is drawn last, over everything it falls on (lightFrames).
+      const lights = shine ? lightFrames(shine, made, after, run, { ...context, loop }) : null, lit = (ops, grid) => (grid ? [...ops, grid] : ops);
+      if (lights && !lights.shining && name === turnsOf(effect, base, path, width, height)[0].name) loopNotes.push(`${path}.shine.keys: nothing the effect draws is in ${Object.keys(effect.shine.keys).length === 1 ? 'this colour' : 'these colours'}, so nothing shines: name the palette keys of its brightest pixels`);
+      const names = made.map(({ ops, back, front }, i) => {
+        const points = Object.keys(run.cues[i]).length ? run.cues[i] : null, light = lights?.frames[i];
+        if (points) for (const [cue, at] of Object.entries(points)) cues.push({ name: cue, frame: i, at });
+        if (parts) for (const [side, sideOps] of [['back', lit(back, light?.back)], ['front', lit(front, light?.front)]]) partFrames[side].push({ name: `${parts[side]}-${i}`, duration: durations[i], ...(points && { points }), ...(sideOps.length && { ops: sideOps }) });
+        const all = lit(ops, light?.whole);
+        frames.push({ name: `${name}-${i}`, duration: durations[i], ...(points && { points }), ...(all.length && { ops: all }) });
+        return `${name}-${i}`;
+      });
+      if (after) { const ops = lit(after.ops, lights?.next.whole); nextFrames.push({ name: `${name}-next`, duration: 100, ...(ops.length && { ops }) }); }
       animations[name] = { frames: names, ...(!loop && { loop: false }) };
       metadata.effects[name] = { frames: count, loop, seed: effect.seed ?? 1, ...(view !== undefined && name !== base && { turn: { of: base, angle: view?.turn ?? 0, mirror: view?.mirror ?? false } }), ...(parts && { parts }), operations: run.operations, culled: run.culled, emitters: run.stats, ...(shapes?.layers.length ? { layers: shapes.layers.map(l => ({ kind: l.kind, look: l.look, frames: [l.t0, l.t1] })) } : {}), ...(cues.length && { cues }) };
       if (parts) for (const side of ['back', 'front']) {
