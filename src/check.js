@@ -396,6 +396,8 @@ export function briefCheck(check) {
 
 export function checkDelivery(project, { recipe, gifs, expect, animation } = {}) {
   const { name, width, height, sheet, animations } = project, scale = sheet.scale, stills = project.stills === true;
+  // Stills keep their flipbook for viewing, but it is no animation to check.
+  if (animation !== undefined && stills) throw new PixelError('animation', stillsHaveNoAnimation('choose'));
   if (animation !== undefined && !Object.hasOwn(animations, animation)) throw new PixelError('animation', `no animation named "${animation}"; choose one of: ${Object.keys(animations).join(', ')}`);
   const names = animation === undefined ? Object.keys(animations) : [animation];
   const frames = animation === undefined ? project.frames : [...new Set(animations[animation].frames)].sort((a, b) => a - b).map(index => project.frames[index]);
@@ -464,7 +466,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation } = {})
   const tileSet = recipe?.animations === undefined && (set || project.frames.some(frame => frame.tile));
   const { motion, notes: moves } = tileSet || stills ? { notes: [] } : reviewMotion(project, names.slice(0, 16), boxes, drawn, recipe);
   notes.push(...moves);
-  const fields = gifs === undefined ? 'width, height, frames, colors, transparent, loop, sheet' : 'width, height, frames, colors, transparent, loop, gifScale, sheet';
+  // Stills have no loop or GIF to ask for.
+  const fields = stills ? 'width, height, frames, colors, transparent, sheet' : gifs === undefined ? 'width, height, frames, colors, transparent, loop, sheet' : 'width, height, frames, colors, transparent, loop, gifScale, sheet';
   if (!expect) return { ...(blank && { ok: false }), delivered, ...(motion && { motion }), ...(blank && { problems: [blank] }), ...(notes.length && { notes }), hint: `Pass expect with what the user asked for (${fields}) to check every file against it.` };
 
   const problems = [], named = recipe?.animations !== undefined;
@@ -482,7 +485,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation } = {})
   }
   const sheetMiss = expect.sheet === undefined ? null : sheetProblem(project, expect, recipe);
   if (sheetMiss) problems.push(sheetMiss);
-  if (gifs !== undefined) {
+  if (stills && expect.gifScale !== undefined) problems.push({ file: 'gifs/', asked: { gifScale: expect.gifScale }, got: 'stills', fix: stillsHaveNoAnimation('make a GIF of') });
+  else if (gifs !== undefined) {
     // Only the GIFs of the animations being checked.
     const checked = new Set(names), scoped = gifs.filter(gif => checked.has(gif.animation));
     // A GIF should be the asked frame size, times gifScale when one was asked for.

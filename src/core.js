@@ -1,6 +1,6 @@
 // Browser-compatible, deterministic rasterizer. No I/O and no dependencies.
 import { patternProblem, ditherThreshold, traceLine, pixelId, colorOf, idsOf, cleanupIds, ruleVariants, rewriteIds } from './craft.js';
-import { AUTOTILE_MODES, tilePieces, templatePiece, expandTilemap, isoLayout } from './autotile.js';
+import { AUTOTILE_MODES, tilePieces, templatePiece, expandTilemap, isoLayout, autotileFrames } from './autotile.js';
 import { layoutText, FONT_HEIGHT, FONT_CHARACTERS } from './font.js';
 export class PixelError extends Error {
   constructor(path, message) { super(`${path}: ${message}`); this.name = 'PixelError'; this.path = path; }
@@ -1015,6 +1015,31 @@ export const isStills = spec => isObject(spec?.animations) && !Object.keys(spec.
 export const namesAnimations = spec => isObject(spec?.animations) && Object.keys(spec.animations).length > 0;
 // What a GIF, video frames or a check say of stills: there is no animation to play, and how to make one.
 export const stillsHaveNoAnimation = what => `the frames are stills ("animations": {} in the recipe), so there is no animation to ${what}: list the frames to play under "animations", such as { "loop": { "frames": ["a", "b"] } }, or remove the field to play every frame in order`;
+// A tile set whose recipe names no animations, as createBundle finds it (it gets a Godot TileSet: tiles, no sheet.trim
+// and no terrain that mixes mask modes): its one animation, the implicit flipbook of every tile, is no animation, so it
+// has no SpriteFrames, CSS or timing.
+export function stillTileSet(spec, project) {
+  if (spec.animations !== undefined || project.sheet.trim) return false;
+  const tiles = autotileFrames(spec), modes = new Map();
+  if (new Set(tiles.map(tile => tile.mask)).size < 2 && !project.frames.some(frame => frame.tile)) return false;
+  for (const tile of tiles) {
+    const terrain = tile.terrain ?? project.name;
+    if ((modes.get(terrain) ?? tile.mode) !== tile.mode) return false;
+    modes.set(terrain, tile.mode);
+  }
+  return true;
+}
+// Whether an export of the recipe plays nothing: stills, or a still tile set. Either has only the flipbook of every
+// frame, which no export animates.
+export const exportsStill = (spec, project) => project.stills === true || stillTileSet(spec, project);
+// The atlas metadata an export writes: for one that plays nothing (exportsStill), the frames alone, with no
+// `animations` or `meta.frameTags`. Every exported atlas goes through here (createBundle's, the playground's), so a
+// still atlas is the same wherever it is downloaded.
+export function exportAtlas(spec, project, metadata) {
+  if (!exportsStill(spec, project)) return metadata;
+  const { animations, meta: { frameTags, ...meta }, ...rest } = metadata;
+  return { ...rest, meta };
+}
 
 function readAnimations(spec, frames) {
   const animations = Object.create(null), animationNames = new Set();
@@ -1606,6 +1631,8 @@ export function inspectProject(project, options = {}) {
   if (options.frames !== undefined && options.animation !== undefined) fail('inspect', 'choose frames or animation, not both');
   let cells = frames.map((_, i) => i);
   if (options.animation !== undefined) {
+    // Stills keep their flipbook to step through, but it is no animation to choose.
+    if (project.stills) fail('inspect.animation', stillsHaveNoAnimation('choose'));
     if (typeof options.animation !== 'string' || !own(project.animations, options.animation)) fail('inspect.animation', `unknown animation ${JSON.stringify(options.animation)}`);
     cells = project.animations[options.animation].frames;
   } else if (options.frames !== undefined) {
@@ -1826,14 +1853,15 @@ export function analyzeProject(project) {
     }
     return { pixels, ...(pixels && { box: { x: left, y: top, w: right - left + 1, h: bottom - top + 1 } }) };
   };
-  const animations = Object.entries(project.animations).map(([name, a]) => {
+  // Stills are reviewed as frames: their flipbook is no animation, so it gets no row and no loop finding.
+  const animations = Object.entries(project.stills ? {} : project.animations).map(([name, a]) => {
     const deltas = a.frames.slice(1).map((index, i) => difference(frames[a.frames[i]].data, frames[index].data).pixels);
     const nonzero = deltas.filter(n => n).sort((a, b) => a - b), median = nonzero[Math.floor(nonzero.length / 2)] ?? 0;
     const boundary = difference(frames[a.frames.at(-1)].data, frames[a.frames[0]].data);
     if (a.loop && boundary.pixels > Math.max(4, median * 3)) findings.push({ code: 'loop-jump', animation: name, from: frames[a.frames.at(-1)].name, to: frames[a.frames[0]].name, ...boundary, note: 'Loop boundary changes over three times the median nonzero adjacent change. Intentional cuts are exempt.' });
     return { animation: name, duration: a.duration, entries: a.frames.length, repeatedAdjacent: deltas.filter(n => !n).length, boundary };
   });
-  return { advisory: true, frames: stats, animations, findings };
+  return { advisory: true, frames: stats, ...(!project.stills && { animations }), findings };
 }
 
 // Diagnostics as a reply carries them. Up to DIAGNOSTIC_ROWS frames keep a row each; past that the rows are added up
@@ -1846,10 +1874,10 @@ export const DIAGNOSTIC_ROWS = 8;
 export function briefDiagnostics(diagnostics) {
   const { frames, ...rest } = diagnostics;
   rest.findings = rest.findings.filter(finding => finding.code !== 'duplicate');
-  if (frames.length <= DIAGNOSTIC_ROWS) return { advisory: rest.advisory, frames, animations: rest.animations, findings: rest.findings };
+  if (frames.length <= DIAGNOSTIC_ROWS) return { advisory: rest.advisory, frames, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
   const range = key => [Math.min(...frames.map(row => row[key])), Math.max(...frames.map(row => row[key]))], sum = key => frames.reduce((total, row) => total + row[key], 0);
   const most = frames.map((row, index) => ({ row, index, count: row.corners + row.strays })).filter(entry => entry.count).sort((a, b) => b.count - a.count || a.index - b.index).slice(0, 3).map(entry => entry.row);
-  return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, animations: rest.animations, findings: rest.findings };
+  return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
 }
 
 // Cells (or frames) as a reply carries them: in order, a line per run that lasts the same, and a run of three or more
@@ -1882,7 +1910,10 @@ export function briefCells(cells) {
 // reply says how many changed and which, the pixels and the box over all of them, the commonest colour changes
 // summed, and the three frames that changed most; a long list of unchanged frames is their names in runs.
 const COMPARED = 8;
-export function briefComparison(report) {
+// Frames that became stills are said once, with how to get the flipbook back.
+const NOW_STILLS = 'the frames are now stills ("animations": {}): an export plays no animation and writes no SpriteFrames, animated PNGs, GIFs, CSS or player; remove the animations field to play every frame in order again, or name animations under it';
+export function briefComparison(full) {
+  const report = full.stills ? { ...full, stills: NOW_STILLS } : full;
   const { changed, unchanged, ...rest } = report.frames;
   // Frames that all changed alike (a recoloured key in every frame) are said once, as many frames are.
   const alike = changed.length > 1 && changed.every(entry => entry.transitions && JSON.stringify(entry.transitions) === JSON.stringify(changed[0].transitions));
@@ -1955,9 +1986,11 @@ export function compareProjects(before, after) {
   const removed = before.frames.filter(frame => !kept.has(frame.name)).map(frame => frame.name);
   for (const name of removed) shown.push({ frame: name, status: 'removed', before: previous.get(name).data, after: null });
   const sequence = (project, key) => project.animations[key].frames.map(i => project.frames[i].name);
-  const animations = { changed: [], added: [], removed: Object.keys(before.animations).filter(key => !own(after.animations, key)) };
-  for (const key of Object.keys(after.animations)) {
-    if (!own(before.animations, key)) { animations.added.push(key); continue; }
+  // Stills have no animations: the flipbook they keep for viewing is never reported added or removed.
+  const played = project => (project.stills ? {} : project.animations), was = played(before), is = played(after);
+  const animations = { changed: [], added: [], removed: Object.keys(was).filter(key => !own(is, key)) };
+  for (const key of Object.keys(is)) {
+    if (!own(was, key)) { animations.added.push(key); continue; }
     const from = sequence(before, key), to = sequence(after, key), loop = [before.animations[key].loop, after.animations[key].loop];
     if (from.join() !== to.join() || loop[0] !== loop[1]) animations.changed.push({ animation: key, ...(from.join() !== to.join() && { frames: { from, to } }), ...(loop[0] !== loop[1] && { loop: { from: loop[0], to: loop[1] } }) });
   }
@@ -1965,7 +1998,9 @@ export function compareProjects(before, after) {
   const report = {
     ...(resized && { canvas: { from: { w: before.width, h: before.height }, to: { w: width, h: height } } }),
     frames: { changed, unchanged, ...filled({ added, removed, durations }) },
-    ...(Object.keys(filled(animations)).length && { animations: filled(animations) })
+    ...(Object.keys(filled(animations)).length && { animations: filled(animations) }),
+    // The frames became stills (a patch removed the last named animation, or set "animations" to {}).
+    ...(after.stills && !before.stills && { stills: true })
   };
   // Before and after share one row per frame, cropped to the changed area plus 2 pixels unless frames were added or removed.
   // When two frames side by side would pass the sheet limit (a still over 2048 wide), before goes above after; a

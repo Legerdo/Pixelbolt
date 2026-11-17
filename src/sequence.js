@@ -68,13 +68,14 @@ export function planSequence(durations, { fps, loop = true, loops = 1, seconds, 
 // How a project's timing sits on the frame grid of a video at `fps`, without making the sequence: the frames whose
 // durations are not whole video frames, and for each animation which positions a sequence would lengthen, shorten or
 // never show, and whether one pass ends on the grid. Video frame j starts at j × 1000 × denominator / numerator ms
-// and shows the pose active then, as in planSequence; counts are exact integer arithmetic.
+// and shows the pose active then, as in planSequence; counts are exact integer arithmetic. Stills have no animation, so
+// only their frames are measured.
 export function frameGrid(project, fps, path = 'validate.fps') {
   const rate = parseFrameRate(fps, path), { numerator, denominator } = rate, unit = 1000 * denominator, frameMs = unit / numerator;
   const round = value => Math.round(value * 1000) / 1000, round6 = value => Math.round(value * 1e6) / 1e6, ceilDiv = (a, b) => Math.floor((a + b - 1) / b);
   const offGrid = project.frames.filter(frame => frame.duration * numerator % unit).map(frame => ({ frame: frame.name, duration: frame.duration, videoFrames: round6(frame.duration * numerator / unit) }));
   const animations = {}, notes = [];
-  for (const [name, animation] of Object.entries(project.animations)) {
+  for (const [name, animation] of Object.entries(project.stills ? {} : project.animations)) {
     const changed = [], neverShown = [];
     let start = 0;
     for (const [position, index] of animation.frames.entries()) {
@@ -91,7 +92,7 @@ export function frameGrid(project, fps, path = 'validate.fps') {
     if (problems.length) notes.push(`${name}: ${problems.join(', ')}.`);
   }
   if (offGrid.length) notes.unshift(`${offGrid.length} of ${project.frames.length} frame durations are not whole video frames of ${round(frameMs)} ms; at integer milliseconds, whole frames at ${rate.label} fps are multiples of ${unit / gcd(unit, numerator)} ms.`);
-  return { fps: rate.label, numerator, denominator, frameMs: round(frameMs), offGrid, animations, notes };
+  return { fps: rate.label, numerator, denominator, frameMs: round(frameMs), offGrid, ...(!project.stills && { animations }), notes };
 }
 
 // Where a w × h sprite goes on the canvas. Without `size` the canvas is the sprite at `scale`. With `size`, `fit`

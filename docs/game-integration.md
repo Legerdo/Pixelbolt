@@ -15,7 +15,7 @@ create() {
 }
 ```
 
-Set `pixelArt: true` in the game configuration. The atlas's extra `animations` object is Pixelbolt metadata; import it explicitly when building your engine's animation definitions. Each entry contains an expanded list of frame names, the total duration, and a loop flag. Per-frame durations live in `frames[name].duration` in milliseconds. Do not assume a constant frame rate when a recipe uses unequal durations.
+Set `pixelArt: true` in the game configuration. The atlas's extra `animations` object is Pixelbolt metadata (absent for stills and a still tile set, see [Atlas contract](#atlas-contract)); import it explicitly when building your engine's animation definitions. Each entry contains an expanded list of frame names, the total duration, and a loop flag. Per-frame durations live in `frames[name].duration` in milliseconds. Do not assume a constant frame rate when a recipe uses unequal durations.
 
 ## Godot 4
 
@@ -179,6 +179,8 @@ The forest spirit's atlas, with the first of its six frames:
   }
 }
 ```
+
+Stills (a recipe whose `"animations"` is `{}`: icons, UI states, a 9-slice panel) and a tile set whose recipe leaves `animations` out play nothing: their atlas has no `animations` and no `meta.frameTags`, only `frames` and the rest of `meta`, and their bundle has no `name.tres`, `animations/`, `name.css` or `player.js`. Check for `animations` before reading it; draw a still by its frame rectangle (`drawFrame` works, `frameAt` needs an animation).
 
 `frame` gives the exact source rectangle in the PNG, including export scale but excluding surrounding transparent padding. `meta.scale` records the scale already applied; do not multiply coordinates by it.
 

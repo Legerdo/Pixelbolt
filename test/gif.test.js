@@ -346,7 +346,10 @@ test('stills have no GIF: gif refuses them and says how to get an animation, ren
   const result = spawnSync(process.execPath, ['bin/pixelbolt.js', 'mcp', '--out', path.join(dir, 'mcp')], { cwd: root, input: messages.map(message => JSON.stringify(message)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr);
   const info = JSON.parse(JSON.parse(result.stdout.trim().split('\n')[1]).result.content[0].text);
-  assert.deepEqual([info.warnings, info.gifs, info.animations, info.check.ok, info.check.delivered.stills], [[note], undefined, undefined, true, 3]);
+  // A GIF size asked of stills is a problem, with the stills text: there is no GIF to check.
+  assert.deepEqual([info.warnings, info.gifs, info.animations, info.check.ok, info.check.delivered.stills], [[note], undefined, undefined, false, 3]);
+  assert.deepEqual(info.check.problems.map(problem => [problem.file, problem.got]), [['gifs/', 'stills']]);
+  assert.match(info.check.problems[0].fix, /^the frames are stills \("animations": \{\} in the recipe\), so there is no animation to make a GIF of: /);
   await assert.rejects(access(path.join(info.directory, 'gifs')));
 });
 test('framesGIF times frames on the frame-rate grid, counts plays and keeps every colour of every frame', () => {

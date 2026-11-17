@@ -746,3 +746,17 @@ test('a link that does not decode is never the link the address goes back to', (
   page.answer = false; await open(`#v=${pin}&r=another`);
   assert.equal(addresses.at(-1), link); assert.equal(location.hash, link); assert.equal($('recipe').value, named('mine'));
 }));
+test('stills render with no animation picker and no GIF, and a recipe that plays gets both back', () => playgroundReady('stills', async page => {
+  const { $, flush, fireTimer, named, preview } = page;
+  assert.deepEqual([$('export-gif').disabled, $('animation').hidden, $('animation-label').hidden], [false, false, false]);
+  page.type(named('icons')); fireTimer(300);
+  page.reply({ result: { ...preview, name: 'icons', stills: true } }); await flush();
+  assert.deepEqual([$('export-gif').disabled, $('animation').hidden, $('animation-label').hidden], [true, true, true]);
+  assert.match($('export-gif').title, /stills/); assert.match($('gif-size').textContent, /^No GIF: the frames are stills/);
+  assert.equal(page.shown().status, 'Rendered icons · 2 stills.');
+  // Stepping through the stills still works.
+  $('step-forward').click(); assert.equal($('frame-counter').textContent, '2 / 2');
+  page.type(named('tiny')); fireTimer(300); await page.render('tiny');
+  assert.deepEqual([$('export-gif').disabled, $('animation').hidden, $('animation-label').hidden], [false, false, false]);
+  assert.match($('gif-size').textContent, /^GIF: /);
+}));

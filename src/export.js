@@ -1,4 +1,4 @@
-import { renderProject, buildAtlas, scalePixels, PixelError, animationFps, namesAnimations } from './core.js';
+import { renderProject, buildAtlas, scalePixels, PixelError, animationFps, namesAnimations, exportsStill, exportAtlas, stillTileSet } from './core.js';
 import { encodePNG, encodeAPNG, crc32 } from './png.js';
 import { readFile, readdir, mkdir, writeFile, access, rm, rmdir, stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -68,9 +68,9 @@ export async function createBundle(spec, { normal } = {}) {
   const tiles = godotTiles(spec, project, atlas);
   // Stills (a recipe whose animations are {}: icons, UI states, a 9-slice panel) and a tile set with no animations of
   // its own have only the flipbook of every frame, which is no animation: they get no SpriteFrames, animated PNGs, CSS
-  // or player, their atlas lists no animations or frame tags, and their preview shows the sheet.
-  const still = project.stills === true || (Boolean(tiles) && spec.animations === undefined);
-  if (still) atlas.metadata = stillAtlas(atlas.metadata);
+  // or player, their atlas lists no animations or frame tags (core's exportAtlas), and their preview shows the sheet.
+  const still = exportsStill(spec, project);
+  atlas.metadata = exportAtlas(spec, project, atlas.metadata);
   const animationPixels = still ? 0 : Object.values(project.animations).reduce((sum, a) => sum + a.frames.length * width * height * sheet.scale ** 2, 0);
   if (animationPixels > 67108864) throw new PixelError('project.animations', 'export exceeds 67,108,864 animation pixels; shorten sequences or reduce scale');
   const files = new Map();
@@ -181,8 +181,6 @@ function godotTiles(spec, project, atlas) {
   for (const tile of source.layered) for (const corner of tile.corners) if (!layers.includes(corner)) layers.push(corner);
   return { text: result.text, tiled: tiled.text, terrains, layers, corner: source.tiles.some(tile => tile.mode === 'corner'), sides: source.tiles.some(tile => tile.mode !== 'corner'), oneWay: project.frames.some(frame => frame.tile?.oneWay), collision: project.frames.some(frame => frame.tile?.collision), facts: project.frames.some(frame => frame.tile), plain: source.plain.length };
 }
-// The atlas metadata of stills: the frames alone, with no animations or frame tags.
-const stillAtlas = ({ animations, meta: { frameTags, ...meta }, ...rest }) => ({ ...rest, meta });
 // `kind`: the sheet as "transparent RGBA" or "opaque RGBA".
 function spriteReadme(project, kind) {
   const { name } = project, first = Object.keys(project.animations)[0];
@@ -219,20 +217,6 @@ function timingText(project) {
       : `${key}: ${durations.length} frames of ${Math.min(...durations)} to ${Math.max(...durations)} ms, ${animation.duration} ms in all${once}`;
   });
   return lines.length ? `\nTiming:\n${lines.join('\n')}\n` : '';
-}
-// A tile set whose recipe names no animations, as createBundle finds it (it gets a Godot TileSet: tiles, no sheet.trim
-// and no terrain that mixes mask modes): its one animation, the implicit flipbook of every tile, is no animation, so it
-// has no SpriteFrames, CSS or timing.
-function stillTileSet(spec, project) {
-  if (spec.animations !== undefined || project.sheet.trim) return false;
-  const tiles = autotileFrames(spec), modes = new Map();
-  if (new Set(tiles.map(tile => tile.mask)).size < 2 && !project.frames.some(frame => frame.tile)) return false;
-  for (const tile of tiles) {
-    const terrain = tile.terrain ?? project.name;
-    if ((modes.get(terrain) ?? tile.mode) !== tile.mode) return false;
-    modes.set(terrain, tile.mode);
-  }
-  return true;
 }
 // What a reply says about a project's animations, the same from every command and tool: by name, how many frames each
 // plays, how long that takes, whether it loops and, where its frames all last the same (and it is not a still tile
