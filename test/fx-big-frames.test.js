@@ -118,7 +118,9 @@ test('the 256-frame cap says the same: what the effects make, and how many frame
   const source = frames => ({ ...rain(64, 64), effects: { plain: dot(100), behind: dot(frames, 'back') } });
   refused(source(60), 'fx.effects', "the effects make 280 frames; a recipe holds at most 256; behind draws behind a character, so each frame of its own makes 3 of the recipe's, and 52 of its own fit");
   assert.equal(compileEffects(source(52)).recipe.frames.length, 256);
-  refused({ ...rain(64, 64), effects: { plain: dot(200), more: dot(57) } }, 'fx.effects', 'the effects make 257 frames; a recipe holds at most 256');
+  // An effect that makes one of the recipe's frames for each of its own is told its room too, which compiles.
+  refused({ ...rain(64, 64), effects: { plain: dot(200), more: dot(57) } }, 'fx.effects', 'the effects make 257 frames; a recipe holds at most 256; more: 56 of its own frames fit beside the others');
+  assert.equal(compileEffects({ ...rain(64, 64), effects: { plain: dot(200), more: dot(56) } }).recipe.frames.length, 256);
 });
 
 test('a particle shape stays at most 256 a side: a canvas-sized sprite from a recipe belongs to a sprite emitter or an aura', () => {
@@ -165,7 +167,7 @@ test('with frames, what every effect simulates and what the recipe delivers each
   // Every frame is simulated, kept or not, up to 80,000 operations: 600 snowflakes standing still for 256 frames of
   // 640x360 are 153,600; 18 kept are 10,800.
   const snow = frames => ({ ...rain(640, 360), symbols: { flake: ['s'] }, effects: { snow: { frames, residue: true, emitters: [{ at: [320, 180], area: [640, 360], burst: 600, speed: 0, life: 256, shapes: ['flake'] }] } } });
-  const long = refusal(() => compileEffects(snow(256), { frames: 18 }), /^fx\.effects\.snow: the effect simulates all 256 of its frames, kept or not, and needs about 153,600 drawing operations \(600 a frame\) of the 80,000 a compile may simulate, so about (\d+) frames fit at this density: lower burst, rate or trail, or the effect's frames$/);
+  const long = refusal(() => compileEffects(snow(256), { frames: 18 }), /^fx\.effects\.snow: the effect simulates all 256 of its frames, kept or not, and needs about 153,600 drawing operations \(600 a frame\) of the 80,000 a compile may simulate: lower burst, rate or trail, or the effect's frames \((\d+) fit\)$/);
   assert.deepEqual(kept(snow(Number(long[1])), 18), { kept: { snow: `18 of ${long[1]}` }, frames: 18 });
   // The frames kept hold 20,000 too. 1024x256 holds 16 frames, and frames 16 keeps every 4th of 64: here the frames
   // where 80 streaks cross the right edge in 1,920 pixels.
@@ -174,8 +176,10 @@ test('with frames, what every effect simulates and what the recipe delivers each
   // Before: "the effect needs about 42,202 drawing operations (659 a frame) and makes at most 20000, so about 30 frames
   // fit at this density: lower burst, rate or trail, or frames", though no frames value under 16 would hold 30.
   refused(streaks, 'fx.effects', /; or compile with frames 16 /);
-  assert.throws(() => compileEffects(streaks, { frames: 16 }), { message: 'fx.effects.streaks: the 16 frames kept with frames 16 need about 30,720 drawing operations (1920 a frame) and a recipe makes at most 20,000, so frames 15 fits (pixelbolt compile --frames 15), or lower burst, rate or trail' });
-  assert.deepEqual(kept(streaks, 15), { kept: { streaks: '15 of 64' }, frames: 15 });
+  assert.throws(() => compileEffects(streaks, { frames: 16 }), { message: 'fx.effects.streaks: the 16 frames kept with frames 16 need about 30,720 drawing operations (1920 a frame) and a recipe makes at most 20,000, so frames 8 fits (pixelbolt compile --frames 8), or lower burst, rate or trail' });
+  // 15 fits as well, but would thin the 64-frame loop unevenly: 8 is the most that fits and divides it.
+  assert.deepEqual(kept(streaks, 8), { kept: { streaks: '8 of 64' }, frames: 8 });
+  assert.equal(compileEffects(streaks, { frames: 8 }).warnings, undefined);
 });
 
 test('the frames a compile may keep are worked out from every effect, those after the one refused too', () => {
@@ -197,6 +201,6 @@ test('past the particles alive at once, a release is blamed only when it holds m
     effects: { e: { frames: 4, emitters: [{ at: [32, 32], burst, life: 4, shapes: ['drop'] }, { at: [2, 2], sprite: { symbol: 'bar' }, release: {}, angle: 0, speed: 1, life: 2 }] } } });
   // Before: the release whose particle crossed 1,024 was told to lower its share or use a smaller sprite, though the
   // burst held 1,000 of them. The reply says how many are alive at the peak, and whose.
-  refused(source(1000), 'fx.effects.e', 'more than 1024 particles are alive at once (about 1,052: emitters[0] 1,000, emitters[1] 52); lower burst, rate or life');
+  refused(source(1000), 'fx.effects.e', 'more than 1024 particles are alive at once (about 1,052: emitters[0] 1,000, emitters[1] 52); lower burst, rate or life (release.share or life for emitters[1])');
   assert.equal(compileEffects(source(900)).recipe.frames.length, 4);
 });

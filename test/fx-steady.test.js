@@ -84,12 +84,11 @@ test('held bands loop exactly and compile the same every time', () => {
     assert.equal(first.metadata.effects.e.seam.jump, 0, layer.kind);
     assert.deepEqual(first, compiled(structuredClone(effect)));
   }
-  // Every shipped loop still closes exactly. (Some draw particles that outlive the loop, which the compile warns about
-  // and fx-depth-edges lists.)
+  // Every shipped loop still closes exactly.
   for (const preset of [...Object.values(spellLibrary), ...Object.values(spellPresets)]) {
     const { metadata, warnings } = compileEffects(preset);
     for (const [name, effect] of Object.entries(metadata.effects)) if (effect.seam?.jump !== undefined) assert.equal(effect.seam.jump, 0, `${preset.name} ${name}`);
-    assert.equal(warnings?.filter(text => !/ longer than its \d+-frame loop/.test(text)).length || undefined, undefined, preset.name);
+    assert.equal(warnings, undefined, preset.name);
   }
 });
 
