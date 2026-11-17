@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileEffects } from '../src/fx.js';
 import { renderProject } from '../src/core.js';
+import { keepFrames } from '../src/resize.js';
+import { compilePreset } from '../src/presets.js';
 
 // An effect's canvas is an animation frame: at most 1024 a side and 262,144 pixels, so a full-screen overlay at 320x180
 // or 640x360 is one effect, with every frame of it held to the 4,194,304 pixels a recipe's frames share.
@@ -12,11 +14,11 @@ const refused = (source, path, message) => assert.throws(() => compileEffects(so
   return true;
 });
 // Slanted streaks falling from above the screen, each splashing where it ends: a seamless rain loop.
-const rain = (width = 320, height = 180, frames = 16) => ({ format: 'pixelforge-fx', version: 1, name: 'rain', width, height,
+const rain = (width = 320, height = 180, frames = 16, rate = 7 * width / 320) => ({ format: 'pixelforge-fx', version: 1, name: 'rain', width, height,
   palette: { d: '#9fb8d8', l: '#5d7397', s: '#cfe0f4' },
   symbols: { drop: ['d'], splash: ['s'] },
   effects: { rain: { frames, duration: 60, loop: true, seed: 7, edges: ['top', 'left', 'right'], emitters: [
-    { name: 'drop', at: [width / 2 - 10, -8], area: [width + 80, 1], rate: 7 * width / 320, angle: [100, 102], speed: [8, 9], life: [16, 21], shapes: ['drop'], trail: { color: 'l', length: 2 } },
+    { name: 'drop', at: [width / 2 - 10, -8], area: [width + 80, 1], rate, angle: [100, 102], speed: [8, 9], life: [16, 21], shapes: ['drop'], trail: { color: 'l', length: 2 } },
     { from: 'drop', when: 'death', burst: 2, angle: [200, 340], speed: [0.5, 1.2], gravity: [0, 0.3], life: [2, 3], shapes: ['splash'] }] } } });
 
 test('a 320x180 rain overlay is one effect: slanted streaks, splashes and a seamless loop', () => {
@@ -125,4 +127,71 @@ test('a particle shape stays at most 256 a side: a canvas-sized sprite from a re
   // At 256 a side it is still a shape, and as a sprite emitter's sprite the whole frame is fine.
   assert.ok(compileEffects(emitting(still(256, 16), { shapes: ['screen'] })).recipe.frames.length);
   assert.ok(compileEffects(emitting(still(320, 180), { at: [0, 0], sprite: { symbol: 'screen' }, burst: 4, life: 2 })).recipe.frames.length);
+});
+
+// A refusal's message matched against a pattern, returning the match for the route it names.
+const refusal = (run, pattern) => {
+  let match = null;
+  assert.throws(run, error => { assert.equal(error.name, 'PixelError'); match = error.message.match(pattern); assert.ok(match, error.message); return true; });
+  return match;
+};
+// What compile --frames delivers, thinned the way the CLI and MCP thin it.
+const kept = (source, frames) => {
+  const thinned = keepFrames(compilePreset(source, { frames }).recipe, frames);
+  return { kept: thinned.kept, frames: renderProject(thinned.recipe).frames.length };
+};
+
+test('compile --frames holds the 20,000 drawing operations to the frames it keeps: 72 frames of a 320x180 rain', () => {
+  // 73 frames of 320x180 are past the recipe's pixels, and the refusal names frames 72.
+  refused(rain(320, 180, 73, 6), 'fx.effects', /; or compile with frames 72 \(pixelbolt compile --frames 72\)/);
+  // Before, the operations of every frame simulated were counted, so frames 72 was refused ("needs about 24,004 drawing
+  // operations (250 a frame) and makes at most 20000, so about 79 frames fit") and no frames value led anywhere.
+  assert.deepEqual(kept(rain(320, 180, 73, 6), 72), { kept: { rain: '72 of 73' }, frames: 72 });
+  assert.deepEqual(kept(rain(320, 180, 96, 6), 72), { kept: { rain: '72 of 96' }, frames: 72 });
+  // Within the 72 frames a recipe holds, an effect is drawn whole before it is thinned, so every frame still counts.
+  assert.throws(() => compileEffects(rain(320, 180, 70), { frames: 64 }), /^PixelError: fx\.effects\.rain: the effect needs about 20,251 drawing operations \(289 a frame\) and makes at most 20000, so about 69 frames fit at this density/);
+});
+
+test('with frames, the frames drawn together, all those simulated and those kept each hold a limit, and each refusal names what fits', () => {
+  // The frames of the canvas a recipe holds (72 of 320x180) are drawn together before frames thins them, so any 72 in a
+  // row hold 20,000 operations: a denser rain is told how many frames of its own fit, and that compiles.
+  const dense = refusal(() => compileEffects(rain(320, 180, 96, 8), { frames: 72 }), /^fx\.effects\.rain: frames 0–60 need about 20,306 drawing operations \(333 a frame\); every 72 frames of 320×180 in a row are drawn together before frames 72 thins them, and make at most 20000, so about (\d+) frames fit at this density: lower burst, rate or trail, or the effect's frames$/);
+  assert.equal(compileEffects(rain(320, 180, Number(dense[1]), 8)).recipe.frames.length, 60);
+  // Every frame is simulated, kept or not, up to 80,000 operations: 600 snowflakes standing still for 256 frames of
+  // 640x360 are 153,600; 18 kept are 10,800.
+  const snow = frames => ({ ...rain(640, 360), symbols: { flake: ['s'] }, effects: { snow: { frames, residue: true, emitters: [{ at: [320, 180], area: [640, 360], burst: 600, speed: 0, life: 256, shapes: ['flake'] }] } } });
+  const long = refusal(() => compileEffects(snow(256), { frames: 18 }), /^fx\.effects\.snow: the effect simulates all 256 of its frames, kept or not, and needs about 153,600 drawing operations \(600 a frame\) of the 80,000 it may make, so about (\d+) frames fit at this density: lower burst, rate or trail, or the effect's frames$/);
+  assert.deepEqual(kept(snow(Number(long[1])), 18), { kept: { snow: `18 of ${long[1]}` }, frames: 18 });
+  // The frames kept hold 20,000 too. 1024x256 holds 16 frames, and frames 16 keeps every 4th of 64: here the frames
+  // where 80 streaks cross the right edge in 1,920 pixels, while any 16 in a row hold 9,920.
+  const streaks = { format: 'pixelforge-fx', version: 1, name: 'streaks', width: 1024, height: 256, palette: { d: '#9fb8d8', l: '#5d7397' }, symbols: { drop: ['d'] },
+    effects: { streaks: { frames: 64, loop: true, edges: ['right'], emitters: Array.from({ length: 16 }, (_, k) => ({ at: [1000, 16 * k + 8], burst: 80, start: (4 * k + 62) % 64, angle: 0, speed: 20, life: 5, shapes: ['drop'], trail: { color: 'l', length: 2 } })) } } };
+  // Before: "the effect needs about 42,202 drawing operations (659 a frame) and makes at most 20000, so about 30 frames
+  // fit at this density: lower burst, rate or trail, or frames", though no frames value under 16 would hold 30.
+  refused(streaks, 'fx.effects', /; or compile with frames 16 /);
+  assert.throws(() => compileEffects(streaks, { frames: 16 }), { message: 'fx.effects.streaks: the 16 frames kept with frames 16 need about 30,720 drawing operations (1920 a frame) and make at most 20000, so frames 15 fits (pixelbolt compile --frames 15), or lower burst, rate or trail' });
+  assert.deepEqual(kept(streaks, 15), { kept: { streaks: '15 of 64' }, frames: 15 });
+});
+
+test('the frames a compile may keep are worked out from every effect, those after the one refused too', () => {
+  // 512x512 holds 16 frames. The first effect's 20 are refused; the second's 10 need room as well, so 8 of each fit.
+  const dot = (frames, depth) => ({ frames, emitters: [{ at: [4, 4], burst: 1, shapes: ['drop'], ...(depth && { depth }) }] });
+  const source = second => ({ ...rain(512, 512), effects: { first: dot(20), second } });
+  // Before: "or compile with frames 16", which then refused the second effect.
+  refused(source(dot(10)), 'fx.effects', /: use fewer frames or a smaller canvas; or compile with frames 8 \(pixelbolt compile --frames 8\)/);
+  assert.equal(kept(source(dot(10)), 8).frames, 16);
+  // One drawn behind a character makes three of the recipe's frames for each of its own: 4 of each fit (4 + 12).
+  refused(source(dot(10, 'back')), 'fx.effects', /; or compile with frames 4 \(pixelbolt compile --frames 4\)/);
+  assert.equal(kept(source(dot(10, 'back')), 4).frames, 16);
+  // With frames already given, the reply says which fits.
+  assert.throws(() => compileEffects(source(dot(10, 'back')), { frames: 5 }), /; frames 4 fits$/);
+});
+
+test('past the particles alive at once, a release is blamed only when it holds most of them', () => {
+  const source = burst => ({ ...rain(64, 64), symbols: { drop: ['d'], bar: Array(10).fill('dddddddddd') },
+    effects: { e: { frames: 4, emitters: [{ at: [32, 32], burst, life: 4, shapes: ['drop'] }, { at: [2, 2], sprite: { symbol: 'bar' }, release: {}, angle: 0, speed: 1, life: 2 }] } } });
+  // Before: the release whose particle crossed 1,024 was told to lower its share or use a smaller sprite, though the
+  // burst held 1,000 of them.
+  refused(source(1000), 'fx.effects.e', 'more than 1024 particles are alive at once; lower burst, rate or life');
+  assert.equal(compileEffects(source(900)).recipe.frames.length, 4);
 });
