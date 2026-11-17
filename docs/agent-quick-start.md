@@ -1,6 +1,6 @@
 # Pixelbolt quick start
 
-Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic; no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. The last section lists the longer references.
+Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic; no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. The last section lists longer references.
 
 ## A complete recipe
 
@@ -28,12 +28,12 @@ Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, t
   "animations": { "idle": { "frames": ["rest", "up"] }, "blink": { "frames": ["rest", "blink", "rest"], "loop": false } } }
 ```
 
-- Required: `version: 1`, `name`, `width` and `height` (1–256; a single-frame still may be up to 4096 a side and 4,194,304 pixels), and `frames` (1–256). Names start with a letter, then letters, digits, `-` or `_`; frame and animation names are unique ignoring case.
+- Required: `version: 1`, `name`, `width` and `height` (1–1024 and 262,144 pixels a frame; a one-frame still up to 4096 a side), and `frames` (1–256; 4,194,304 pixels in all, so 72 of 320×180). Names start with a letter, then letters, digits, `-` or `_`; frame and animation names are unique ignoring case.
 - `palette` maps keys to `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` or `transparent`. Single-character keys draw in grid rows, where `.` and space leave pixels alone, as `transparent` does in shapes and grids; `clear` erases, as do `fill` and `replace` to `transparent`. A shared palette file is `{"$ref": "palette.json"}` (MCP: inside its root).
 - `symbols` are reusable grids that `stamp` draws. A frame is `{name, duration?, from?, translate?, flipX?, palette?, anchor?, points?, ops?, layers?, pixels?}`: `duration` in ms (default 100), `from` copies an earlier frame as it was finally drawn (its `pixels` corrections too), a frame `palette` recolours keys for palette cycling, `layers` are `{name?, opacity?, x?, y?, palette?, sort?, ops}` (`sort: "ground"` draws them far to near by the row each operation stands on), and `pixels` are final `{x, y, color}` corrections.
 - `animations` map names to `{frames, direction?: forward | reverse | pingpong, loop?}`. Without them, one animation plays every frame; `{}` makes the frames stills (icons, UI states).
 - `ramps` (optional) list palette keys from dark to light, one list per material, so `shade` and scene lighting move colours along them without leaving the palette.
-- Unknown fields are errors, and every error names its path, such as `project.frames[1].ops[0]`. Broken operations are reported together, up to ten, in the reply's `errors`, so fix them all before validating again.
+- Unknown fields are errors; every error names its path, such as `project.frames[1].ops[0]`. Broken operations are reported together, up to ten, in `errors`: fix them all before validating again.
 
 ## Operations
 
@@ -43,7 +43,7 @@ Coordinates are whole pixels from the top-left, and y points down. Shapes are ne
 
 ## The tools
 
-The tool list you loaded says what each tool takes. This is the order to use them in, and what the list leaves out.
+The tool list says what each tool takes; here is the order to use them in, and what it leaves out.
 
 1. **`pixel_validate`** `{project}` checks a recipe and returns a `revision` id. Send the full recipe once and the id afterwards: every tool that takes `project` takes `revision`, and revisions persist in the server's output folder.
 2. **`pixel_inspect`** `{revision}` returns a contact sheet of every frame to look at; `grid: true` with a `region` reads exact palette-key rows before you change pixels.
