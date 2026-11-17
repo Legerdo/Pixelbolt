@@ -1,4 +1,4 @@
-// Reviewed pixelforge-fx effects built from shape layers: eight spells (the fireball a seamless loop in eight directions)
+// Reviewed pixelforge-fx effects built from shape layers: twelve spells (the fireball a seamless loop in eight directions)
 // and a set of cel-shaded water effects, written to examples/<name>.fx.json by scripts/generate-examples.js. Their
 // compiled pixels are pinned in test/shapes.test.js.
 export const spellPresets = {
@@ -1835,6 +1835,1633 @@ export const spellPresets = {
           "solid": ["arch"],
           "dither": 0.45
         }
+      }
+    }
+  },
+  // A frost nova on open ground, seen from above and in front: a flash where the caster stands, a ring of frost that
+  // runs out and leaves a see-through sheet of it on the ground, small ice popping up behind the front, and a crown
+  // of tall ice where the front stops. The sheet melts from the middle out and the crown last. The ice is drawn as
+  // symbols, one per step of a cluster's life (up past its full height, settled, standing, sinking and dulling), and
+  // `ground: 0` stands every step on the row its particle was born on. Each half of the ellipse has its own emitters,
+  // the far half first, so near ice is drawn over far ice. Drawn under a character it needs no parts.
+  'frost-nova': {
+    "format": "pixelforge-fx",
+    "version": 1,
+    "name": "frost-nova",
+    "width": 144,
+    "height": 96,
+    "anchor": [72, 62],
+    "palette": {
+      "W": "#ffffff",
+      "p": "#d8f6ff",
+      "c": "#8fe0ff",
+      "b": "#4aa8e8",
+      "B": "#2f5fb3",
+      "f": "#2f7fd866",
+      "g": "#5cbcf58c",
+      "h": "#aee8ffbf"
+    },
+    "symbols": {
+      "glint-1": ["p"],
+      "glint-3": [
+        ".c.",
+        "cWc",
+        ".c."
+      ],
+      "glint-5": [
+        "..c..",
+        "..p..",
+        "cpWpc",
+        "..p..",
+        "..c.."
+      ],
+      "fleck": ["c"],
+      "fleck-dim": ["b"],
+      "tall-0": [
+        ".....W.......",
+        ".....Wb......",
+        "....WbB......",
+        "....WcbB.....",
+        "....pcbB.Wb..",
+        ".Wb.pcbB.WbB.",
+        ".pB.pcBB.pBB."
+      ],
+      "tall-1": [
+        "....W........",
+        "....W........",
+        "....p........",
+        "....Wb.......",
+        "....Wb.......",
+        "....WbB......",
+        "....WbB......",
+        "...WcbB......",
+        "...pcbB......",
+        "...pcbbB...W.",
+        "...pcbbB..Wb.",
+        "W..pcbbB..Wb.",
+        "Wb.pcbbB.WbB.",
+        "Wb.pcbbB.pcbB",
+        "pbBpcbbBpcbB.",
+        "pbBpcbbBpcbB.",
+        ".pBBpcBBBcBB."
+      ],
+      "tall-2": [
+        "....W........",
+        "....W........",
+        "....p........",
+        "...Wb........",
+        "...Wb........",
+        "...Wb........",
+        "...WbB.......",
+        "...WbB.......",
+        "...WbB.......",
+        "...WcbB......",
+        "...WcbB......",
+        "..WcbbB......",
+        "...pcbbB...W.",
+        "...pcbbB...W.",
+        "..pccbbB...p.",
+        "..pccbbB..Wb.",
+        "W.pccbbB..Wb.",
+        "W.pccbbB..WbB",
+        "Wb.pccbbBpbB.",
+        "Wb.pccbbBpcbB",
+        "WbBpccbbBpcbB",
+        "pbBpccbbBcbB.",
+        "pbBpccbbBcbB.",
+        "pbBpccbbBcbB.",
+        ".pBBccBBBcBB."
+      ],
+      "tall-3": [
+        "....W........",
+        "....W........",
+        "....p........",
+        "...Wb........",
+        "...Wb........",
+        "...WbB.......",
+        "...WbB.......",
+        "...WcbB......",
+        "...WcbB......",
+        "...WcbB......",
+        "...pcbbB.....",
+        "...pcbbB...W.",
+        "..pccbbB...W.",
+        "..pccbbB..Wb.",
+        "W.pccbbB..Wb.",
+        "W.pccbbB..WbB",
+        "Wb.pccbbBpcbB",
+        "Wb.pccbbBpcbB",
+        "pbBpccbbBpcbB",
+        "pbBpccbbBcbB.",
+        "pbBpccbbBcbB.",
+        ".pBBccBBBcBB."
+      ],
+      "tall-4": [
+        "....W........",
+        "....W........",
+        "....p........",
+        "...Wb........",
+        "....Wb.......",
+        "...WbB.......",
+        "...WbB.......",
+        "...WcbB......",
+        "...WcbB......",
+        "...WcbbB.....",
+        "...pcbbB.....",
+        "..pccbbB...W.",
+        "..pccbbB...W.",
+        "W.pccbbB..Wb.",
+        "W.pccbbB..WbB",
+        "Wb.pccbbBWbB.",
+        "Wb.pccbbBpcbB",
+        "pbBpccbbBpcbB",
+        "pbBpccbbBcbB.",
+        "pbBpccbbBcbB.",
+        ".pBBccBBBcBB."
+      ],
+      "tall-5": [
+        "....p........",
+        "....p........",
+        "....pb.......",
+        "....pb.......",
+        "...pbB.......",
+        "...pbB.......",
+        "...pcbB......",
+        "...pcbB......",
+        "...pcbbB.....",
+        "...ccbbB...p.",
+        "..cccbbB...p.",
+        "p.cccbbB..pb.",
+        "p..cccbbBpbB.",
+        "pb.cccbbBpcbB",
+        "pbBcccbbBccbB",
+        "cbBcccbbBcbB.",
+        "cbBcccbbBcbB.",
+        ".cBBccBBBcBB."
+      ],
+      "tall-6": [
+        "....p........",
+        "....p........",
+        "....pb.......",
+        "....pb.......",
+        "....pbB......",
+        "....pbB......",
+        "...pcbB......",
+        "...ccbbB...p.",
+        "...ccbbB..p..",
+        ".p.ccbbB..pb.",
+        ".p.ccbbB.pbB.",
+        ".pbccbbB.cbB.",
+        ".cbccbbB.cbB.",
+        ".cB.ccBBBcBB."
+      ],
+      "tall-7": [
+        ".....c.......",
+        ".....c.......",
+        "....cb.......",
+        "....cbB......",
+        "....cbbB.....",
+        "....cbbB..c..",
+        ".c..cbbB.cb..",
+        ".cb.cbbB.cbB.",
+        ".cB.cbBB.cBB."
+      ],
+      "tall-8": [
+        ".....cb......",
+        "....cbB......",
+        ".cb.cbbB.cb..",
+        ".cB.cbBB.cBB."
+      ],
+      "lean-0": [
+        ".....W.....",
+        ".....Wb....",
+        ".W..WbB....",
+        ".Wb.pbB....",
+        ".pB.pBB...."
+      ],
+      "lean-1": [
+        ".......W...",
+        "......W....",
+        "......p....",
+        "......Wb...",
+        ".....Wb....",
+        ".....WbB...",
+        ".....WbB...",
+        "W...pcbB...",
+        "W...pcbB...",
+        "Wb..pcbB...",
+        "WbBpcbB....",
+        "pbBpcbB....",
+        "pbBpcbB....",
+        ".pBpcBB...."
+      ],
+      "lean-2": [
+        ".......W...",
+        ".......W...",
+        ".......p...",
+        "......Wb...",
+        "......Wb...",
+        "......Wb...",
+        "......WbB..",
+        ".....WbB...",
+        ".....WbB...",
+        ".....WcbB..",
+        "....pcbB...",
+        "W...pcbbB..",
+        "W...pcbbB..",
+        "p...pcbbB..",
+        "Wb.pcbbB...",
+        "Wb.pcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        ".pBpcBBB..."
+      ],
+      "lean-3": [
+        ".......W...",
+        ".......W...",
+        ".......p...",
+        "......Wb...",
+        "......Wb...",
+        "......WbB..",
+        ".....WbB...",
+        ".....WcbB..",
+        ".....WcbB..",
+        "W...pcbB...",
+        "W...pcbbB..",
+        "Wb..pcbbB..",
+        "Wb.pcbbB...",
+        "WbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        ".pBpcBBB..."
+      ],
+      "lean-4": [
+        ".......W...",
+        ".......W...",
+        ".......p...",
+        "......Wb...",
+        "......Wb...",
+        ".....WbB...",
+        ".....WbB...",
+        ".....WcbB..",
+        "W...pcbB...",
+        "W...pcbbB..",
+        "Wb..pcbbB..",
+        "Wb.pcbbB...",
+        "WbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        "pbBpcbbB...",
+        ".pBpcBBB..."
+      ],
+      "lean-5": [
+        ".......p...",
+        ".......p...",
+        "......pb...",
+        "......pb...",
+        ".....pbB...",
+        ".....pbB...",
+        "....pcbB...",
+        "....ccbB...",
+        "p..ccbbB...",
+        "p..ccbbB...",
+        "pb.ccbbB...",
+        "pbBccbbB...",
+        "cbBccbbB...",
+        "cbBccbbB...",
+        ".cBccBBB..."
+      ],
+      "lean-6": [
+        "......p....",
+        "......p....",
+        ".....pb....",
+        ".....pb....",
+        ".....pbB...",
+        "p...ccbB...",
+        ".p..ccbB...",
+        "pb..ccbB...",
+        ".cbccbB....",
+        ".cbccbB....",
+        ".cBccBB...."
+      ],
+      "lean-7": [
+        "......c....",
+        ".....cb....",
+        "....cbB....",
+        ".c..cbbB...",
+        ".cbcbbB....",
+        ".cbcbbB....",
+        ".cBcbBB...."
+      ],
+      "lean-8": [
+        ".....c.....",
+        "....cb.....",
+        ".cb.cbB....",
+        ".cB.cBB...."
+      ],
+      "twin-0": [
+        "..W........",
+        "..Wb....W..",
+        ".WbB...Wb..",
+        ".pbB...pbB.",
+        "..pBB..pBB."
+      ],
+      "twin-1": [
+        ".W.........",
+        ".W.........",
+        ".Wb......W.",
+        ".Wb......W.",
+        ".WbB....Wb.",
+        "pcbB...WbB.",
+        "pcbB...WcbB",
+        ".pcbB..pcbB",
+        ".pcbB.pcbB.",
+        ".pcbB.pcbB.",
+        ".pcBB.pcBB."
+      ],
+      "twin-2": [
+        ".W.........",
+        ".W.........",
+        ".p.........",
+        "Wb.......W.",
+        ".Wb......W.",
+        "WbB......p.",
+        "WbB.....Wb.",
+        "WcbB....Wb.",
+        "pcbB....WbB",
+        "pcbbB...WbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB.pcbB.",
+        "pcbbB.pcbB.",
+        "pcbbB.pcbB.",
+        ".pcBBBpcBB."
+      ],
+      "twin-3": [
+        ".W.........",
+        ".W.........",
+        "Wb.........",
+        ".Wb......W.",
+        "WbB......W.",
+        "WbB......Wb",
+        "WcbB....Wb.",
+        "pcbB....WbB",
+        "pcbbB...WbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB.pcbB.",
+        "pcbbB.pcbB.",
+        ".pcBBBpcBB."
+      ],
+      "twin-4": [
+        ".W.........",
+        ".W.........",
+        ".Wb........",
+        ".Wb......W.",
+        "WbB......W.",
+        "WbB.....Wb.",
+        "WcbB....Wb.",
+        "pcbbB...WbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB..pcbB",
+        "pcbbB.pcbB.",
+        "pcbbB.pcbB.",
+        ".pcBBBpcBB."
+      ],
+      "twin-5": [
+        ".p.........",
+        ".p.........",
+        ".pb......p.",
+        "pbB......p.",
+        ".pbB....pb.",
+        "pcbB...pbB.",
+        "ccbbB..pbB.",
+        "ccbbB..ccbB",
+        "ccbbB.ccbB.",
+        "ccbbB.ccbB.",
+        "ccbbB.ccbB.",
+        ".ccBBBccBB."
+      ],
+      "twin-6": [
+        ".p.........",
+        "..p........",
+        ".pb......p.",
+        ".pbB....p..",
+        "pcbB....pb.",
+        ".ccbB..pbB.",
+        ".ccbB..cbB.",
+        ".ccbB..cbB.",
+        ".ccBB..cBB."
+      ],
+      "twin-7": [
+        "..c........",
+        ".cb.....c..",
+        ".cbB...cb..",
+        ".cbbB..cbB.",
+        ".cbbB..cbB.",
+        ".cbBB..cBB."
+      ],
+      "twin-8": [
+        "..cb.......",
+        ".cbB...cb..",
+        "..cBB..cBB."
+      ],
+      "mid-0": [
+        ".....W.....",
+        "....Wb.....",
+        ".Wb.pbB....",
+        ".pB.pBB...."
+      ],
+      "mid-1": [
+        ".....W.....",
+        ".....W.....",
+        ".....Wb....",
+        "....WbB....",
+        ".W.WcbB....",
+        ".WbpcbB....",
+        "WbBpcbB....",
+        "pbBpcbB....",
+        ".pBBcBB...."
+      ],
+      "mid-2": [
+        ".....W.....",
+        ".....W.....",
+        ".....p.....",
+        ".....Wb....",
+        ".....Wb....",
+        "....WbB....",
+        "....WbB....",
+        ".W.pcbB....",
+        ".W.pcbB....",
+        "Wb.pcbB....",
+        "WbBpcbB....",
+        "pbBpcbB....",
+        "pbBpcbB....",
+        ".pBBcBB...."
+      ],
+      "mid-3": [
+        ".....W.....",
+        ".....W.....",
+        ".....Wb....",
+        ".....Wb....",
+        "....WbB....",
+        "....WbB....",
+        ".W.pcbB....",
+        "Wb.pcbB....",
+        ".WbpcbB....",
+        "pbBpcbB....",
+        "pbBpcbB....",
+        ".pBBcBB...."
+      ],
+      "mid-4": [
+        ".....W.....",
+        ".....W.....",
+        ".....Wb....",
+        ".....Wb....",
+        "....WbB....",
+        ".W.pcbB....",
+        "Wb.pcbB....",
+        ".WbpcbB....",
+        "pbBpcbB....",
+        "pbBpcbB....",
+        ".pBBcBB...."
+      ],
+      "mid-5": [
+        ".....p.....",
+        ".....p.....",
+        ".....pb....",
+        "....pbB....",
+        "....pbB....",
+        ".p.ccbB....",
+        ".pbccbB....",
+        "pbBccbB....",
+        "cbBccbB....",
+        ".cBBcBB...."
+      ],
+      "mid-6": [
+        ".....p.....",
+        ".....p.....",
+        "....pb.....",
+        ".p..pbB....",
+        ".pb.cbB....",
+        ".cb.cbB....",
+        ".cB.cBB...."
+      ],
+      "mid-7": [
+        ".....c.....",
+        "....cb.....",
+        "....cbB....",
+        ".cb.cbB....",
+        ".cB.cBB...."
+      ],
+      "mid-8": [
+        "....cb.....",
+        ".cB.cBB...."
+      ],
+      "low-0": [
+        "..WbWb.",
+        "..pBpB."
+      ],
+      "low-1": [
+        "..W....",
+        "..Wb.W.",
+        ".WbBWb.",
+        ".pbBpbB",
+        "..pBpBB"
+      ],
+      "low-2": [
+        "..W....",
+        "..W....",
+        ".Wb..W.",
+        "..Wb.Wb",
+        ".pbB.Wb",
+        ".pbBpbB",
+        ".pbBpbB",
+        "..pBpBB"
+      ],
+      "low-3": [
+        "..W....",
+        "..W....",
+        ".Wb..W.",
+        ".WbB.Wb",
+        ".pbBWbB",
+        ".pbBpbB",
+        "..pBpBB"
+      ],
+      "low-4": [
+        "..W....",
+        "..W....",
+        ".Wb..W.",
+        ".WbB.Wb",
+        ".pbBWbB",
+        ".pbBpbB",
+        "..pBpBB"
+      ],
+      "low-5": [
+        "..p....",
+        ".pb....",
+        "..pb.p.",
+        ".cbBpb.",
+        ".cbBcbB",
+        "..cBcBB"
+      ],
+      "low-6": [
+        "..p....",
+        "..pb.p.",
+        "..cbpb.",
+        "..cBcB."
+      ],
+      "low-7": [
+        "..c....",
+        "..cbcb.",
+        "..cBcB."
+      ],
+      "low-8": ["..cBcB."],
+      "nub-0": [
+        "Wb.",
+        "pB."
+      ],
+      "nub-1": [
+        ".W.",
+        "Wb.",
+        "WbB",
+        "pbB",
+        "pBB"
+      ],
+      "nub-2": [
+        ".W.",
+        ".W.",
+        ".Wb",
+        "WbB",
+        "pbB",
+        "pbB",
+        "pBB"
+      ],
+      "nub-3": [
+        ".W.",
+        ".Wb",
+        ".Wb",
+        "pbB",
+        "pbB",
+        "pBB"
+      ],
+      "nub-4": [
+        ".W.",
+        ".Wb",
+        "Wb.",
+        "pbB",
+        "pbB",
+        "pBB"
+      ],
+      "nub-5": [
+        ".p.",
+        "pb.",
+        "pbB",
+        "cbB",
+        "cBB"
+      ],
+      "nub-6": [
+        ".p.",
+        "pb.",
+        "cb.",
+        "cB."
+      ],
+      "nub-7": [
+        "cb.",
+        "cB."
+      ],
+      "nub-8": ["cB."]
+    },
+    "effects": {
+      "frost-nova": {
+        "frames": 24,
+        "duration": { "from": 45, "to": 95, "ease": "in" },
+        "seed": 4,
+        "looks": {
+          "sheet": { "colors": ["f", "g", "h"], "thresholds": [0.2, 0.5, 0.82] },
+          "front": { "colors": ["B", "b", "c", "p", "W"], "thresholds": [0.16, 0.32, 0.5, 0.7, 0.88] }
+        },
+        "cleanup": { "corners": true, "strays": true },
+        "layers": [
+          {
+            "kind": "burst",
+            "look": "sheet",
+            "at": [72, 62],
+            "frames": [1, 24],
+            "radius": [10, 54, 59, 60, 60],
+            "squash": [1, 0.4],
+            "hole": [0, 0, 0.3, 0.62, 0.9],
+            "noise": 0.5,
+            "scale": 7,
+            "boil": 1,
+            "power": [1.4, 1.4, 1.2, 0.9, 0.25],
+            "ease": "linear"
+          },
+          {
+            "kind": "ring",
+            "look": "front",
+            "at": [72, 62],
+            "frames": [1, 11],
+            "radius": [8, 60],
+            "width": [9, 7, 4],
+            "squash": [1, 0.4],
+            "noise": [0.15, 0.4, 0.95],
+            "scale": 5,
+            "power": [1.6, 1.35, 0.45]
+          },
+          {
+            "kind": "burst",
+            "look": "front",
+            "at": [72, 62],
+            "frames": [0, 4],
+            "radius": [6, 13, 7],
+            "squash": [1, 0.55],
+            "noise": 0.2,
+            "scale": 4,
+            "power": [1.6, 1.2, 0.4],
+            "cue": "cast"
+          },
+          {
+            "kind": "star",
+            "look": "front",
+            "at": [72, 62],
+            "frames": [0, 5],
+            "points": 4,
+            "radius": [20, 8],
+            "width": [4, 1],
+            "core": 3,
+            "squash": [1, 0.75],
+            "power": [1.5, 0.5]
+          }
+        ],
+        "emitters": [
+          {
+            "name": "crown-far",
+            "at": [72, 62],
+            "ring": { "radius": [51, 59], "squash": [1, 0.4], "arc": [196, 344], "even": true },
+            "burst": 5,
+            "start": 7,
+            "speed": [0, 0],
+            "life": [12, 15],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "tall-0",
+                "tall-1",
+                "tall-2",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-4",
+                "tall-5",
+                "tall-6",
+                "tall-7",
+                "tall-8"
+              ],
+              [
+                "tall-0",
+                "tall-1",
+                "tall-2",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-4",
+                "tall-5",
+                "tall-6",
+                "tall-7",
+                "tall-8"
+              ],
+              [
+                "lean-0",
+                "lean-1",
+                "lean-2",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-4",
+                "lean-5",
+                "lean-6",
+                "lean-7",
+                "lean-8"
+              ],
+              [
+                "twin-0",
+                "twin-1",
+                "twin-2",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-4",
+                "twin-5",
+                "twin-6",
+                "twin-7",
+                "twin-8"
+              ]
+            ]
+          },
+          {
+            "name": "beside-far",
+            "at": [72, 62],
+            "ring": { "radius": [51, 59], "squash": [1, 0.4], "arc": [207, 319], "even": true },
+            "burst": 4,
+            "start": 8,
+            "speed": [0, 0],
+            "life": [12, 15],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "twin-0",
+                "twin-1",
+                "twin-2",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-4",
+                "twin-5",
+                "twin-6",
+                "twin-7",
+                "twin-8"
+              ]
+            ]
+          },
+          {
+            "name": "ripple-far",
+            "at": [72, 62],
+            "ring": { "radius": 60, "squash": [1, 0.4], "arc": [180, 360], "grow": [0.18, 0.82] },
+            "rate": [2.2, 2.2, 1.6, 0],
+            "start": 1,
+            "end": 8,
+            "ease": "out",
+            "speed": [0, 0],
+            "life": [5, 8],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "nub-0",
+                "nub-1",
+                "nub-2",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-4",
+                "nub-5",
+                "nub-6",
+                "nub-7",
+                "nub-8"
+              ],
+              [
+                "nub-0",
+                "nub-1",
+                "nub-2",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-4",
+                "nub-5",
+                "nub-6",
+                "nub-7",
+                "nub-8"
+              ]
+            ]
+          },
+          {
+            "name": "ripple-near",
+            "at": [72, 62],
+            "ring": { "radius": 60, "squash": [1, 0.4], "arc": [0, 180], "grow": [0.18, 0.82] },
+            "rate": [2.2, 2.2, 1.6, 0],
+            "start": 1,
+            "end": 8,
+            "ease": "out",
+            "speed": [0, 0],
+            "life": [5, 8],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "nub-0",
+                "nub-1",
+                "nub-2",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-4",
+                "nub-5",
+                "nub-6",
+                "nub-7",
+                "nub-8"
+              ],
+              [
+                "nub-0",
+                "nub-1",
+                "nub-2",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-3",
+                "nub-4",
+                "nub-5",
+                "nub-6",
+                "nub-7",
+                "nub-8"
+              ]
+            ]
+          },
+          {
+            "name": "beside-near",
+            "at": [72, 62],
+            "ring": { "radius": [51, 59], "squash": [1, 0.4], "arc": [28, 138], "even": true },
+            "burst": 4,
+            "start": 8,
+            "speed": [0, 0],
+            "life": [12, 15],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "mid-0",
+                "mid-1",
+                "mid-2",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-3",
+                "mid-4",
+                "mid-5",
+                "mid-6",
+                "mid-7",
+                "mid-8"
+              ],
+              [
+                "low-0",
+                "low-1",
+                "low-2",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-3",
+                "low-4",
+                "low-5",
+                "low-6",
+                "low-7",
+                "low-8"
+              ],
+              [
+                "twin-0",
+                "twin-1",
+                "twin-2",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-4",
+                "twin-5",
+                "twin-6",
+                "twin-7",
+                "twin-8"
+              ]
+            ]
+          },
+          {
+            "name": "crown-near",
+            "at": [72, 62],
+            "ring": { "radius": [51, 59], "squash": [1, 0.4], "arc": [14, 166], "even": true },
+            "burst": 5,
+            "start": 8,
+            "speed": [0, 0],
+            "life": [12, 15],
+            "ground": 0,
+            "play": "life",
+            "shapes": [
+              [
+                "tall-0",
+                "tall-1",
+                "tall-2",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-4",
+                "tall-5",
+                "tall-6",
+                "tall-7",
+                "tall-8"
+              ],
+              [
+                "tall-0",
+                "tall-1",
+                "tall-2",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-3",
+                "tall-4",
+                "tall-5",
+                "tall-6",
+                "tall-7",
+                "tall-8"
+              ],
+              [
+                "lean-0",
+                "lean-1",
+                "lean-2",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-3",
+                "lean-4",
+                "lean-5",
+                "lean-6",
+                "lean-7",
+                "lean-8"
+              ],
+              [
+                "twin-0",
+                "twin-1",
+                "twin-2",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-3",
+                "twin-4",
+                "twin-5",
+                "twin-6",
+                "twin-7",
+                "twin-8"
+              ]
+            ]
+          },
+          {
+            "name": "chips",
+            "at": [72, 62],
+            "ring": { "radius": 60, "squash": [1, 0.4], "grow": [0.2, 1], "outward": true },
+            "rate": [3, 3, 2, 0],
+            "start": 1,
+            "end": 10,
+            "ease": "out",
+            "angle": [-25, 25],
+            "speed": [0.8, 1.8],
+            "kick": [0, -1.6],
+            "gravity": [0, 0.3],
+            "ground": 0,
+            "life": [4, 7],
+            "play": "life",
+            "shapes": [["fleck", "fleck", "fleck-dim"], ["glint-1", "fleck", "fleck-dim"]],
+            "trail": { "color": "b", "length": 1 }
+          },
+          {
+            "name": "glints",
+            "at": [72, 62],
+            "ring": { "radius": [10, 56], "squash": [1, 0.4], "fill": true },
+            "rate": [0, 1.6, 1.6, 1.2, 0.8, 0],
+            "start": 2,
+            "end": 20,
+            "angle": [255, 285],
+            "speed": [0.3, 0.9],
+            "drag": 0.03,
+            "life": [5, 8],
+            "play": "life",
+            "shapes": [
+              ["glint-1", "glint-3", "glint-5", "glint-3", "glint-1"],
+              ["glint-1", "glint-3", "glint-1"],
+              ["fleck", "glint-3", "fleck", "fleck-dim"]
+            ]
+          }
+        ]
+      }
+    }
+  },
+  // A character arriving: two circles draw in to the spot while light gathers from round about, a thread of light
+  // stands up and thickens into a column, the column flashes (the `arrive` cue, where a game shows the character),
+  // and it bursts away in rays while a ring runs out over the ground. The column runs off the top edge: a beam's far
+  // end is round, and a column of light has no cap. `wobble: 0` keeps its sides straight.
+  'teleport-in': {
+    "format": "pixelforge-fx",
+    "version": 1,
+    "name": "teleport-in",
+    "width": 96,
+    "height": 128,
+    "anchor": [48, 110],
+    "palette": {
+      "W": "#ffffff",
+      "y": "#e4fbff",
+      "c": "#9be8ff",
+      "b": "#49b8f0",
+      "v": "#5a6cf0",
+      "d": "#3a3aa8",
+      "s": "#49b8f040",
+      "t": "#7fd8ff66",
+      "u": "#c8f4ff99"
+    },
+    "symbols": {
+      "mote": ["c"],
+      "mote-hot": ["W"],
+      "mote-dim": ["v"],
+      "glint-3": [
+        ".c.",
+        "cWc",
+        ".c."
+      ],
+      "glint-5": [
+        "..c..",
+        "..y..",
+        "cyWyc",
+        "..y..",
+        "..c.."
+      ],
+      "dash": [
+        "W",
+        "y",
+        "c"
+      ],
+      "dash-dim": [
+        "c",
+        "b"
+      ],
+      "bit": ["y"]
+    },
+    "effects": {
+      "teleport-in": {
+        "frames": 23,
+        "duration": 60,
+        "seed": 7,
+        "edges": ["top"],
+        "looks": {
+          "floor": { "colors": ["d", "v", "b", "c", "W"], "thresholds": [0.14, 0.3, 0.48, 0.68, 0.88] },
+          "shaft": { "colors": ["s", "t", "u"], "thresholds": [0.14, 0.4, 0.7] },
+          "core": { "colors": ["b", "c", "y", "W"], "thresholds": [0.3, 0.5, 0.7, 0.88] }
+        },
+        "cleanup": { "corners": true, "strays": true },
+        "layers": [
+          {
+            "kind": "ring",
+            "look": "floor",
+            "at": [48, 110],
+            "frames": [0, 12],
+            "radius": [42, 15],
+            "width": [2, 3, 5],
+            "squash": [1, 0.36],
+            "noise": [0.5, 0.1],
+            "scale": 5,
+            "power": [0.9, 1.2, 1.5],
+            "ease": "in"
+          },
+          {
+            "kind": "ring",
+            "look": "floor",
+            "at": [48, 110],
+            "frames": [2, 11],
+            "radius": [28, 7],
+            "width": [2, 3],
+            "squash": [1, 0.36],
+            "noise": [0.4, 0.1],
+            "scale": 5,
+            "power": [0.7, 1.3],
+            "ease": "in"
+          },
+          {
+            "kind": "burst",
+            "look": "floor",
+            "at": [48, 110],
+            "frames": [6, 17],
+            "radius": [6, 14, 19, 12],
+            "squash": [1, 0.36],
+            "noise": 0.25,
+            "scale": 4,
+            "boil": 2,
+            "power": [0.9, 1.4, 1.6, 0.5],
+            "ease": "linear"
+          },
+          {
+            "kind": "beam",
+            "look": "shaft",
+            "at": [48, 110],
+            "to": [48, -28],
+            "frames": [2, 12],
+            "width": [2, 6, 10, 15, 22],
+            "reveal": 0.3,
+            "fade": 0.7,
+            "wobble": 0,
+            "power": [0.8, 1, 1.1, 1.2],
+            "ease": "linear",
+            "squash": [1, 0.36]
+          },
+          {
+            "kind": "beam",
+            "look": "core",
+            "at": [48, 110],
+            "to": [48, -28],
+            "frames": [2, 12],
+            "width": [1, 2, 4, 7, 11],
+            "reveal": 0.3,
+            "fade": 0.55,
+            "wobble": 0.06,
+            "wavelength": 28,
+            "waves": -2,
+            "power": [1, 1.1, 1.2, 1.3],
+            "ease": "linear",
+            "squash": [1, 0.36]
+          },
+          {
+            "kind": "beam",
+            "look": "shaft",
+            "at": [48, 110],
+            "to": [48, -28],
+            "frames": [12, 16],
+            "width": [36, 40, 22, 8],
+            "fade": 0.7,
+            "wobble": 0,
+            "noise": [0, 0.2, 0.7],
+            "scale": 5,
+            "power": [1.5, 1.3, 0.8, 0.35],
+            "ease": "linear",
+            "squash": [1, 0.36]
+          },
+          {
+            "kind": "beam",
+            "look": "core",
+            "at": [48, 110],
+            "to": [48, -28],
+            "frames": [12, 16],
+            "width": [24, 20, 7, 2],
+            "fade": 0.55,
+            "wobble": 0,
+            "noise": [0, 0.2, 0.8],
+            "scale": 4,
+            "power": [1.8, 1.5, 1, 0.5],
+            "ease": "linear",
+            "squash": [1, 0.36]
+          },
+          {
+            "kind": "star",
+            "look": "core",
+            "at": [48, 78],
+            "frames": [12, 16],
+            "points": 8,
+            "ratio": 0.7,
+            "radius": [38, 14],
+            "width": [5, 1],
+            "core": [5, 1],
+            "power": [1.7, 0.5],
+            "cue": "arrive"
+          },
+          {
+            "kind": "ring",
+            "look": "floor",
+            "at": [48, 110],
+            "frames": [13, 22],
+            "radius": [12, 45],
+            "width": [7, 3],
+            "squash": [1, 0.36],
+            "noise": [0.2, 0.95],
+            "scale": 5,
+            "power": [1.6, 0.35]
+          }
+        ],
+        "emitters": [
+          {
+            "name": "gather",
+            "at": [48, 78],
+            "ring": { "radius": [34, 46] },
+            "rate": [5, 5, 4, 0],
+            "start": 0,
+            "end": 10,
+            "speed": [0, 0.4],
+            "attract": { "at": [48, 92], "strength": 0.6, "swirl": 0.3 },
+            "drag": 0.1,
+            "life": [6, 9],
+            "play": "life",
+            "shapes": [["mote", "mote", "mote-hot", "mote-hot"], ["mote-dim", "mote", "mote", "glint-3"]],
+            "trail": { "color": "b", "length": 3 }
+          },
+          {
+            "name": "rise",
+            "at": [42, 108],
+            "line": { "to": [54, 108] },
+            "rate": [1, 2.5, 3, 0],
+            "start": 4,
+            "end": 14,
+            "angle": [269, 271],
+            "speed": [3.5, 6],
+            "life": [5, 8],
+            "play": "life",
+            "shapes": [["dash", "dash", "dash-dim"], ["dash-dim", "dash", "dash-dim"]]
+          },
+          {
+            "name": "rays",
+            "at": [48, 78],
+            "ring": { "radius": [3, 7], "arc": [152, 388], "even": true, "outward": true },
+            "burst": 14,
+            "start": 12,
+            "angle": [-7, 7],
+            "speed": [6.5, 12],
+            "drag": 0.2,
+            "life": [5, 8],
+            "shapes": ["bit"],
+            "tint": [{}, { "y": "W" }, {}, { "y": "c" }, { "y": "b" }, { "y": "v" }],
+            "trail": { "color": "b", "length": 3 }
+          },
+          {
+            "name": "scatter",
+            "at": [48, 100],
+            "line": { "to": [48, 34] },
+            "burst": 14,
+            "start": 13,
+            "angle": [198, 342],
+            "speed": [1.4, 3.8],
+            "drag": 0.1,
+            "gravity": [0, -0.03],
+            "life": [6, 9],
+            "play": "life",
+            "shapes": [
+              ["mote-hot", "mote", "mote", "mote-dim"],
+              ["mote-hot", "glint-3", "mote", "mote-dim"],
+              ["dash", "dash-dim", "mote-dim"]
+            ]
+          },
+          {
+            "name": "after",
+            "at": [48, 84],
+            "area": [48, 60],
+            "rate": [0, 2.2, 1.6, 0],
+            "start": 13,
+            "end": 19,
+            "angle": [262, 278],
+            "speed": [0.3, 0.9],
+            "life": [4, 6],
+            "play": "life",
+            "shapes": [
+              ["mote", "glint-3", "glint-5", "glint-3", "mote-dim"],
+              ["mote", "glint-3", "mote-dim"],
+              ["mote-hot", "mote", "mote-dim"]
+            ]
+          }
+        ]
+      }
+    }
+  },
+  // A coin picked up: a white star for two frames, a gold ring that breaks into dashes, and sparkles thrown out
+  // that hang and twinkle as they go out. The sparkles are `behind`, so the ones born inside the flash come out from
+  // under it instead of speckling its white middle.
+  'coin-sparkle': {
+    "format": "pixelforge-fx",
+    "version": 1,
+    "name": "coin-sparkle",
+    "width": 64,
+    "height": 64,
+    "anchor": [32, 34],
+    "palette": { "W": "#ffffff", "y": "#fff3b0", "g": "#ffd23f", "o": "#f59b1c" },
+    "symbols": {
+      "tw-1": ["y"],
+      "tw-1d": ["o"],
+      "tw-3": [
+        ".g.",
+        "gWg",
+        ".g."
+      ],
+      "tw-5": [
+        "..g..",
+        "..y..",
+        "gyWyg",
+        "..y..",
+        "..g.."
+      ],
+      "tw-7": [
+        "...o...",
+        "...g...",
+        "..gyg..",
+        "ogyWygo",
+        "..gyg..",
+        "...g...",
+        "...o..."
+      ],
+      "tw-9": [
+        "....o....",
+        "....g....",
+        "....y....",
+        "...gWg...",
+        "ogyWWWygo",
+        "...gWg...",
+        "....y....",
+        "....g....",
+        "....o...."
+      ]
+    },
+    "effects": {
+      "coin-sparkle": {
+        "frames": 15,
+        "duration": { "from": 40, "to": 75, "ease": "in" },
+        "seed": 2,
+        "looks": { "flash": { "colors": ["o", "g", "y", "W"], "thresholds": [0.22, 0.4, 0.62, 0.86] } },
+        "cleanup": { "corners": true, "strays": true },
+        "layers": [
+          {
+            "kind": "star",
+            "look": "flash",
+            "at": [32, 34],
+            "frames": [0, 4],
+            "points": 8,
+            "ratio": 0.42,
+            "radius": [13, 24, 9],
+            "width": [5, 2],
+            "core": [4, 1],
+            "power": [1.7, 1.5, 0.6],
+            "cue": "grab"
+          },
+          {
+            "kind": "burst",
+            "look": "flash",
+            "at": [32, 34],
+            "frames": [0, 4],
+            "radius": [5, 8, 4],
+            "noise": 0.15,
+            "scale": 4,
+            "power": [1.6, 1.2, 0.4]
+          },
+          {
+            "kind": "ring",
+            "look": "flash",
+            "at": [32, 34],
+            "frames": [1, 8],
+            "radius": [5, 26],
+            "width": [3, 2],
+            "noise": [0.1, 0.95],
+            "scale": 4,
+            "power": [1.5, 0.35]
+          }
+        ],
+        "emitters": [
+          {
+            "name": "thrown",
+            "at": [32, 34],
+            "ring": { "radius": [4, 6], "even": true, "outward": true },
+            "burst": 8,
+            "start": 1,
+            "behind": true,
+            "angle": [-12, 12],
+            "speed": [3, 5],
+            "drag": 0.2,
+            "kick": [0, -0.5],
+            "life": [9, 12],
+            "play": "life",
+            "shapes": [
+              ["tw-3", "tw-7", "tw-9", "tw-7", "tw-9", "tw-7", "tw-5", "tw-3", "tw-1"],
+              ["tw-3", "tw-5", "tw-7", "tw-5", "tw-7", "tw-5", "tw-3", "tw-1", "tw-1d"]
+            ]
+          },
+          {
+            "name": "between",
+            "at": [32, 34],
+            "ring": { "radius": [3, 5], "even": true, "outward": true },
+            "burst": 7,
+            "start": 2,
+            "behind": true,
+            "angle": [10, 40],
+            "speed": [1.6, 3.4],
+            "drag": 0.2,
+            "kick": [0, -0.4],
+            "life": [7, 10],
+            "play": "life",
+            "shapes": [
+              ["tw-1", "tw-3", "tw-5", "tw-3", "tw-5", "tw-3", "tw-1", "tw-1d"],
+              ["tw-1", "tw-3", "tw-1", "tw-3", "tw-1", "tw-1d"]
+            ]
+          },
+          {
+            "name": "glitter",
+            "at": [32, 34],
+            "ring": { "radius": [8, 22], "fill": true },
+            "rate": [0, 1.2, 1, 0],
+            "start": 5,
+            "end": 12,
+            "speed": [0, 0.2],
+            "life": [3, 5],
+            "play": "life",
+            "shapes": [["tw-1", "tw-3", "tw-5", "tw-3", "tw-1"], ["tw-1", "tw-3", "tw-1"]]
+          }
+        ]
       }
     }
   }

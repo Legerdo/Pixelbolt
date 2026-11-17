@@ -20,5 +20,8 @@
   "example/meteor": "02c7900fc4419aa4268e51704fe63af833e4357c60d484de1348919f0f461f10",
   "example/shield": "a896712ce2cc23a1c1b08aca9371b1895c1a8db1f1829eae57892c9f4b10511e",
   "example/stone-portal": "66cad1d874104b77febfba176818f4a41b2f9a744da5860dd613a57e9245cd12",
+  "example/frost-nova": "ebebdc900c5afb1698e1115b9bcd460b2644453919cef2753b14732f597a6b89",
+  "example/teleport-in": "6eedf3424b93b17c87d00ffce20e7b3eea98482caad65d052beb3ee286905d46",
+  "example/coin-sparkle": "1a62cfd85a7fffd7c2ed1b47cbd96a91cbbf085375a45c6609d93fe88d20b6f2",
   "liquid": "fb94c94c577b419ad18df3d17e013d6985c9cb3ceb6c3f6a4655609851ba597f"
 }
