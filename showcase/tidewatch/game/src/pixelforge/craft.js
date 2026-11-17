@@ -46,6 +46,20 @@ export function ditherThreshold(pattern, [ox, oy] = [0, 0], seed = 0, scale = 4)
   const h = matrix.length, w = matrix[0].length, levels = Math.max(...matrix.flat()) + 1;
   return (x, y) => (matrix[(((y + oy) % h) + h) % h][(((x + ox) % w) + w) % w] + 0.5) / levels;
 }
+// How far each pixel's thresholds sit below a layer's on this canvas, as a share of the band's gap: (1 - pattern) ×
+// dither, for a layer holding `threshold` (a ditherThreshold) and `dither`. Worked out once per layer and canvas, since
+// the pattern never moves.
+const FEATHERS = new WeakMap();
+export function feathersOf(layer, width, height) {
+  let known = FEATHERS.get(layer);
+  if (!known || known.width !== width || known.height !== height) {
+    const values = new Float64Array(width * height);
+    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) values[j * width + i] = (1 - layer.threshold(i, j)) * layer.dither;
+    known = { width, height, values };
+    FEATHERS.set(layer, known);
+  }
+  return known.values;
+}
 
 // ---- Seeded hashing and engine-independent maths -----------------------------------------------------------------
 // A 32-bit hash of integers (MurmurHash3-style mixing). The same inputs give the same value on every platform.

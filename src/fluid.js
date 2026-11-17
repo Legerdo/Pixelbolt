@@ -14,11 +14,11 @@
 // createLiveFluid runs the same simulation a frame at a time for interactive pages, with pushes, puffs and boosts.
 import { renderProject, parseColor, fail, isObject, sameWidth } from './core.js';
 import { fields, number, integer, boolean, pair, range, pick, pickWhole } from './authoring.js';
-import { patternProblem, ditherThreshold, cleanupIds, traceLine, random, sinDeg, cosDeg } from './craft.js';
+import { patternProblem, ditherThreshold, feathersOf, cleanupIds, traceLine, random, sinDeg, cosDeg } from './craft.js';
 import { atan2Deg } from './shapes.js';
 import { readElectric, readElectrode, createElectric, stepElectric, electricFields, electricWork, ELECTRODE_FIELDS, MATTER } from './electric.js';
 import { readBodies, createBodyWorld, bodyCells, heldCells, poseCells, startCells, paintBodies, drawBodies, areaBeyond, readSubpixels, framesFit, scaleAnchor } from './bodies.js';
-import { createLight, spreadLight } from './light.js';
+import { createLight, spreadLight, readLight, meanOfFive, lightCodes, codeGrid, EMPTY, DRAWN, SURFACE, SHINING } from './light.js';
 
 export const FLUID_KINDS = ['gas', 'liquid'];
 export const FLUID_FIELDS = ['density', 'temperature', 'speed', 'depth', 'light', 'shadow', 'strand', 'ionization', 'current'];
@@ -224,40 +224,17 @@ function readLook(layer, path, context) {
 // then they are drawn as they look fully lit, and the light is seen by what it leaves dark. A colour that is fully
 // clear draws nothing: at that level what is drawn shows as it is. `own` holds the colours the shining field is itself
 // drawn in, halos included: light is never laid over what gives it.
-const SHINE_FIELDS = { temperature: 1, density: 0, ionization: 4, current: 5 }, SHINE_LISTS = ['colors', 'smoke', 'wall'];
+const SHINE_FIELDS = { temperature: 1, density: 0, ionization: 4, current: 5 };
 function readShine(value, path, context, look) {
   if (!isObject(value)) fail(path, 'expected { from, reach, thresholds } and colors, smoke or wall for the light of what shines');
-  fields(value, ['field', 'from', 'full', 'reach', 'depth', 'ease', 'thresholds', ...SHINE_LISTS, 'dark', 'dither', 'pattern'], path);
   if (context.liquid) fail(path, 'shine is the light of a gas (a fire, an explosion, an arc); a liquid has none');
-  const name = value.field ?? 'temperature', { palette } = context;
+  const light = readLight(value, path, { palette: context.palette, seed: context.seed, key: paletteKey }, ['field', 'from', 'full'], { colors: 'obstacles', smoke: 'the smoke' });
+  const name = value.field ?? 'temperature';
   if (!Object.hasOwn(SHINE_FIELDS, name)) fail(`${path}.field`, `expected ${Object.keys(SHINE_FIELDS).join(', ')}: the field whose high values shine`);
   if ((name === 'ionization' || name === 'current') && !context.electric) fail(`${path}.field`, `${name} is a plasma's; give the effect electric settings and an electrode (an obstacle with a voltage)`);
-  if (!Array.isArray(value.thresholds) || !value.thresholds.length || value.thresholds.length > LIMITS.colors) fail(`${path}.thresholds`, `expected 1–${LIMITS.colors} rising shares of full light, each above 0 and at most 1: one for each colour`);
-  const thresholds = value.thresholds.map((share, i) => {
-    number(share, `${path}.thresholds[${i}]`, 0.001, 1);
-    if (i && share <= value.thresholds[i - 1]) fail(`${path}.thresholds[${i}]`, 'thresholds must rise from one colour to the next');
-    return share;
-  });
-  // A palette key as its code, or 0 for a colour that is fully clear.
-  const code = (key, where) => { const known = paletteKey(key, where, palette); return parseColor(palette[known])[3] ? known.charCodeAt(0) : 0; };
-  if (!SHINE_LISTS.some(list => value[list] !== undefined)) fail(`${path}.colors`, 'expected colors (the light on obstacles), smoke (on the smoke) or wall (on the empty pixels): palette keys, one for each threshold');
-  const [colors, smoke, wall] = SHINE_LISTS.map(list => {
-    if (value[list] === undefined) return null;
-    if (!Array.isArray(value[list]) || value[list].length !== thresholds.length) fail(`${path}.${list}`, `expected ${thresholds.length} palette keys, one for each threshold, from the least light to the most`);
-    return value[list].map((key, i) => code(key, `${path}.${list}[${i}]`));
-  });
-  const from = number(value.from, `${path}.from`, 0.001, 256), full = number(value.full ?? from * 2, `${path}.full`, 0.001, 512);
+  const from = number(value.from, `${path}.from`, 0.001, 256), full = number(value.full ?? from * 2, `${path}.full`, 0.001, 512), drawn = FLUID_FIELDS.indexOf(name);
   if (full <= from) fail(`${path}.full`, 'expected more than from: the level at which a pixel shines in full');
-  const pattern = value.pattern ?? 'bayer4', problem = patternProblem(pattern), drawn = FLUID_FIELDS.indexOf(name);
-  if (problem) fail(`${path}.pattern${problem[0]}`, problem[1]);
-  const reach = number(value.reach, `${path}.reach`, 2, 128);
-  return {
-    name, source: SHINE_FIELDS[name], from, full, reach, colors, smoke, wall, thresholds, gaps: thresholds.map((share, i) => share - (i ? thresholds[i - 1] : 0)),
-    dark: value.dark === undefined ? 0 : code(value.dark, `${path}.dark`), dither: number(value.dither ?? 0.5, `${path}.dither`, 0, 1), threshold: ditherThreshold(pattern, [0, 0], context.seed),
-    // A solid drinks light about as much faster than air as rock does in the game the model is from.
-    depth: number(value.depth ?? reach / 2.6, `${path}.depth`, 0.5, 64), ease: number(value.ease ?? 0.5, `${path}.ease`, 0.05, 1),
-    own: new Set(look.filter(other => other.field === drawn).flatMap(other => [...other.colors, ...(other.halo ? [other.halo.color] : [])]))
-  };
+  return { ...light, name, source: SHINE_FIELDS[name], from, full, own: new Set(look.filter(other => other.field === drawn).flatMap(other => [...other.colors, ...(other.halo ? [other.halo.color] : [])])) };
 }
 
 // A disc (at, radius), an ellipse (at, radius [x, y]), a box (x, y, w, h), or both: their overlap, such as the lower
@@ -3738,19 +3715,6 @@ function openSample(a, solid, nx, ny, fx, fy, fallback) {
   return weight > 1e-9 ? sum / weight : fallback;
 }
 
-// How far each pixel's thresholds sit below a layer's on this canvas, as a share of the band's gap: (1 - pattern) ×
-// dither, worked out once per layer and canvas, since the pattern never moves.
-const FEATHERS = new WeakMap();
-function feathersOf(layer, width, height) {
-  let known = FEATHERS.get(layer);
-  if (!known || known.width !== width || known.height !== height) {
-    const values = new Float64Array(width * height);
-    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) values[j * width + i] = (1 - layer.threshold(i, j)) * layer.dither;
-    known = { width, height, values };
-    FEATHERS.set(layer, known);
-  }
-  return known.values;
-}
 // Each look layer maps one field to palette colours: a colour is fully on from its threshold up, and `dither` feathers
 // it in below, through the pattern, over that share of the gap to the previous threshold. Later layers draw over
 // earlier ones; obstacles never hold fluid. Then optional cleanup and a one-pixel outline.
@@ -4414,17 +4378,9 @@ function stepShine(run, width, height) {
   let any = false;
   for (let c = 0; c < N; c++) { const share = drinks[c] ? 0 : (values[c] - from) / span; level[c] = share <= 0 ? 0 : share >= 1 ? 1 : share; if (share > 0) any = true; }
   if (!any) { for (let c = 0; c < N; c++) lit[c] -= lit[c] * ease; return; }
-  // The mean over five by five cells, across and then down; beyond the canvas nothing shines.
-  for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
-    let sum = 0;
-    for (let k = Math.max(0, i - 2); k <= Math.min(width - 1, i + 2); k++) sum += level[j * width + k];
-    across[j * width + i] = sum;
-  }
-  for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
-    let sum = 0;
-    for (let k = Math.max(0, j - 2); k <= Math.min(height - 1, j + 2); k++) sum += across[k * width + i];
-    power[j * width + i] = drinks[j * width + i] ? 0 : sum / 25;
-  }
+  // The mean over five by five cells; nothing inside a solid shines.
+  meanOfFive(level, across, power, width, height);
+  for (let c = 0; c < N; c++) if (drinks[c]) power[c] = 0;
   const light = spreadLight(memory, power, drinks, reach, depth);
   for (let c = 0; c < N; c++) lit[c] += (light[c] - lit[c]) * ease;
 }
@@ -4433,21 +4389,12 @@ function stepShine(run, width, height) {
 // field's own takes `smoke`; the empty pixels take `wall`. Sparks and the shining gas itself take nothing, unless an
 // obstacle is drawn over them. `grid` is the frame as drawn, `sparks` marks its spark pixels (or null).
 function shineCodes(effect, layout, lit, grid, sparks, width, height) {
-  const shine = effect.shine, { colors, smoke, wall, thresholds, gaps, own, dark } = shine, N = width * height, n = thresholds.length;
-  const feathers = feathersOf(shine, width, height), { surface } = shineMasks(effect, layout, width, height), { front } = layout;
-  let codes = null;
+  const { own } = effect.shine, N = width * height, { surface } = shineMasks(effect, layout, width, height), { front } = layout, kinds = new Uint8Array(N);
   for (let c = 0; c < N; c++) {
     const ch = grid[c];
-    if ((sparks && sparks[c]) || (own.has(ch) && !front[c])) continue;
-    const keys = surface[c] ? colors : ch ? smoke : wall;
-    if (!keys && !(surface[c] && dark)) continue;
-    const value = lit[c];
-    let band = 0;
-    while (band < n && value >= thresholds[band] - feathers[c] * gaps[band]) band++;
-    const code = band ? (keys ? keys[band - 1] : 0) : surface[c] ? dark : 0;
-    if (code) (codes ??= new Uint16Array(N))[c] = code;
+    kinds[c] = (sparks && sparks[c]) || (own.has(ch) && !front[c]) ? SHINING : surface[c] ? SURFACE : ch ? DRAWN : EMPTY;
   }
-  return codes;
+  return lightCodes(effect.shine, lit, kinds, width, height);
 }
 // A loop's closing frames hand the drawing's memory back to the warm-up's (`to`, the bands drawn in the frame before the
 // one these fields blend toward): each pixel, by its own seeded draw, takes the warm-up's bands once the blend weight `w`
@@ -5127,14 +5074,8 @@ function simulate(effect, context) {
     if (lights) {
       let sparks = null;
       for (let k = 0; k < list.length; k += 2) (sparks ??= new Uint8Array(N))[list[k]] = 1;
-      const codes = shineCodes(effect, layouts[i], lights[i], grid, sparks, width, height);
-      if (codes) {
-        let x0 = width, y0 = height, x1 = -1, y1 = -1;
-        for (let c = 0; c < N; c++) if (codes[c]) { const x = c % width, y = (c - x) / width; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-        const rows = [];
-        for (let y = y0; y <= y1; y++) { let row = ''; for (let x = x0; x <= x1; x++) { const ch = codes[y * width + x]; row += ch ? String.fromCharCode(ch) : '.'; } rows.push(row); }
-        ops.push({ op: 'grid', x: x0, y: y0, rows });
-      }
+      const light = codeGrid(shineCodes(effect, layouts[i], lights[i], grid, sparks, width, height), width, height);
+      if (light) ops.push(light);
     }
     // Drawn n times finer, the fluid and its obstacles are enlarged to the bodies' pixels.
     return { ops: n > 1 ? ops.map(op => (op === fine[i]?.op ? op : { ...op, x: op.x * n, y: op.y * n, scale: n })) : ops, pixels };
