@@ -1479,7 +1479,7 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
       for (const low of [...room.others].sort((a, b) => a - b)) { if (low > left) break; left -= low; fit++; }
     }
     const others = fit > 0 ? `at most ${fit} other recipe${fit === 1 ? '' : 's'}` : 'one recipe at a time';
-    fail(`${where}.sheets`, `one row of ${region.w}×${region.h} cells is ${tall} pixels tall with its gutters and label, past the ${room.maxHeight} left to it in an image of ${room.sheets} sheets stacked (${room.why}); compare ${others}, or show a smaller region`);
+    fail('beside', `one row of ${region.w}×${region.h} cells is ${tall} pixels tall with its gutters and label, past the ${room.maxHeight} left to it in an image of ${room.sheets} sheets stacked (${room.why}); compare ${others}, or show a smaller region`);
   }
   // Each side holds 4096 pixels of cells and 2 pixels a gutter; the gutters are as wide as the scale, so above scale 2
   // the rest of each counts against the 4096.
@@ -1797,13 +1797,13 @@ function refitted(views) {
 // the one asking the largest every.
 const shortest = views => views.filter(view => view[REFIT].short).map(view => bySheet(view[REFIT].short, view.name)).reduce((most, next) => (!most || next.every > most.every ? next : most), null);
 // An `every` that a sheet, alone or refitted into the stack, cannot hold is refused once for the whole stack, naming
-// the smallest every above it that holds every cell of every sheet. The views are inspected again (laid out, not
-// drawn) at the every the refusals ask for and the stack refitted until one holds (each round asks more, so a few
-// settle it); then the gap between the last every refused and that one is halved until they are one apart. A
-// sheet's own bound (`alone`: 256 cells, or one 4096-pixel sheet) is never passed below the every it needs, so the
-// search starts there. The refusal names the sheet refused just below that every, and says what it holds in the
-// stack drawn at it, so following it is not refused again by another sheet. It says no "or more": a larger every
-// usually holds too, but not always, since fewer cells can let a small sheet keep a larger scale and crowd the rest.
+// the smallest every above it that holds every cell of every sheet. Each try inspects the views again (laid out, not
+// drawn) at one every and refits the stack. Only a sheet's own bound (`alone`: 256 cells, or one 4096-pixel sheet)
+// holds at every every past it, so only it is a lower bound: the stack is not monotone, since fewer cells can let a
+// small sheet keep a larger scale and crowd the rest. So the search climbs from the every after the one asked (or the
+// alone bound) by 1, 2, 4 … past it, and halves only the last gap. The refusal names the sheet refused at the every
+// asked and what it holds there: in the stack, beside the other sheets' cells at that every; alone, its own bound,
+// with the advice said as the stack's when it is past that bound. It says no "or more".
 function stackEvery(views, first) {
   const asked = views[0].sampling.every;
   const check = every => {
@@ -1817,23 +1817,23 @@ function stackEvery(views, first) {
       return { every: error.alone ? Math.max(every, error.every - 1) : every, error };
     }
   };
-  let low = { every: first.alone ? Math.max(asked, first.every - 1) : asked, error: first }, high = null;
-  for (let round = 0; round < 8 && !high; round++) {
-    const next = Math.max(low.error.every, low.every + 1);
-    if (next > 60000) return first;
+  let low = { every: first.alone ? Math.max(asked, first.every - 1) : asked }, base = low.every + 1, rise = 0, high = null;
+  while (!high) {
+    const next = Math.min(60000, base + rise);
+    if (next <= low.every) return first;
     const tried = check(next);
-    if (tried.views) high = tried; else low = tried;
+    if (tried.views) high = tried;
+    // A sheet's own bound past the try starts the climb again from it.
+    else if (tried.every > next) { low = tried; base = tried.every + 1; rise = 0; }
+    else { low = tried; rise = Math.max(1, rise * 2); }
   }
-  if (!high) return first;
   while (high.every - low.every > 1) {
     const tried = check(Math.floor((low.every + high.every) / 2));
     if (tried.views) high = tried; else low = tried;
   }
-  const { sheet, duration, alone } = low.error, drawn = high.views.find(view => view.name === sheet);
-  // The sheet's own bound holds what it says at any every; one the stack sets is said as the stack drawn at the every
-  // advised holds it.
-  const held = alone || !drawn ? low.error.held : drawn.cells.length, why = alone ? low.error.why : drawn?.[REFIT].inStack ?? low.error.why;
-  return new PixelError('inspect.every', `${sheet}: ${duration} ms at one cell per ${asked} ms is ${Math.ceil(duration / asked)} cells, and ${why} ${held}; choose every ${high.every}`);
+  // A sheet's own bound the stack does not move is said as it is; one past it is the stack's.
+  const { sheet, duration, held, why, alone } = first, stacked = alone ? (high.every > first.every ? 'stacked with the others, ' : '') : null;
+  return new PixelError('inspect.every', `${sheet}: ${duration} ms at one cell per ${asked} ms is ${Math.ceil(duration / asked)} cells, and ${why} ${held}${alone ? '' : " beside the other sheets' cells at that every"}; ${stacked ?? ''}choose every ${high.every}`);
 }
 function fitStack(views) {
   if (!views.every(view => view[REFIT])) {
@@ -1887,10 +1887,12 @@ function laidOver(bottom, top) {
 // sheet has one cell a group, named "body+plate+fin", and everything else (region, scale, view, grid) reads those
 // cells as frames. under: { width, height, data } (RGBA), a picture from elsewhere (a ground tile of another recipe)
 // repeated from the top left under every cell, so a sprite is seen on what it will lie on.
-// `share` is stackViews' own: the room a sheet stacked beside others is refitted to ({ maxHeight, maxWidth, stack, why },
-// and `others`, the least each other sheet takes). `measure` is stackEvery's: the sheet laid out with no pixels drawn.
-export function inspectProject(project, options = {}, share, measure = false) {
-  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under', 'sheets']);
+// The third argument is never a caller's option (MCP and the CLI pass the user's options as the second): `sheets` is
+// beside's, how many sheets it draws in one image (1 to 9; stackViews refits the tallest when they pass it). `share`
+// is stackViews' own: the room a sheet stacked beside others is refitted to ({ maxHeight, maxWidth, stack, why }, and
+// `others`, the least each other sheet takes). `measure` is stackEvery's: the sheet laid out with no pixels drawn.
+export function inspectProject(project, options = {}, { sheets = 1, share, measure = false } = {}) {
+  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under']);
   // The project as given: stack and under replace `project` with their composites, and a refit starts again from this.
   const source = project, { width, height } = project;
   if (options.stack !== undefined) {
@@ -1970,8 +1972,6 @@ export function inspectProject(project, options = {}, share, measure = false) {
   // A cell per `every` milliseconds of playback: a frame fills as many cells as it is held, so the sheet reads as
   // the animation plays, holds and fast steps included.
   const every = options.every === undefined ? undefined : integer(options.every, 'inspect.every', 10, 60000);
-  // `sheets`: how many sheets beside draws in one image (1 to 9); stackViews refits the tallest when they pass it.
-  const sheets = options.sheets === undefined ? 1 : integer(options.sheets, 'inspect.sheets', 1, 9);
   // A sheet stacked beside others that cannot hold the cells `every` makes (past 256, or past what one sheet holds) is
   // refused by stackViews, which knows the whole stack: the every this sheet alone needs could be refused again by
   // another sheet or when the stack is refitted. Such a sheet is drawn with one cell, only to be measured.
@@ -2065,12 +2065,12 @@ export function inspectProject(project, options = {}, share, measure = false) {
     // A refit redraws the sheet; what does not depend on it (diagnostics, timing) is kept rather than measured again.
     const redraw = { ...options, diagnostics: undefined };
     view[REFIT] = Object.assign(share => {
-      const again = inspectProject(source, redraw, share, measure);
+      const again = inspectProject(source, redraw, { sheets, share, measure });
       delete again.timing;
       return Object.assign(again, view.diagnostics && { diagnostics: view.diagnostics }, view.timing && { timing: view.timing });
-    }, { narrow: one.width + legend.width, low: Math.max(one.height, legend.height), short, ...(share && { inStack }),
+    }, { narrow: one.width + legend.width, low: Math.max(one.height, legend.height), short,
       // The sheet inspected afresh at another every, for stackEvery.
-      ...(every !== undefined && { every: next => inspectProject(source, { ...redraw, every: next }, undefined, true) }) });
+      ...(every !== undefined && { every: next => inspectProject(source, { ...redraw, every: next }, { sheets, measure: true }) }) });
   }
   if (every !== undefined) view.sampling = { total, shown: cells.length, every, positions, method: `${methods.join(', then ')}; a frame fills a cell for each ${every} ms it is held` };
   else if (total !== cells.length) view.sampling = { total, shown: cells.length, omitted: total - cells.length, positions, ...((step > 1 || offset > 0) && { step, offset }), method: `${methods.join(', then ')}; durations are original, not playback timing` };
