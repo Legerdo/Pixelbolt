@@ -1875,8 +1875,9 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
       const effect = metadata.effects[name], of = effect.turn?.of ?? name, F = animation.frames.length;
       if (effect.part || animation.loop === false || F <= keep || F % keep === 0 || told.has(of)) continue;
       told.add(of);
+      // A count that would thin a long loop to almost nothing (crude) is not offered, as no route offers one.
       const even = [];
-      for (let d = keep - 1; d > 1 && even.length < 3; d--) if (F % d === 0) even.push(d);
+      for (let d = keep - 1; d > 1 && even.length < 3; d--) if (F % d === 0 && !crude(d, [[of, F]])) even.push(d);
       const named = even.length === 1 ? `${even[0]} keeps` : `${even.slice(0, -1).join(', ')} or ${even.at(-1)} keep`;
       warnings.push(`fx.effects.${of}: frames ${keep} thins its ${F}-frame loop unevenly, so some kept frames last longer than others and the loop stutters; ${even.length ? `frames ${named} an even step` : `give the loop a multiple of ${keep} frames`}`);
     }

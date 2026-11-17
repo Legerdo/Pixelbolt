@@ -238,8 +238,15 @@ export function patchRecipe(recipe, changes) {
   };
   const own = (frame, source) => record(frame, Array(corrections(frame)).fill(source));
   const spot = pixel => `${pixel.x},${pixel.y}`;
-  const merged = (frame, source) => {
+  // `before` is the list a canvas change merged into and `loaded` the size of the coordinate Map it built from it: when
+  // that list held one entry per coordinate, the Map kept it in order and appended the new coordinates, so their owners
+  // follow without mapping the whole list again (a change on a frame of 65,536 corrections would otherwise cost twice).
+  const merged = (frame, source, before, loaded) => {
     const entry = ledger.get(frame), first = new Map();
+    if (entry && Array.isArray(before) && entry.list === before && entry.owners.length === before.length && loaded === before.length) {
+      record(frame, entry.owners.concat(Array(corrections(frame) - before.length).fill(source)));
+      return;
+    }
     if (Array.isArray(entry?.list)) entry.list.forEach((pixel, k) => { if (!first.has(spot(pixel))) first.set(spot(pixel), entry.owners[k]); });
     record(frame, (Array.isArray(frame.pixels) ? frame.pixels : []).map(pixel => first.get(spot(pixel)) ?? source));
   };
@@ -293,7 +300,7 @@ export function patchRecipe(recipe, changes) {
         refuse(`${where}.value`, frame, verb, count);
       }
       // Keep one correction per coordinate. Later paint replaces an earlier correction, without touching layers.
-      const pixels = new Map((frame.pixels ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel]));
+      const before = frame.pixels, pixels = new Map((before ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel])), loaded = pixels.size;
       entries.forEach((pixel, j) => {
         const pp = `${where}.value[${j}]`;
         if (!isObject(pixel)) fail(pp, 'expected a pixel with x, y and color');
@@ -307,7 +314,7 @@ export function patchRecipe(recipe, changes) {
       // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
       if (pixels.size > FRAME_PIXELS) refuse(`${where}.value`, frame, verb, pixels.size);
       if (pixels.size) frame.pixels = [...pixels.values()];
-      merged(frame, i);
+      merged(frame, i, before, loaded);
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);
       if (change.scope !== undefined) edit.scope = change.scope;
@@ -315,7 +322,7 @@ export function patchRecipe(recipe, changes) {
         const current = renderProject(next); edit.protected = [];
         for (let index = slot + 1; index < next.frames.length; index++) {
           const original = protectedFrames[index].data, changed = current.frames[index].data;
-          const restore = new Map((next.frames[index].pixels ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel])), named = frameColorNamer(next, index);
+          const before = next.frames[index].pixels, restore = new Map((before ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel])), loaded = restore.size, named = frameColorNamer(next, index);
           let count = 0;
           for (let at = 0; at < original.length; at += 4) {
             if (original.subarray(at, at + 4).every((c, i) => c === changed[at + i])) continue;
@@ -323,7 +330,7 @@ export function patchRecipe(recipe, changes) {
             // Named by the palette key that draws it where one does, so a later palette edit still reaches it.
             restore.set(`${x},${y}`, { x, y, color: named(pixelId(original, at)) }); count++;
           }
-          if (count) { next.frames[index].pixels = [...restore.values()]; merged(next.frames[index], i); edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
+          if (count) { next.frames[index].pixels = [...restore.values()]; merged(next.frames[index], i, before, loaded); edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
         }
       }
     } else if (verb === 'insert') {

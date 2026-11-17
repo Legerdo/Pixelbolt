@@ -165,6 +165,9 @@ test('frames thinning a loop unevenly warns, and following the warning clears it
   const even = keepFrames(compileEffects(loop(32, [12, 16]), { frames: 16 }).recipe, 16).recipe;
   assert.deepEqual(new Set(even.frames.map(frame => frame.duration)), new Set([120]));
   assert.match(compileEffects(loop(31, [12, 16]), { frames: 7 }).warnings[0], /frames 7 thins its 31-frame loop unevenly, .*; give the loop a multiple of 7 frames$/);
+  // A long loop is never offered a count of 3 or fewer, which would thin it to almost nothing: 51 frames to 4 names none.
+  assert.match(compileEffects(loop(51, [12, 16]), { frames: 4 }).warnings[0], /frames 4 thins its 51-frame loop unevenly, .*; give the loop a multiple of 4 frames$/);
+  assert.match(compileEffects(loop(21, [12, 16]), { frames: 4 }).warnings[0], /frames 4 thins its 21-frame loop unevenly, .*; frames 3 keeps an even step$/);
 });
 
 // Follows a frames route: the effect's own frames when named, then compile --frames.

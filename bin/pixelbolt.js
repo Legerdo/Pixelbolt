@@ -755,8 +755,20 @@ try {
       if (options.fps !== undefined) throw new Error('--fps goes with a scene\'s GIF; a recipe\'s frames carry their own durations');
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
       if (options.sheet !== undefined && !/\.png$/i.test(options.sheet)) throw new Error('--sheet must name a new .png file');
-      // --preset: a shipped preset straight to its GIF, compiled as compile --preset compiles it.
-      const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation, animationPath: '--animation' }) : null, warnings = [...(compiled?.warnings ?? [])];
+      // --preset: a shipped preset straight to its GIF, compiled as compile --preset compiles it. Every animation is
+      // compiled, as main does, so --size places the window by all of them and the reply lists them; only when that is
+      // refused (an fx source's frame total or operations, counted over every effect) is --animation compiled alone.
+      const input = await readResolved(positional[0]), warnings = [];
+      let compiled = null;
+      if (options.preset !== undefined) {
+        const settings = { frames: options.frames === undefined ? undefined : frameCount(options.frames) };
+        try { compiled = compilePreset(input.document, settings); }
+        catch (error) {
+          if (options.animation === undefined) throw error;
+          compiled = compilePreset(input.document, { ...settings, animation: options.animation, animationPath: '--animation' });
+        }
+        warnings.push(...(compiled.warnings ?? []));
+      }
       let recipe = compiled ? compiled.recipe : input.document, resized, kept;
       // The recipe's animations, named in the reply even when --size keeps one of them. An empty list (stills) names none,
       // so it reaches the GIF's stills refusal.

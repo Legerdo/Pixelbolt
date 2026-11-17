@@ -85,13 +85,17 @@ test('an overlay delivered for Godot: the scene exported without it, and its own
   assert.equal(tres.match(/"texture": /g)?.length, 12);
 });
 
-test('a region is enlarged by itself up to about 128 px a side, and --scale zooms a bigger one, as the docs say', async () => {
-  const said = /up to about 128 px a side[^.;]*`--scale 4`/;
+test('a small region of a few frames is enlarged by itself, and --scale zooms the rest, as the docs say', async () => {
+  // Before: "up to about 128 px a side by itself", which held for a few frames only: the sheet stays within 1024
+  // pixels, so a 64-pixel region of 64 frames shows at scale 1.
+  const said = /by itself for a small region of a few frames[^.;]*`--scale 4`/;
   assert.match(await read('skills/pixel-art/SKILL.md'), said);
   assert.match(await read('docs/agent-quick-start.md'), said);
-  assert.match(await read('docs/agent-guide.md'), /A region up to about 128 pixels on its longer side is enlarged by itself; a bigger region of a big frame needs `scale` \(CLI `--scale`\)\./);
-  const frames = renderProject(recipe('rain', 320, 180, 4)), at = (w, h, scale) => inspectProject(frames, { region: { x: 0, y: 0, w, h }, scale }).sheet.scale;
-  assert.deepEqual([at(120, 80), at(128, 72), at(160, 80), at(160, 80, 4)], [2, 2, 1, 4]);
+  assert.match(await read('docs/agent-guide.md'), /A small region of a few frames is enlarged by itself, each cell up to 256 pixels within a sheet of 1024 \(a 64-pixel region of 4 frames at scale 4, of 64 frames at scale 1\); otherwise pass `scale` \(CLI `--scale`\)\./);
+  for (const file of ['skills/pixel-art/SKILL.md', 'docs/agent-quick-start.md', 'docs/agent-guide.md']) assert.doesNotMatch(await read(file), /about 128/, file);
+  const at = (frames, w, h, scale) => inspectProject(renderProject(recipe('rain', 320, 180, frames)), { region: { x: 0, y: 0, w, h }, scale }).sheet.scale;
+  assert.deepEqual([at(4, 120, 80), at(4, 128, 72), at(4, 160, 80), at(4, 160, 80, 4)], [2, 2, 1, 4]);
+  assert.deepEqual([at(4, 64, 64), at(64, 64, 64), at(64, 64, 64, 4)], [4, 1, 4]);
 });
 
 test('help on a command name says where its options are, and they are there', () => {

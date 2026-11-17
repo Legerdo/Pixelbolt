@@ -158,6 +158,17 @@ test('a remove of one correction takes it from the part that owns it, and follow
   assert.equal(redrawn(patchRecipe(still(), [redraw]).recipe), 360000);
 });
 
+test('a recipe list with a coordinate twice keeps its owners when a change merges into it, and a list without one too', () => {
+  // A list with one entry per coordinate takes its owners from the merge's own map; one with a coordinate twice is
+  // mapped again by coordinate. Both name the recipe's distinct corrections and what each change adds.
+  const all = half(0, 600), dot = { paint: 'frames[f]', value: [{ x: 3, y: 3, color: 'k' }] };
+  const tail = (k, adds) => `. The frame's ${(180000 + k).toLocaleString('en-US')} pixel corrections still draw over its operations: the recipe has 2 of them (remove frames[f].pixels to drop them)${adds}`;
+  for (const pixels of [[{ x: 1, y: 1, color: 'k' }, { x: 2, y: 2, color: 'k' }], [{ x: 1, y: 1, color: 'k' }, { x: 2, y: 2, color: 'k' }, { x: 1, y: 1, color: 'k' }]]) {
+    assert.throws(() => patchRecipe(still(pixels), [half(300), all]), { message: `${stillAdvice(1)}${tail(2, ' and changes[0] adds 180,000; drop or shrink it')}` });
+    assert.throws(() => patchRecipe(still(pixels), [dot, half(300), all]), { message: `${stillAdvice(2)}${tail(3, ', changes[0] adds 1 and changes[1] adds 180,000; drop or shrink them')}` });
+  }
+});
+
 test('a grid with more rows than a canvas up to 1024 tall is refused at its height, as on main', () => {
   for (const side of [16, 256, 1024]) {
     const canvas = { version: 1, name: 'c', width: 16, height: side, palette: { k: '#102030' }, frames: [{ name: 'f' }] };

@@ -137,6 +137,18 @@ test('compile --help and pixel_compile say a --frames count dividing a loop\'s f
   assert.match(uneven.warnings.join('\n'), /frames 12 thins its 32-frame loop unevenly/);
 });
 
+test('gif --preset --animation compiles every animation, as main does, so --size places the window by all of them', async t => {
+  const dir = await folder(t);
+  // Before: only aura was compiled, so the window sat on aura's drawing alone ({left: 20, right: 20, top: 28}) and the
+  // reply named no other animation. Now the GIF is the whole preset resized, then played, byte for byte.
+  const gif = pixelbolt(['gif', '--preset', 'hero-magic', '--animation', 'aura', '--size', '80x80', '--out', 'aura.gif'], dir);
+  assert.equal(pixelbolt(['compile', '--preset', 'hero-magic', '--size', '80x80', '--out', 'whole.json'], dir).ok, true);
+  const whole = pixelbolt(['gif', 'whole.json', '--animation', 'aura', '--out', 'whole.gif'], dir);
+  assert.deepEqual(await readFile(path.join(dir, 'aura.gif')), await readFile(path.join(dir, 'whole.gif')));
+  assert.deepEqual([gif.ok, gif.animation, gif.animations], [true, 'aura', whole.animations]);
+  assert.ok(gif.animations.length > 1);
+});
+
 test('gif --size --animation default plays a recipe that names no animations, and the reply lists every animation', async t => {
   const dir = await folder(t);
   await writeFile(path.join(dir, 'plain.json'), JSON.stringify(screen(64, 64, 4)));
