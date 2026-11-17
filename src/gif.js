@@ -38,10 +38,17 @@ function compress(indices, minimum, slots, state) {
   return bytes.subarray(0, length);
 }
 
-// Reads one RGBA frame as indices into its own colours, numbered in the order they first appear. Pixels below 50%
-// alpha become transparent and the rest opaque; with `background` ([r, g, b]) every pixel is blended onto that colour
-// instead. A transparent frame keeps index 0 for transparency. `describe` names the frame in the error raised when it
-// needs more than 256 entries.
+// A GIF's `background` option read as [r, g, b, 255], or null for none (omitted or "transparent"): a hex colour, or a
+// name in `palette`, that must be opaque. With no palette (a scene's or a frame folder's GIF) only hex is offered.
+export function gifBackground(value, palette = {}) {
+  if (value === undefined || value === 'transparent') return null;
+  // parseColor with no palette reads only hex, so its refusal's palette names would point at nothing.
+  let color;
+  try { color = parseColor(value, palette, 'gif.background'); } catch (error) { if (Object.keys(palette).length) throw error; throw new PixelError('gif.background', `expected a hex colour such as #14213d, not ${JSON.stringify(value)}`); }
+  if (color[3] !== 255) throw new PixelError('gif.background', 'must be an opaque colour; omit it to keep 1-bit transparency');
+  return color;
+}
+
 // One RGBA frame as a GIF shows it, by indexFrame's rule: blended onto `background` ([r, g, b]), or cut to 1-bit alpha
 // at 50%. A contact sheet of these is a picture of the GIF itself, not of the recipe.
 export function asGIFShows(data, background = null) {
@@ -56,6 +63,10 @@ export function asGIFShows(data, background = null) {
   return out;
 }
 
+// Reads one RGBA frame as indices into its own colours, numbered in the order they first appear. Pixels below 50%
+// alpha become transparent and the rest opaque; with `background` ([r, g, b]) every pixel is blended onto that colour
+// instead. A transparent frame keeps index 0 for transparency. `describe` names the frame in the error raised when it
+// needs more than 256 entries.
 function indexFrame(data, area, background, describe) {
   const colors = new Map(), wide = new Uint16Array(area);
   let transparent = false, partialAlpha = 0, last = -1, lastIndex = 0;
@@ -265,11 +276,7 @@ export function animationGIF(project, animation, options = {}) {
   for (const key of Object.keys(options)) if (!['scale', 'background'].includes(key)) throw new PixelError(`gif.${key}`, 'unknown option; use scale or background');
   if (!Object.hasOwn(project.animations, name)) throw new PixelError('gif.animation', `no animation named "${name}"; choose one of: ${names.join(', ')}`);
   const sequence = project.animations[name], scale = options.scale ?? 1;
-  let background = null;
-  if (options.background !== undefined && options.background !== 'transparent') {
-    background = parseColor(options.background, project.palette, 'gif.background');
-    if (background[3] !== 255) throw new PixelError('gif.background', 'must be an opaque colour; omit it to keep 1-bit transparency');
-  }
+  const background = gifBackground(options.background, project.palette);
   const frames = sequence.frames.map(index => ({ data: project.frames[index].data, duration: project.frames[index].duration }));
   const gif = encodeGIF(frames, project.width, project.height, { loop: sequence.loop, scale, background }), notes = [];
   if (gif.partialAlpha) notes.push(`${gif.partialAlpha} partly transparent pixel${gif.partialAlpha === 1 ? '' : 's'} across the frames became fully transparent (below 50% alpha) or fully opaque; GIF has no partial transparency. Pass a background colour to blend them instead.`);

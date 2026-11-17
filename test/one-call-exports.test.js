@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { renderProject, decodePNG, compileNormals, compileAutotile, prepareScene, renderScene, sceneGIF } from '../src/index.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { tilemapOf } from '../src/autotile.js';
+import { decodeGIF } from './fixtures/decode-gif.js';
 import { startMCP } from '../src/mcp.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -120,11 +121,67 @@ test('gif <scene> and pixel_scene gif write the whole scene as one looping GIF',
   assert.deepEqual(notes, ["The scene's 200 ms cut lamp (a loop of 150 ms) mid-loop, so the GIF jumps where it repeats. A scene duration of 150 ms holds whole loops of every placement.",
     'spark plays once and holds its last frame, then starts again where the GIF repeats: a one-shot animation in a loop. A patch of animations.<name> with "loop": true and "direction": "pingpong" makes a swing go there and back.']);
   // What goes with a recipe's GIF is refused for a scene, and --fps for a recipe.
-  assert.match(run('gif', 'porch.scene.json', '--out', 'a.gif', '--animation', 'glow').said, /--animation goes with a recipe's GIF; a scene's takes --scale and --fps/);
+  assert.match(run('gif', 'porch.scene.json', '--out', 'a.gif', '--animation', 'glow').said, /--animation goes with a recipe's GIF; a scene's takes --scale, --fps, --background and --sheet/);
   assert.match(run('gif', 'lamp.json', '--out', 'b.gif', '--fps', '10').said, /--fps goes with a scene's GIF/);
   const tool = client(t, dir), viewed = await tool('pixel_scene', { scene, gif: { scale: 2, fps: 12.5 } });
   assert.deepEqual([viewed.info.gif.width, viewed.info.gif.height, viewed.info.gif.frames, path.basename(viewed.info.gif.file)], [32, 24, 3, 'porch.gif']);
   assert.equal((await readFile(viewed.info.gif.file)).subarray(0, 6).toString('latin1'), 'GIF89a');
+});
+
+test('gif <scene> takes --background and --sheet as a recipe\'s GIF does: blended frames, and a sheet of them as the GIF holds them', async t => {
+  const dir = await folder(t), run = cli(dir);
+  // A see-through scene: a lamp with a half-transparent glow over nothing, as a rain overlay is.
+  const glow = { ...sprite, palette: { ...sprite.palette, h: '#ffe08080' }, frames: sprite.frames.map(frame => ({ ...frame, ops: [{ op: 'rect', x: 0, y: 0, w: 8, h: 8, color: 'h' }, ...frame.ops] })) };
+  await writeFile(path.join(dir, 'lamp.json'), JSON.stringify(glow));
+  const scene = { format: 'pixelforge-scene', version: 1, name: 'rain', width: 16, height: 12, duration: 200, background: 'transparent', assets: { lamp: 'lamp.json' }, instances: [{ name: 'lamp', asset: 'lamp', at: [4, 2], animation: 'glow' }] };
+  await writeFile(path.join(dir, 'rain.scene.json'), JSON.stringify(scene));
+  const made = run('gif', 'rain.scene.json', '--out', 'rain.gif', '--background', '#14213d', '--scale', '3', '--sheet', 'sheet.png');
+  assert.equal(made.status, 0, made.said);
+  assert.equal(made.info.sheetShows, undefined, 'five frames all fit on the sheet');
+  const gif = decodeGIF(await readFile(path.join(dir, 'rain.gif')));
+  assert.deepEqual([gif.width, gif.height, gif.frames.length], [48, 36, 5]);
+  // Opaque everywhere: the empty corner is the background, and the glow is blended onto it, not cut to 1-bit alpha.
+  for (const frame of gif.frames) { assert.equal(frame.transparent, null); assert.ok(!frame.pixels.includes('clear')); assert.equal(frame.pixels[0], '14213d'); }
+  assert.equal(gif.frames[0].pixels[(3 * 3) * 48 + 4 * 3], ((0xff * 128 + 0x14 * 127 + 127) / 255 | 0).toString(16) + ((0xe0 * 128 + 0x21 * 127 + 127) / 255 | 0).toString(16) + ((0x80 * 128 + 0x3d * 127 + 127) / 255 | 0).toString(16));
+  // Cell n of a sheet read at the GIF's pixels (`enlarge` times the scene's 16x12), as decodeGIF names them: a pixel
+  // the sheet shows over its checkerboard is one the GIF leaves clear.
+  const cellOf = (sheet, view, n, enlarge) => Array.from({ length: 16 * enlarge * 12 * enlarge }, (_, i) => {
+    const left = view.gap + (n % view.columns) * (16 * view.scale + view.gap), top = view.gap + Math.floor(n / view.columns) * (12 * view.scale + view.gap);
+    const x = left + Math.floor((i % (16 * enlarge)) / enlarge) * view.scale, y = top + Math.floor(Math.floor(i / (16 * enlarge)) / enlarge) * view.scale, at = (y * sheet.width + x) * 4;
+    const hex = Buffer.from(sheet.data.subarray(at, at + 3)).toString('hex');
+    return hex === '8f9197' || hex === '83858b' ? 'clear' : hex;
+  });
+  // The sheet's cells are the decoded GIF's frames, pixel for pixel, at the sheet's own enlargement.
+  const sheet = decodePNG(await readFile(path.join(dir, 'sheet.png'))), view = sceneGIF(prepareScene({ ...scene, assets: { lamp: glow } }), { background: '#14213d', sheet: true }).sheet.sheet;
+  assert.deepEqual([sheet.width, sheet.height], [view.width, view.height]);
+  gif.frames.forEach((frame, n) => assert.deepEqual(cellOf(sheet, view, n, 3), frame.pixels, `sheet cell ${n} is GIF frame ${n}`));
+  // A long scene with no --background, panned by its camera, with a row below 50% alpha and the rest of the glow at
+  // 50%: its sheet is sampled as inspect samples, the reply says so in inspect's words, and each sampled cell is the
+  // GIF's frame at inspect's position, cut to 1-bit alpha as the GIF holds it (the faint row clear, the glow opaque).
+  const faint = { ...glow, palette: { ...glow.palette, f: '#ffe08060' }, frames: sprite.frames.map(frame => ({ ...frame, ops: [{ op: 'rect', x: 0, y: 0, w: 8, h: 1, color: 'f' }, { op: 'rect', x: 0, y: 1, w: 8, h: 7, color: 'h' }, ...frame.ops] })) };
+  await writeFile(path.join(dir, 'faint.json'), JSON.stringify(faint));
+  const longScene = { ...scene, name: 'long', duration: 12000, assets: { lamp: 'faint.json' }, camera: [{ time: 0, at: [0, 0] }, { time: 12000, at: [4, 2] }] };
+  await writeFile(path.join(dir, 'long.scene.json'), JSON.stringify(longScene));
+  const long = run('gif', 'long.scene.json', '--out', 'long.gif', '--sheet', 'long.png');
+  assert.equal(long.status, 0, long.said);
+  assert.deepEqual([long.info.frames, long.info.sheetShows], [300, '256 of the 300 frames, evenly spaced, including endpoints; durations are original, not playback timing']);
+  const longGIF = decodeGIF(await readFile(path.join(dir, 'long.gif'))), longSheet = decodePNG(await readFile(path.join(dir, 'long.png')));
+  const longView = sceneGIF(prepareScene({ ...longScene, assets: { lamp: faint } }), { sheet: true }).sheet.sheet;
+  assert.deepEqual([longSheet.width, longSheet.height], [longView.width, longView.height]);
+  assert.notDeepEqual(longGIF.frames[0].pixels, longGIF.frames[299].pixels, 'the camera moves the lamp');
+  assert.equal(longGIF.frames[0].pixels[2 * 16 + 4], 'clear', 'the faint row is below 50% alpha');
+  assert.notEqual(longGIF.frames[0].pixels[3 * 16 + 4], 'clear', 'the glow at 50% alpha is kept');
+  for (const n of [0, 1, 2, 127, 200, 254, 255]) assert.deepEqual(cellOf(longSheet, longView, n, 1), longGIF.frames[Math.floor(n * 299 / 255)].pixels, `sheet cell ${n} is GIF frame ${Math.floor(n * 299 / 255)}`);
+  // Other recipe options are still refused, as is a sheet that is not a PNG; a background must be opaque.
+  assert.match(run('gif', 'rain.scene.json', '--out', 'c.gif', '--frames', '2').said, /--frames goes with a recipe's GIF/);
+  assert.match(run('gif', 'rain.scene.json', '--out', 'c.gif', '--size', '8x8').said, /--size goes with a recipe's GIF/);
+  // A scene has no palette, so a colour that is not hex is refused in hex terms.
+  assert.match(run('gif', 'rain.scene.json', '--out', 'c.gif', '--background', 'black').said, /gif\.background: expected a hex colour such as #14213d, not \\"black\\"/);
+  assert.match(run('gif', 'rain.scene.json', '--out', 'c.gif', '--sheet', 'c.jpg').said, /--sheet must name a new \.png file/);
+  assert.match(run('gif', 'rain.scene.json', '--out', 'c.gif', '--background', '#14213d80').said, /gif\.background: must be an opaque colour/);
+  // MCP: pixel_scene's gif takes background too.
+  const tool = client(t, dir), viewed = await tool('pixel_scene', { scene, gif: { background: '#14213d' } });
+  assert.ok(decodeGIF(await readFile(viewed.info.gif.file)).frames.every(frame => frame.transparent === null && frame.pixels[0] === '14213d'));
 });
 
 test('a layered tile set draws a map of its own layers, gives the tilemap a scene needs, and its corner fringe is no clipped drawing', () => {
