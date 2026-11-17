@@ -61,7 +61,7 @@ test('a frame-total refusal for several animations names the --frames that fits,
   const kept = pixelbolt(['compile', '--preset', 'fire-spells', '--size', '320x180', '--frames', '6', '--out', 'six.json'], dir);
   assert.deepEqual([kept.ok, kept.frames, kept.width], [true, 66, 320]);
   assert.equal(pixelbolt(['compile', '--preset', 'fire-spells', '--size', '320x180', '--animation', 'impact', '--out', 'one.json'], dir).ok, true);
-  // A GIF plays one animation, so --animation keeps only it before the canvas moves.
+  // A GIF plays one animation, so when all the frames are too many --animation keeps only it before the canvas moves.
   const gif = pixelbolt(['gif', '--preset', 'fire-spells', '--size', '320x180', '--animation', 'impact', '--out', 'impact.gif'], dir);
   assert.deepEqual([gif.ok, gif.width, gif.frames], [true, 320, 12]);
   // MCP names its own options.
@@ -124,7 +124,7 @@ test('gif --size --animation default plays a recipe that names no animations, an
   // Before: "--animation: no animation "default"", though gif without --size and render name it.
   const plain = pixelbolt(['gif', 'plain.json', '--size', '80x80', '--animation', 'default', '--out', 'plain.gif'], dir);
   assert.deepEqual([plain.ok, plain.animation, plain.width, plain.frames], [true, 'default', 80, 4]);
-  // A recipe that names its animations keeps the one played before the resize, and the reply still names them all.
+  // A recipe that names its animations plays the one asked for, and the reply still names them all.
   await writeFile(path.join(dir, 'named.json'), JSON.stringify(screen(64, 64, 4, { animations: { idle: { frames: ['f0', 'f1'] }, run: { frames: ['f2', 'f3'] } } })));
   const named = pixelbolt(['gif', 'named.json', '--size', '80x80', '--animation', 'run', '--out', 'run.gif'], dir);
   assert.deepEqual([named.ok, named.animation, named.frames, named.animations], [true, 'run', 2, ['idle', 'run']]);
@@ -136,6 +136,16 @@ test('gif --size --animation default plays a recipe that names no animations, an
   await writeFile(path.join(dir, 'listed.json'), JSON.stringify(screen(64, 64, 4, { animations: { loop: { frames: ['f0', 'f1', 'f2', 'f3'] } } })));
   const listed = pixelbolt(['gif', 'listed.json', '--size', '80x80', '--out', 'listed.gif'], dir);
   assert.deepEqual([listed.ok, listed.width, listed.frames], [true, 80, 4]);
+  // The window is placed by every frame's drawing, so the GIF is the played animation of the whole recipe resized,
+  // byte for byte: walk touches the left edge, which stays the edge although blink alone does not reach it.
+  const box = (name, x0, x1) => ({ name, ops: [{ op: 'rect', x: x0, y: 10, w: x1 - x0 + 1, h: 31, color: 'k' }] });
+  const edge = { ...screen(64, 64, 0), frames: [box('f0', 0, 20), box('f1', 4, 16), box('f2', 5, 16), box('f3', 0, 18)], animations: { walk: { frames: ['f0', 'f1', 'f2', 'f3'] }, blink: { frames: ['f1', 'f2'] } } };
+  await writeFile(path.join(dir, 'edge.json'), JSON.stringify(edge));
+  const blink = pixelbolt(['gif', 'edge.json', '--size', '80x80', '--animation', 'blink', '--out', 'blink.gif'], dir);
+  assert.deepEqual([blink.ok, blink.frames, blink.margins], [true, 2, { right: 16, top: 8, bottom: 8 }]);
+  const { resizeRecipe } = await import('../src/resize.js'), { animationGIF } = await import('../src/gif.js');
+  const whole = animationGIF(renderProject(resizeRecipe(edge, '80x80').recipe), 'blink').data;
+  assert.ok(Buffer.from(await readFile(path.join(dir, 'blink.gif'))).equals(Buffer.from(whole)));
 });
 
 test('a check whose scale came from the call says to drop or change --scale (scale), and following it passes', async t => {
