@@ -50,8 +50,9 @@ test('a patch whose merged pixel corrections would pass 262,144 fails at its val
   // pass it together.
   const half = y => ({ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y, w: 600, h: 300 } });
   assert.equal(patchRecipe(still, [half(0)]).recipe.frames[0].pixels.length, 180000);
-  // The first half's corrections draw over any operations, and the refusal says so.
-  assert.throws(() => patchRecipe(still, [half(0), half(300)]), { message: `${refusal(1)}. The frame's 180,000 pixel corrections still draw over its operations (remove frames[f].pixels to drop them)` });
+  // The first half's corrections would draw over any operations, and the refusal says so: they are the first change's,
+  // not the recipe's (a refused patch changes nothing), so it says to drop or shrink that change.
+  assert.throws(() => patchRecipe(still, [half(0), half(300)]), { message: `${refusal(1)}. The frame's 180,000 pixel corrections still draw over its operations: changes[0] adds 180,000 of them; drop or shrink it` });
   // What the reply suggests works: the frame's operations redraw the area, and a smaller region still fits as corrections.
   const redrawn = patchRecipe(still, [{ set: 'frames[f].ops', value: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 's' }] }]).recipe;
   assert.equal(redrawn.frames[0].pixels, undefined);

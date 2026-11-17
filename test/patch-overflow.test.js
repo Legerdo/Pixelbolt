@@ -52,6 +52,72 @@ test('the overflow advice says the frame\'s pixel corrections still draw over it
   assert.equal(differ(corrected, patchRecipe(drawn, [{ remove: 'frames[f0].pixels' }]).recipe), 360001);
 });
 
+// The changed pixels between two renders of the one frame, and the box round them.
+const changed = (before, after) => {
+  const [a, b] = [before, after].map(recipe => renderProject(recipe).frames[0].data), width = before.width, box = [Infinity, Infinity, -1, -1];
+  let pixels = 0;
+  for (let at = 0; at < a.length; at += 4) {
+    if (a[at] === b[at] && a[at + 1] === b[at + 1] && a[at + 2] === b[at + 2] && a[at + 3] === b[at + 3]) continue;
+    const x = at / 4 % width, y = Math.floor(at / 4 / width);
+    pixels++; box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], y); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y);
+  }
+  return { pixels, box: { x: box[0], y: box[1], w: box[2] - box[0] + 1, h: box[3] - box[1] + 1 } };
+};
+const area = { pixels: 360000, box: { x: 0, y: 0, w: 600, h: 600 } };
+
+test('the overflow advice names a new top layer when the top layer is offset or sorted by ground, and following it changes the 360,000 pixels', () => {
+  const newLayer = `changes[0].value: with this recolor, frame "f0" would have 360,000 pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with operations in a new top layer (an insert at frames[f0].layers[-] of {"ops": [...]}), or change a smaller region`;
+  // Follows the reply as written: its path, and its value with the operations in place of [...].
+  const follow = (recipe, message) => {
+    const [, at, value] = message.match(/an insert at (\S+) of (\{.*\})\)/);
+    return patchRecipe(recipe, [{ insert: at, value: JSON.parse(value.replace('[...]', JSON.stringify([square]))) }]).recipe;
+  };
+  const offset = wall([{ name: 'back', ops: [filled('a')] }, { name: 'l', x: 8, y: 8, ops: [{ op: 'pixel', x: 1500, y: 1500, color: 'b' }] }]);
+  const ground = wall([{ name: 'l', sort: 'ground', ops: [filled('a')] }]);
+  for (const recipe of [offset, ground]) {
+    assert.throws(() => patchRecipe(recipe, [recolor]), { path: 'changes[0].value', message: newLayer });
+    assert.deepEqual(changed(recipe, follow(recipe, newLayer)), area);
+  }
+  // Old advice against new: the offset layer draws the square 8 pixels off, and the sorted layer draws it first, by the
+  // row it stands on, beneath the wall.
+  const old = recipe => patchRecipe(recipe, [{ insert: 'frames[f0].layers[l].ops[-]', value: square }]).recipe;
+  assert.deepEqual(changed(offset, old(offset)), { pixels: 360000, box: { x: 8, y: 8, w: 600, h: 600 } });
+  assert.equal(changed(ground, old(ground)).pixels, 0);
+  // A translucent or recoloured top layer gets the same advice; one at x and y 0 composites plainly and is named.
+  const over = extra => wall([{ name: 'back', ops: [filled('a')] }, { name: 'l', ops: [{ op: 'pixel', x: 1500, y: 1500, color: 'b' }], ...extra }]);
+  for (const extra of [{ opacity: 0.5 }, { palette: { b: '#ff0000' } }]) assert.throws(() => patchRecipe(over(extra), [recolor]), { message: newLayer });
+  assert.throws(() => patchRecipe(over({ x: 0, y: 0, opacity: 1 }), [recolor]), { message: `changes[0].value: ${advice('frames[f0].layers[l].ops')}` });
+});
+
+test('the overflow note counts the recipe\'s own corrections, names the earlier changes that add the rest, and following it works', () => {
+  const still = (pixels = undefined) => ({ version: 1, name: 'wall', width: 600, height: 600, palette: { k: '#102030', s: '#a0c0f0' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 'k' }], ...(pixels && { pixels }) }] });
+  const half = (y, h = 300) => ({ recolor: 'frames[f]', value: { from: 'k', to: 's', x: 0, y, w: 600, h } });
+  const head = at => `changes[${at}].value: with this recolor, frame "f" would have 360,000 pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with the frame's operations (a set of frames[f].ops or an insert at frames[f].ops[-]), or change a smaller region. The frame's 180,000 pixel corrections still draw over its operations: `;
+  const redraw = { insert: 'frames[f].ops[-]', value: { op: 'rect', x: 0, y: 0, w: 600, h: 600, color: 's' } };
+  // Two halves: the corrections are the first change's, so the old advice, removing frames[f].pixels, is refused.
+  assert.throws(() => patchRecipe(still(), [half(0), half(300)]), { message: `${head(1)}changes[0] adds 180,000 of them; drop or shrink it` });
+  assert.throws(() => patchRecipe(still(), [{ remove: 'frames[f].pixels' }, half(300)]), { message: 'changes[0].remove: nothing to remove at frames[0].pixels' });
+  // Dropped, the operations redraw all of it; shrunk, both changes fit as corrections.
+  const redrawn = patchRecipe(still(), [redraw]).recipe;
+  assert.deepEqual([changed(still(), redrawn), redrawn.frames[0].pixels], [area, undefined]);
+  assert.equal(patchRecipe(still(), [half(0, 100), half(300)]).recipe.frames[0].pixels.length, 240000);
+  // The recipe's own correction and the change's are counted apart, and each part of the advice works.
+  const corrected = still([{ x: 1, y: 1, color: 'k' }]);
+  assert.throws(() => patchRecipe(corrected, [half(0), half(300)]), { message: `${head(1)}the recipe has 1 of them (remove frames[f].pixels to drop them) and changes[0] adds 179,999; drop or shrink it` });
+  assert.equal(changed(corrected, patchRecipe(corrected, [redraw]).recipe).pixels, 359999);
+  assert.deepEqual(changed(corrected, patchRecipe(corrected, [{ remove: 'frames[f].pixels' }, redraw]).recipe), area);
+  // Several earlier changes are each named with what they add.
+  assert.throws(() => patchRecipe(still(), [{ paint: 'frames[f]', value: [{ x: 0, y: 0, color: 's' }] }, half(0), half(300)]), { message: `${head(2)}changes[0] adds 1 of them and changes[1] adds 179,999; drop or shrink them` });
+});
+
+test('a grid row wider than a canvas up to 1024 is refused at its width, as on main', () => {
+  for (const side of [256, 1024]) {
+    const canvas = { version: 1, name: 'c', width: side, height: 16, palette: { k: '#102030' }, frames: [{ name: 'f' }] };
+    assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: ['k'.repeat(1025)] } }]), { path: 'changes[0].value.w', message: 'changes[0].value.w: expected an integer region inside the canvas' });
+    assert.equal(patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: ['k'.repeat(side)] } }]).recipe.frames[0].pixels.length, side);
+  }
+});
+
 test('a region change too large to merge on a big still gets the same advice, and grid rows stay 1024 wide', () => {
   const at = { path: 'changes[0].value' };
   const refusal = (verb, count) => `changes[0].value: with this ${verb}, frame "f0" would have ${count} pixel corrections, and a frame's corrections together hold at most 262,144: recolour or redraw an area this large with its top layer's operations (a set of frames[f0].layers[l].ops or an insert at frames[f0].layers[l].ops[-]), or change a smaller region`;

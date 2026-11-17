@@ -23,8 +23,9 @@ function regionPixels(recipe, frameIndex, verb, value, where) {
   for (const key of Object.keys(value)) if (!allowed.includes(key) || value[key] === null) fail(`${where}.${key}`, 'unknown or null region field');
   const rows = value.rows;
   if (verb === 'grid' && (!Array.isArray(rows) || !rows.length || rows.length > CANVAS_SIDE || typeof rows[0] !== 'string' || !rows[0].length)) fail(`${where}.rows`, ROWS);
-  // A grid row is as wide as core's readRows takes, even on a still wider than an animation frame.
-  if (verb === 'grid' && rows[0].length > CANVAS_SIDE) fail(`${where}.rows[0]`, `row must contain 1–${CANVAS_SIDE} characters`);
+  // A grid row is as wide as core's readRows takes, even on a still wider than an animation frame; on a canvas no wider
+  // than that, the canvas is the bound the region check names.
+  if (verb === 'grid' && rows[0].length > CANVAS_SIDE && recipe.width > CANVAS_SIDE) fail(`${where}.rows[0]`, `row must contain 1–${CANVAS_SIDE} characters`);
   const w = verb === 'grid' ? rows[0].length : value.w, h = verb === 'grid' ? rows.length : value.h;
   for (const [key, number, max] of [['x', value.x, recipe.width - 1], ['y', value.y, recipe.height - 1], ['w', w, recipe.width], ['h', h, recipe.height]]) {
     if (!Number.isInteger(number) || number < (key === 'w' || key === 'h' ? 1 : 0) || number > max) fail(`${where}.${key}`, 'expected an integer region inside the canvas');
@@ -61,20 +62,29 @@ function regionPixels(recipe, frameIndex, verb, value, where) {
   }
   return [...pixels, ...moved]; // Capture before clearing so overlapping moves preserve every highlight.
 }
-// The refusal of a frame's corrections past FRAME_PIXELS names what does work: operations that draw over the frame,
-// which are its top shown layer's when it has layers (core draws frame.ops beneath them), and says that the frame's own
-// pixel corrections still draw over whatever operations draw.
-function tooManyCorrections(frame, verb, count) {
-  const layers = Array.isArray(frame.layers) ? frame.layers : [];
-  let top = layers.findLastIndex(layer => isObject(layer) && layer.visible !== false && layer.opacity !== 0);
-  let ops = `frames[${frame.name}].ops`, whose = "the frame's";
+// The refusal of a frame's corrections past FRAME_PIXELS names what does work: operations that draw over the frame.
+// Those are its top shown layer's when that layer composites plainly (core draws frame.ops beneath layers); when the
+// layer is offset, translucent, recoloured or sorted by ground, its operations would not land as drawn, so the reply
+// names a new top layer instead. It also says which corrections still draw over any operations: the recipe's own
+// (`kept`, removable) and those earlier changes of this call add (`added`, [change index, count]), which never reach
+// the recipe since a refused patch changes nothing.
+function tooManyCorrections(frame, verb, count, kept, added) {
+  const layers = Array.isArray(frame.layers) ? frame.layers : [], f = `frames[${frame.name}]`, n = value => value.toLocaleString('en-US');
+  const top = layers.findLastIndex(layer => isObject(layer) && layer.visible !== false && layer.opacity !== 0);
+  let route = `the frame's operations (a set of ${f}.ops or an insert at ${f}.ops[-])`;
   if (top >= 0) {
-    const named = layers[top].name, unique = typeof named === 'string' && /^[a-zA-Z][\w-]*$/.test(named) && layers.filter(layer => isObject(layer) && layer.name === named).length === 1;
-    ops = `frames[${frame.name}].layers[${unique ? named : top}].ops`; whose = "its top layer's";
+    const layer = layers[top], plain = (layer.opacity ?? 1) === 1 && !layer.x && !layer.y && layer.palette === undefined && layer.sort === undefined;
+    const named = layer.name, unique = typeof named === 'string' && /^[a-zA-Z][\w-]*$/.test(named) && layers.filter(item => isObject(item) && item.name === named).length === 1;
+    const ops = `${f}.layers[${unique ? named : top}].ops`;
+    route = plain ? `its top layer's operations (a set of ${ops} or an insert at ${ops}[-])` : `operations in a new top layer (an insert at ${f}.layers[-] of {"ops": [...]})`;
   }
-  const kept = Array.isArray(frame.pixels) ? frame.pixels.length : 0;
-  return `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${count.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with ${whose} operations (a set of ${ops} or an insert at ${ops}[-]), or change a smaller region` +
-    (kept ? `. The frame's ${kept.toLocaleString('en-US')} pixel corrections still draw over its operations (remove frames[${frame.name}].pixels to drop them)` : '');
+  const total = Array.isArray(frame.pixels) ? frame.pixels.length : 0, theirs = added.reduce((sum, [, k]) => sum + k, 0);
+  const own = Math.max(0, Math.min(kept, total - theirs));
+  const clauses = [...(own ? [`${added.length ? `the recipe has ${n(own)} of them ` : ''}(remove ${f}.pixels to drop them)`] : []),
+    ...added.map(([i, k], j) => `changes[${i}] adds ${n(k)}${own || j ? '' : ' of them'}`)];
+  const note = !total ? '' : `. The frame's ${n(total)} pixel corrections still draw over its operations${clauses.length ? (added.length ? ': ' : ' ') + [clauses.slice(0, -1).join(', '), clauses.at(-1)].filter(Boolean).join(' and ') : ''}` +
+    (added.length ? `; drop or shrink ${added.length > 1 ? 'them' : 'it'}` : '');
+  return `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${n(count)} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with ${route}, or change a smaller region${note}`;
 }
 // Names an exact colour as this frame draws it: a palette key (single characters first), transparent, or hex.
 function frameColorNamer(recipe, frameIndex) {
@@ -213,6 +223,16 @@ export function patchRecipe(recipe, changes) {
   const budget = 67108864;
   if (changes.reduce((sum, change) => sum + estimate(recipe, change), 0) > budget) fail('changes', 'regional edit work exceeds 67,108,864 estimated pixels; split the batch or reduce frame scope');
   const next = structuredClone(recipe), edits = [];
+  // For a refusal's note: each working frame's corrections in the input recipe, and those each change of this call adds.
+  const inputs = new Map(Array.isArray(next.frames) ? next.frames.map((frame, i) => [frame, recipe.frames[i]]) : []), adds = new Map();
+  const corrections = frame => (Array.isArray(frame?.pixels) ? frame.pixels.length : 0);
+  const refuse = (where, frame, verb, count) => fail(where, tooManyCorrections(frame, verb, count, corrections(inputs.get(frame)), [...(adds.get(frame) ?? [])]));
+  const logAdded = (frame, i, before) => {
+    const added = corrections(frame) - before;
+    if (added <= 0) return;
+    if (!adds.has(frame)) adds.set(frame, new Map());
+    adds.get(frame).set(i, (adds.get(frame).get(i) ?? 0) + added);
+  };
   let work = 0;
   const apply = (change, i) => {
     const where = `changes[${i}]`;
@@ -247,7 +267,7 @@ export function patchRecipe(recipe, changes) {
           const at = pixel.y * next.width + pixel.x;
           if (Number.isInteger(pixel.x) && Number.isInteger(pixel.y) && at >= 0 && at < seen.length && !seen[at]) { seen[at] = 1; count++; }
         }
-        fail(`${where}.value`, tooManyCorrections(frame, verb, count));
+        refuse(`${where}.value`, frame, verb, count);
       }
       // Keep one correction per coordinate. Later paint replaces an earlier correction, without touching layers.
       const pixels = new Map((frame.pixels ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel]));
@@ -262,8 +282,10 @@ export function patchRecipe(recipe, changes) {
         pixels.set(`${pixel.x},${pixel.y}`, structuredClone(pixel));
       });
       // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
-      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, tooManyCorrections(frame, verb, pixels.size));
+      if (pixels.size > FRAME_PIXELS) refuse(`${where}.value`, frame, verb, pixels.size);
+      const before = corrections(frame);
       if (pixels.size) frame.pixels = [...pixels.values()];
+      logAdded(frame, i, before);
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);
       if (change.scope !== undefined) edit.scope = change.scope;
@@ -279,7 +301,8 @@ export function patchRecipe(recipe, changes) {
             // Named by the palette key that draws it where one does, so a later palette edit still reaches it.
             restore.set(`${x},${y}`, { x, y, color: named(pixelId(original, at)) }); count++;
           }
-          if (count) { next.frames[index].pixels = [...restore.values()]; edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
+          const before = corrections(next.frames[index]);
+          if (count) { next.frames[index].pixels = [...restore.values()]; logAdded(next.frames[index], i, before); edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
         }
       }
     } else if (verb === 'insert') {
