@@ -428,7 +428,8 @@ export function createToolRunner({ directory, root, version }) {
         const from = await recipeFrom(spec, revision), { resolved, sources } = from;
         if (options.columns !== undefined && from.recipe?.sheet?.trim === true) throw new PixelError('columns', 'columns lays the sheet out as a grid, and this recipe\'s sheet.trim packs each frame by its visible bounds, which ignores columns; pixel_patch {"set": "sheet.trim", "value": false} first');
         const forExport = { ...(options.scale !== undefined && { scale: options.scale }), ...(options.columns !== undefined && { columns: options.columns }) };
-        const recipe = Object.keys(forExport).length ? { ...from.recipe, sheet: { ...from.recipe.sheet, ...forExport } } : from.recipe;
+        // Only a sheet that is an object or missing takes them: any other is left for the renderer to refuse as project.sheet.
+        const recipe = Object.keys(forExport).length && isObject(from.recipe) && (from.recipe.sheet === undefined || isObject(from.recipe.sheet)) ? { ...from.recipe, sheet: { ...from.recipe.sheet, ...forExport } } : from.recipe;
         // normal: a normal recipe (inline or a revision) or the source that derives one, exported beside the colour sheet.
         // Its files, and those behind any revision it names, are inputs too: saveAs never writes over them.
         let normal, normalSources = [];
@@ -473,7 +474,7 @@ export function createToolRunner({ directory, root, version }) {
           error.message += `. The export itself was written to ${out}: use its files, or send revision "${savedRevision}" with saveAs paths that can be written`;
           throw Object.assign(error, { made: { revision: savedRevision, directory: out } });
         }
-        const check = checkDelivery(bundle.project, { recipe, gifs, expect, animation });
+        const check = checkDelivery(bundle.project, { recipe, gifs, expect, animation, call: 'mcp' });
         return { content: [textContent(withResolved({ ok: true, revision: savedRevision, directory: out, ...outputSummary(out, files, listFiles === true), frames: bundle.project.frames.length, ...describeAnimations(bundle.project, recipe), playback: path.join(out, 'preview.html'), ...(gifs.length && { gifs: { directory: 'gifs', count: gifs.length, scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(gifs.length <= 16 && { files: gifs.map(item => `gifs/${item.animation}.gif`) }), notes: gifs.flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16) } }), ...(frames && { sequence: sequenceSummary(frames.info) }), ...(saves.length && { saved: saves.map(item => ({ file: item.file, path: item.destination, ...(item.replaced && { replaced: true }) })) }), check: briefCheck(check), preview: viewSummary(view), warnings: bundle.project.warnings, ...(shared && { share: shared }) }, resolved)), imageContent(view.sheet)], ...(preview && preview(bundle.project, {
           animation, files: [...new Set([
             ...files.filter(file => path.dirname(file) === out && /\.(?:png|atlas\.json|pixel\.json|tres|tsx)$/.test(file)),

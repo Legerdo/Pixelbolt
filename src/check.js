@@ -1,7 +1,7 @@
 // What a render delivered, and how it differs from what the user asked for (`expect`). Each problem names the file
 // and the call that fixes it, so an agent can correct an export before handing it on. Read-only: it never changes
 // the bundle.
-import { PixelError, renderProject, STILL_SIDE } from './core.js';
+import { PixelError, isObject, renderProject, STILL_SIDE } from './core.js';
 import { autotileFrames } from './autotile.js';
 
 // The format's limits, as core.js enforces them, so no fix asks for a recipe the renderer refuses: canvas sides,
@@ -27,8 +27,13 @@ export function readExpect(expect) {
       }
       continue;
     }
-    // A sheet's grid is asked in expect.sheet: {"rows": 1} at the top level was a guess at a one-row strip.
-    if (key === 'rows' || key === 'columns') throw new PixelError(`expect.${key}`, `unknown field; a sheet's ${key} go in expect.sheet: {"sheet": {"${key}": ${Number.isInteger(value) && value > 0 && value <= SOURCE_FRAMES ? value : 1}}}`);
+    // A sheet's grid is asked in expect.sheet: {"rows": 1} at the top level was a guess at a one-row strip. Both
+    // fields, when both were given, are suggested together, beside any expect.sheet already there.
+    if (key === 'rows' || key === 'columns') {
+      const grid = ['columns', 'rows'].filter(field => Object.hasOwn(expect, field)), own = isObject(expect.sheet) ? expect.sheet : {};
+      const sheet = { ...own, ...Object.fromEntries(grid.map(field => [field, Number.isInteger(expect[field]) && expect[field] > 0 && expect[field] <= SOURCE_FRAMES ? expect[field] : 1])) };
+      throw new PixelError(`expect.${grid[0]}`, `unknown field${grid.length > 1 ? ', as is expect.rows' : ''}; a sheet's ${grid.join(' and ')} go in expect.sheet: {"sheet": {${Object.entries(sheet).map(([field, count]) => `${JSON.stringify(field)}: ${JSON.stringify(count)}`).join(', ')}}}`);
+    }
     if (!Object.hasOwn(LIMITS, key)) throw new PixelError(`expect.${key}`, 'unknown field; use width, height, frames, colors, transparent, loop, gifScale or sheet');
     // frames: one count for every animation, or a count per animation name.
     if (key === 'frames' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
@@ -67,8 +72,10 @@ const tooBig = (reason, sheet) => `${reason}: ask for fewer frames or a smaller 
 // The sprite sheet against expect.sheet. A grid sheet is sheet.columns cells across (8 at most by default) and as many
 // rows as the frames need; a trimmed atlas packs each frame's visible bounds, so its size follows the drawing and it
 // has no grid. The fix is the column count that makes the asked sheet with the fewest empty cells, at the frame size
-// expect asks for (a frame-size fix may change sheet.scale, and its cells with it).
-function sheetProblem(project, expect, recipe) {
+// expect asks for (a frame-size fix may change sheet.scale, and its cells with it). A fix that only changes the columns
+// names the render's own option for the call made (call: "cli" or "mcp"), which needs no patch, when the option takes it
+// (1 to the frame count); otherwise, and without a call, the patch.
+function sheetProblem(project, expect, recipe, call) {
   const { name, width, height, frames, sheet } = project, want = expect.sheet, n = frames.length, rows = c => Math.ceil(n / c);
   const got = sheet.trim ? { width: sheet.width, height: sheet.height, trimmed: true } : { width: sheet.width, height: sheet.height, columns: sheet.columns, rows: rows(sheet.columns) };
   if (Object.entries(want).every(([key, value]) => got[key] === value)) return null;
@@ -90,6 +97,7 @@ function sheetProblem(project, expect, recipe) {
   if (sheetW * sheetH > ATLAS) return problem(`a ${sheetW}x${sheetH} sheet passes the 16,777,216 pixels an atlas holds: ask for fewer frames or a smaller size`);
   const shape = `${best} column${best === 1 ? '' : 's'} by ${rows(best)} row${rows(best) === 1 ? '' : 's'} of ${cells}, a ${sheetW}x${sheetH} sheet${empty ? ` with ${empty} empty cell${empty === 1 ? '' : 's'}` : ''}`;
   if (best === sheet.columns && !sheet.trim) return problem(`the frame-size fix (sheet.scale ${k}) makes it: ${shape}`);
+  if (k === sheet.scale && !sheet.trim && best <= n && call !== undefined) return problem(`${shape}: ${call === 'cli' ? `render again with --columns ${best}` : `pixel_render again with columns: ${best}`}`);
   // A recipe without a sheet field gets one, carrying the frame-size fix's scale so neither patch undoes the other.
   const whole = recipe !== undefined && recipe.sheet === undefined;
   const changes = whole ? [{ set: 'sheet', value: { ...(k !== sheet.scale && { scale: k }), columns: best } }] : [...(sheet.trim ? [{ set: 'sheet.trim', value: false }] : []), { set: 'sheet.columns', value: best }];
@@ -385,7 +393,8 @@ function reviewMotion(project, names, boxes, drawn, recipe) {
 
 // project: the rendered project; recipe: its source (for animation directions and whether it names animations);
 // gifs: the animationGIF results written beside it, or undefined when the command writes no GIFs (a render without gif);
-// animation: check only that animation and its frames.
+// animation: check only that animation and its frames; call: the render it checks, "cli" or "mcp", so a fix can name
+// that call's own option (a sheet's columns).
 // A check as a reply carries it: the silhouette boxes only of the animations a note is about. The boxes are a note's
 // evidence, and beside an animation with nothing to say they are rows of numbers to read past.
 export function briefCheck(check) {
@@ -396,7 +405,7 @@ export function briefCheck(check) {
   return rest;
 }
 
-export function checkDelivery(project, { recipe, gifs, expect, animation } = {}) {
+export function checkDelivery(project, { recipe, gifs, expect, animation, call } = {}) {
   const { name, width, height, sheet, animations } = project, scale = sheet.scale;
   if (animation !== undefined && !Object.hasOwn(animations, animation)) throw new PixelError('animation', `no animation named "${animation}"; choose one of: ${Object.keys(animations).join(', ')}`);
   const names = animation === undefined ? Object.keys(animations) : [animation];
@@ -480,7 +489,7 @@ export function checkDelivery(project, { recipe, gifs, expect, animation } = {})
       : `the canvas is ${width}x${height}${scale !== 1 ? ` at sheet.scale ${scale}` : ''}: change the recipe's ${Object.keys(asked).join(' and ')} (pixel_patch { "set": "${Object.keys(asked)[0]}", "value": ${Object.values(asked)[0]} }${scale !== 1 ? ' and sheet.scale 1' : ''}), fit the drawing to it, pixel_inspect, then render again`;
     problems.push({ file: frameFiles, asked, got: { width: width * scale, height: height * scale }, fix });
   }
-  const sheetMiss = expect.sheet === undefined ? null : sheetProblem(project, expect, recipe);
+  const sheetMiss = expect.sheet === undefined ? null : sheetProblem(project, expect, recipe, call);
   if (sheetMiss) problems.push(sheetMiss);
   if (gifs !== undefined) {
     // Only the GIFs of the animations being checked.
