@@ -4,10 +4,12 @@
 import { inflateSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { crc32 } from './png.js';
-import { PixelError, renderProject, isObject, FRAME_LIMIT, frameFits, frameAreaProblem, frameTotalProblem } from './core.js';
+import { PixelError, renderProject, isObject, FRAME_LIMIT, CANVAS_SIDE, FRAME_PIXELS, STILL_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem } from './core.js';
 
 const fail = message => { throw new PixelError('import', message); };
-// An imported frame is an animation frame (one grid op holds it whole): core's frameFits, said by frameAreaProblem.
+// An imported frame is an animation frame (one grid op holds it whole): core's frameFits, said by frameAreaProblem. A
+// PNG imported whole, with no frame or atlas, may instead be a still, up to a still's limits (STILL_SIDE a side and
+// FRAME_AREA), as a recipe may: its grid is cut into tiles a grid op holds.
 // Per PNG colour type: its name, samples per pixel and allowed bit depths.
 const COLOR_TYPES = { 0: ['greyscale', 1, [1, 2, 4, 8, 16]], 2: ['RGB', 3, [8, 16]], 3: ['indexed', 1, [1, 2, 4, 8]], 4: ['greyscale with alpha', 2, [8, 16]], 6: ['RGBA', 4, [8, 16]] };
 
@@ -207,7 +209,9 @@ export function importPNG(bytes, { name = 'imported', atlas, frame, padding, fra
   const first = entries[0][1]?.frame, width = first?.w, height = first?.h, names = importNames(entries.map(([frameName]) => frameName)), renamed = new Map();
   entries.forEach(([frameName], i) => { if (!renamed.has(frameName)) renamed.set(frameName, names[i]); });
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) fail('atlas frames need a whole-number width and height');
-  if (!frameFits(width, height)) fail(`${frameAreaProblem(width, height)}, and an imported frame is one${atlas === undefined ? '; give frame, the size of one frame in a sheet' : ''}`);
+  const still = atlas === undefined && !frameFits(width, height);
+  if (still && (width > STILL_SIDE || height > STILL_SIDE || width * height > FRAME_AREA)) fail(`a ${width}×${height} image is past a still's ${STILL_SIDE} pixels a side and ${FRAME_AREA.toLocaleString('en-US')} in all; give frame, the size of one frame in a sheet, to split it into an animation`);
+  if (!still && !frameFits(width, height)) fail(`${frameAreaProblem(width, height)}, and an imported frame is one`);
   const total = frameTotalProblem(entries.length, width, height);
   if (total) fail(total);
   const frames = entries.map(([, entry], i) => {
@@ -240,9 +244,21 @@ export function importPNG(bytes, { name = 'imported', atlas, frame, padding, fra
       if (!pixel.color.endsWith('00')) rows[pixel.y][pixel.x] = colors.get(pixel.color);
       else if (pixel.color !== '#00000000') hidden.push(pixel); // Preserve meaningful RGB even under alpha zero.
     }
-    frame.ops = [{ op: 'grid', rows: rows.map(row => row.join('')) }];
+    // A still past what one grid holds is tiles of it, each at most CANVAS_SIDE wide and FRAME_PIXELS cells, the empty
+    // ones left out.
+    const across = Math.min(width, CANVAS_SIDE), down = Math.min(height, Math.floor(FRAME_PIXELS / across)), ops = [];
+    if (!still) ops.push({ op: 'grid', rows: rows.map(row => row.join('')) });
+    else for (let y = 0; y < height; y += down) for (let x = 0; x < width; x += across) {
+      const tile = rows.slice(y, y + down).map(row => row.slice(x, x + across).join(''));
+      if (tile.some(row => /[^.]/.test(row))) ops.push({ op: 'grid', x, y, rows: tile });
+    }
+    frame.ops = ops;
     if (hidden.length) frame.pixels = hidden; else delete frame.pixels;
   }
+  // Pixels a grid cannot carry (past 256 colours, or a colour hidden under full transparency) are a list, which holds
+  // an animation frame's worth.
+  const listed = frames[0].pixels?.length ?? 0;
+  if (still && listed > FRAME_PIXELS) fail(`a ${width}×${height} still has ${listed.toLocaleString('en-US')} pixels that ${compact ? 'keep a colour under full transparency' : 'need more than 256 colours'}, past the ${FRAME_PIXELS.toLocaleString('en-US')} a frame lists; give frame, the size of one frame in a sheet, to split it into an animation`);
   const animations = atlasAnimations(atlas, frames, name, renamed), pivot = atlas?.meta?.pixelfx?.pivot, grid = frame !== undefined && atlas.grid;
   const anchor = Array.isArray(pivot) && pivot.length === 2 && [pivot[0], pivot[1]].every((v, i) => Number.isInteger(v) && v >= 0 && v <= [width, height][i]) ? pivot : undefined;
   const recipe = { version: 1, name, width, height, ...(compact && { palette: Object.fromEntries([...colors].map(([color, key]) => [key, color])) }), frames, ...(animations && { animations }), ...(anchor && { anchor }) };

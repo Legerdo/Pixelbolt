@@ -20,12 +20,17 @@ import { tiledTileset, tiledMap } from './tiled.js';
 export function sceneGIF(scene, { fps = 25, scale = 1, background, sheet = false } = {}) {
   const rate = parseFrameRate(fps, 'gif.fps'), frameMs = 1000 * rate.denominator / rate.numerator, count = Math.max(1, Math.round(scene.duration / frameMs));
   // The whole loop at this scale is held to what one GIF holds, and each frame to one image, before a frame is drawn,
-  // so a refusal names the largest scale at which all of it fits rather than one that fails a frame later.
+  // so a refusal names the largest scale at which all of it fits rather than one that fails a frame later. A loop too
+  // long even at scale 1 names the largest whole frame rate that fits, which keeps the scene's timing in fewer frames.
   const { width, height } = scene, plane = width * height * scale * scale, loop = count * plane;
   if (Number.isInteger(scale) && scale >= 1 && scale <= 16 && (loop > MAX_FRAMES_PIXELS || plane > MAX_PLANE)) {
     const fits = Math.min(largestScale(count * width * height, MAX_FRAMES_PIXELS, scale), largestScale(width * height, MAX_PLANE, scale));
     const past = plane > MAX_PLANE ? 'more pixels than one image holds' : `${loop.toLocaleString('en-US')} pixels in all, past the 134,217,728 a GIF holds`;
-    fail('scale', `at scale ${scale} the ${count} frame${count === 1 ? '' : 's'} of the ${width}×${height} scene ${count === 1 ? 'is' : 'are'} ${width * scale}×${height * scale}, ${past}; ${fits ? `scale ${fits} is the largest that fits, or shorten the scene` : 'shorten the scene'}`);
+    const head = `at scale ${scale} the ${count} frame${count === 1 ? '' : 's'} of the ${width}×${height} scene ${count === 1 ? 'is' : 'are'} ${width * scale}×${height * scale}, ${past}`;
+    if (fits) fail('scale', `${head}; scale ${fits} is the largest that fits${count === 1 ? '' : ', or shorten the scene'}`);
+    let slower = Math.min(240, Math.floor(rate.numerator / rate.denominator));
+    while (slower >= 1 && Math.max(1, Math.round(scene.duration * slower / 1000)) * width * height > MAX_FRAMES_PIXELS) slower--;
+    fail('fps', `${head}; ${slower >= 1 ? `fps ${slower}${scale > 1 ? ' at scale 1' : ''} is the largest that fits, or shorten the scene` : 'shorten the scene'}`);
   }
   const blend = gifBackground(background), at = (k, enlarge) => sceneImage(renderScene(scene, { time: k * frameMs }), { scale: enlarge });
   function* frames() {
