@@ -518,7 +518,7 @@ export function createToolRunner({ directory, root, version }) {
           await writeBundle(frames, path.join(out, 'sequence'));
           return { content: [textContent({ ok: true, name: document.name, directory: out, sequence: sequenceSummary(frames.info), figures: figuresSummary(frames.info.figures), ended: frames.info.ended })] };
         }
-        const made = args.preset !== undefined ? compilePreset(document) : COMPILERS[format](document), { warnings: compiled = [], preview: testMap } = made;
+        const made = args.preset !== undefined || format === 'pixelforge-fx' ? compilePreset(document, { frames: args.frames }) : COMPILERS[format](document), { warnings: compiled = [], preview: testMap } = made;
         // frames: each animation down to that many evenly spaced frames, playing as long as before. size: the drawing
         // on a canvas of another size (cut or given margins, never scaled).
         if (args.size !== undefined && format === 'pixelforge-autotile') throw new PixelError('size', 'a tile set\'s size is its tile, set in the source');

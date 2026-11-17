@@ -3,7 +3,7 @@
 // offset (a layer's by its own x and y as well), and the result renders exactly as that window of the original does:
 // a margin shows the background, or nothing. With fewer frames (`keepFrames`): evenly spaced frames of each
 // animation, playing as long as before. Browser-compatible.
-import { CANVAS_SIDE, frameAreaProblem, frameTotalProblem, parseColor, renderProject, fail } from './core.js';
+import { CANVAS_SIDE, FRAME_AREA, frameAreaProblem, frameTotalProblem, parseColor, renderProject, fail } from './core.js';
 
 
 // "32x32", "32×32" or [32, 32]: an animation frame's size, at most CANVAS_SIDE a side and FRAME_PIXELS in all.
@@ -179,9 +179,8 @@ export function resizeMargins({ from, offset }, [width, height]) {
 // for, so the animation plays as long as before. Returns { recipe, kept: { <animation>: "8 of 19" }, notes }.
 export function keepFrames(recipe, count, path = 'frames') {
   if (!Number.isInteger(count) || count < 1 || count > 256) fail(path, 'expected how many frames each animation keeps, a whole number from 1 to 256');
-  const project = renderProject(recipe), names = recipe.frames.map(frame => frame.name), index = new Map(names.map((name, i) => [name, i]));
+  const { project, draws } = frameFacts(recipe), names = recipe.frames.map(frame => frame.name), index = new Map(names.map((name, i) => [name, i]));
   const animations = recipe.animations ?? { default: { frames: names } }, kept = {}, next = {}, wanted = new Map(), dropped = new Set();
-  const draws = frame => { const { data } = project.frames[frame]; for (let i = 3; i < data.length; i += 4) if (data[i]) return true; return false; };
   for (const [key, animation] of Object.entries(animations)) {
     const listed = animation.frames.map(name => index.get(name)), F = listed.length, pingpong = animation.direction === 'pingpong';
     // A pingpong plays its inner frames twice: 2 × listed − 2 frames.
@@ -211,6 +210,25 @@ export function keepFrames(recipe, count, path = 'frames') {
   // Frames kept only to draw others from are no longer played, so the animation that played every frame is spelled out.
   const explicit = recipe.animations !== undefined || frames.length > next.default.frames.length;
   return { recipe: { ...recipe, frames, ...(explicit && { animations: next }) }, kept, notes };
+}
+
+// What keepFrames reads of each frame: its duration (project.frames[i].duration) and whether it draws. An effect
+// compiled for fewer frames (compileEffects' `frames`) may make more than a recipe's frames hold together, so when they
+// do, and no frame is drawn from another, they are rendered a share of that total at a time and only these are kept.
+function frameFacts(recipe) {
+  const area = recipe?.width * recipe?.height, frames = recipe?.frames;
+  const drawsIn = ({ data }) => { for (let i = 3; i < data.length; i += 4) if (data[i]) return true; return false; };
+  const copies = frame => frame?.from !== undefined || [...(frame?.ops ?? []), ...(frame?.layers ?? []).flatMap(layer => layer?.ops ?? [])].some(op => op?.op === 'copy');
+  if (!Number.isInteger(area) || area < 1 || !Array.isArray(frames) || frames.length * area <= FRAME_AREA || frames.length > 256 || frames.some(copies)) {
+    const project = renderProject(recipe);
+    return { project, draws: frame => drawsIn(project.frames[frame]) };
+  }
+  const share = Math.max(1, Math.floor(FRAME_AREA / area)), facts = [];
+  for (let i = 0; i < frames.length; i += share) {
+    const part = frames.slice(i, i + share);
+    for (const frame of renderProject({ ...recipe, frames: part, animations: { all: { frames: part.map(frame => frame.name) } } }).frames) facts.push({ duration: frame.duration, draws: drawsIn(frame) });
+  }
+  return { project: { frames: facts }, draws: frame => facts[frame].draws };
 }
 
 // A recipe that keeps only the animations named, and the frames they play or are drawn from: one spell out of a

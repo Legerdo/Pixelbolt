@@ -577,7 +577,8 @@ try {
         input = await readResolved(positional[0]);
         // A preset may be a plain recipe, which compiles to itself.
         const compile = command === 'autotile' ? compileAutotile : options.preset !== undefined ? compilePreset : COMPILERS[input.document?.format] ?? compilePoses;
-        const compiled = compile(input.document);
+        // An effect is budgeted for the frames --frames keeps (compilePreset).
+        const compiled = compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames) }) : compile(input.document);
         // A plain recipe preset compiles to itself and has no metadata to save.
         if (options.metadata && compiled.metadata === undefined) throw new Error(`${options.preset} is a plain recipe preset, which has no metadata; omit --metadata`);
         metadata = compiled.metadata; warnings = compiled.warnings ?? []; preview = compiled.preview;
@@ -737,7 +738,7 @@ try {
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
       if (options.sheet !== undefined && !/\.png$/i.test(options.sheet)) throw new Error('--sheet must name a new .png file');
       // --preset: a shipped preset straight to its GIF, compiled as compile --preset compiles it.
-      const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document) : null, warnings = [...(compiled?.warnings ?? [])];
+      const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames) }) : null, warnings = [...(compiled?.warnings ?? [])];
       let recipe = compiled ? compiled.recipe : input.document, resized, kept;
       if (options.frames !== undefined) {
         const thinned = keepFrames(recipe, frameCount(options.frames), '--frames');

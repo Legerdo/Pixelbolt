@@ -167,7 +167,8 @@ export function prepareScene(source) {
   }
   if (!source.assets || Array.isArray(source.assets) || typeof source.assets !== 'object' || Object.keys(source.assets).length > 64) fail('scene.assets', 'expected at most 64 inlined assets');
   // Ramp shifters per asset (kept apart from the passes, which exports iterate as images).
-  const assets = Object.create(null), shifts = Object.create(null), warnings = []; let sourceArea = 0;
+  // used: the pixels each asset's passes render (every frame of each), which together stay within 4,194,304.
+  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(); let sourceArea = 0;
   for (const [id, value] of Object.entries(source.assets)) {
     if (typeof value === 'string' || typeof value?.recipe === 'string' || typeof value?.normal === 'string' || typeof value?.emissive === 'string' || value?.revision !== undefined) fail(`scene.assets.${id}`, 'file and revision references are resolved by the CLI and MCP; inline the recipe to render here');
     const entry = value?.recipe ? value : { recipe: value };
@@ -179,7 +180,15 @@ export function prepareScene(source) {
       // A still larger than an animation frame renders on its own; scenes keep their assets to the frame's side and area.
       if (Number.isFinite(spec?.width) && Number.isFinite(spec?.height) && !frameFits(spec.width, spec.height)) fail(`scene.assets.${id}`, `${frameAreaProblem(spec.width, spec.height)}, and a scene asset is one; a larger still renders on its own, not in a scene`);
       const area = spec?.width * spec?.height * spec?.frames?.length;
-      if (!Number.isFinite(area) || (sourceArea += area) > 4194304) fail(`scene.assets.${id}`, 'combined scene source passes exceed 4,194,304 pixels or have invalid dimensions');
+      if (!Number.isFinite(area)) fail(`scene.assets.${id}`, `its ${key} pass has invalid dimensions`);
+      if (sourceArea + area > 4194304) {
+        // What the assets before it use, the largest by name, and the asset to give fewer frames: the largest of all.
+        const n = value => value.toLocaleString('en-US'), before = [...used].sort((a, b) => b[1] - a[1]);
+        const largest = before.length && before[0][1] >= (used.get(id) ?? 0) + area ? before[0][0] : id;
+        const uses = !before.length ? '' : before.length === 1 ? `${before[0][0]} uses ${n(before[0][1])}, and ` : `the assets before it use ${n(sourceArea)} (${before.slice(0, 3).map(([name, pixels]) => `${name} ${n(pixels)}`).join(', ')}${before.length > 3 ? ', …' : ''}), and `;
+        fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${id}${key === 'recipe' ? '' : `'s ${key} pass`} needs ${n(area)}: give ${largest} fewer frames or a smaller canvas`);
+      }
+      sourceArea += area; used.set(id, (used.get(id) ?? 0) + area);
       passes[key] = renderProject(spec);
       warnings.push(...passes[key].warnings.map(message => `${id}.${key}: ${message}`));
     }
