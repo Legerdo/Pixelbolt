@@ -333,4 +333,19 @@ test('a scene GIF at the default rate names the even rate when its frames would 
   const run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
   const viewed = JSON.parse((await run('pixel_scene', { scene: source, gif: { scale: 1 } })).content[0].text);
   assert.ok(JSON.stringify(viewed).includes(note), JSON.stringify(viewed).slice(0, 400));
+  // A placement hidden at first and shown by a cue that plays snow stutters the same way, and fps 20 holds it evenly.
+  const cued = { ...source, duration: 1200, instances: [source.instances[0], { asset: 'snow', at: [0, 0], hidden: true, sequence: [{ time: 200, animation: 'default' }] }] };
+  assert.deepEqual(sceneGIF(prepareScene(cued)).notes, [note]);
+  const followed = sceneGIF(prepareScene(cued), { fps: 20 });
+  assert.deepEqual([followed.frames, followed.delays, followed.notes], [24, { 50: 24 }, []]);
+  // No note where no even rate from 8 to 25 fps exists: frames sharing only 10 or 20 ms (stride's 90 and 80) would
+  // need more than 25 fps, and frames of 130 and 260 ms less than 8.
+  const timed = durations => ({ ...source, duration: 2600, instances: [source.instances[0], { asset: 'snow', at: [0, 0], animation: 'default' }],
+    assets: { ...source.assets, snow: { ...snow, frames: snow.frames.slice(0, durations.length).map((frame, i) => ({ ...frame, duration: durations[i] })), animations: { default: { frames: durations.map((_, i) => `f${i}`), loop: true } } } } });
+  for (const durations of [[90, 80, 80, 90, 80, 80], [60, 100], [130, 260]]) assert.deepEqual(sceneGIF(prepareScene(timed(durations))).notes.filter(text => text.includes('holds each')), [], String(durations));
+  // Frames of 110 and 330 ms (iso-glade's coin) name fps 100/11, and that rate holds them in 110 ms GIF frames.
+  const coin = sceneGIF(prepareScene({ ...timed([110, 330, 110]), duration: 1100 }));
+  assert.ok(coin.notes.some(text => text.endsWith('fps 100/11 (110 ms a frame) holds each for a whole number.')), coin.notes.join('\n'));
+  const coinEven = sceneGIF(prepareScene({ ...timed([110, 330, 110]), duration: 1100 }), { fps: '100/11' });
+  assert.deepEqual([coinEven.frames, coinEven.delays], [10, { 110: 10 }]);
 });
