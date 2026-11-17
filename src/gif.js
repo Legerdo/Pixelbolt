@@ -38,15 +38,13 @@ function compress(indices, minimum, slots, state) {
   return bytes.subarray(0, length);
 }
 
-// Reads one RGBA frame as indices into its own colours, numbered in the order they first appear. Pixels below 50%
-// alpha become transparent and the rest opaque; with `background` ([r, g, b]) every pixel is blended onto that colour
-// instead. A transparent frame keeps index 0 for transparency. `describe` names the frame in the error raised when it
-// needs more than 256 entries.
 // A GIF's `background` option read as [r, g, b, 255], or null for none (omitted or "transparent"): a hex colour, or a
-// name in `palette`, that must be opaque.
+// name in `palette`, that must be opaque. With no palette (a scene's or a frame folder's GIF) only hex is offered.
 export function gifBackground(value, palette = {}) {
   if (value === undefined || value === 'transparent') return null;
-  const color = parseColor(value, palette, 'gif.background');
+  // parseColor with no palette reads only hex, so its refusal's palette names would point at nothing.
+  let color;
+  try { color = parseColor(value, palette, 'gif.background'); } catch (error) { if (Object.keys(palette).length) throw error; throw new PixelError('gif.background', `expected a hex colour such as #14213d, not ${JSON.stringify(value)}`); }
   if (color[3] !== 255) throw new PixelError('gif.background', 'must be an opaque colour; omit it to keep 1-bit transparency');
   return color;
 }
@@ -65,6 +63,10 @@ export function asGIFShows(data, background = null) {
   return out;
 }
 
+// Reads one RGBA frame as indices into its own colours, numbered in the order they first appear. Pixels below 50%
+// alpha become transparent and the rest opaque; with `background` ([r, g, b]) every pixel is blended onto that colour
+// instead. A transparent frame keeps index 0 for transparency. `describe` names the frame in the error raised when it
+// needs more than 256 entries.
 function indexFrame(data, area, background, describe) {
   const colors = new Map(), wide = new Uint16Array(area);
   let transparent = false, partialAlpha = 0, last = -1, lastIndex = 0;

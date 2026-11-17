@@ -15,8 +15,8 @@ import { tiledTileset, tiledMap } from './tiled.js';
 // Returns framesGIF's result, with a note when the duration is not a whole number of frames, since the loop then ends
 // early or late, and notes on the placements whose animations the duration cuts mid-loop or that play once: where the
 // GIF repeats, those jump. `sheet: true` adds `sheet`, inspectProject's view of the frames as the GIF holds them (at
-// their own size, at most 256 evenly spaced cells, as inspect samples), drawn again rather than kept, so a long scene
-// still holds one frame at a time.
+// their own size, at most 256 evenly spaced cells, as inspect samples): each sampled frame is drawn again, so the
+// frames inspect skips are never kept.
 export function sceneGIF(scene, { fps = 25, scale = 1, background, sheet = false } = {}) {
   const rate = parseFrameRate(fps, 'gif.fps'), frameMs = 1000 * rate.denominator / rate.numerator, count = Math.max(1, Math.round(scene.duration / frameMs));
   const blend = gifBackground(background), at = (k, enlarge) => sceneImage(renderScene(scene, { time: k * frameMs }), { scale: enlarge });
