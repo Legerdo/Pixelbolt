@@ -777,7 +777,7 @@ try {
       else {
         if (!options.out) throw new Error('render requires --out <directory>');
         folderOut('render', options.out, 'name a new folder: the sheet, atlas and animations are written inside it (the sheet as <name>.png); for one GIF use pixelbolt gif --out <new.gif>');
-        const expect = options.expect === undefined ? undefined : readExpect(await readJSONOption(options.expect));
+        const expect = options.expect === undefined ? undefined : readExpect(await readJSONOption(options.expect), input.document);
         // --gif also writes a GIF of every animation into gifs/, at the frames' own size or --gif-scale times it, as MCP
         // pixel_render's gif does. They are encoded, and the check run, before anything is written, so a refused GIF or
         // an unknown --animation writes nothing.
