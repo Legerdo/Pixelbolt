@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderProject, PixelError } from '../src/core.js';
-import { encodeGIF, animationGIF, framesGIF } from '../src/gif.js';
+import { encodeGIF, animationGIF, framesGIF, asGIFShows } from '../src/gif.js';
 import { numberedFrames } from '../src/frame-folder.js';
 import { encodePNG } from '../src/png.js';
 
@@ -405,4 +405,16 @@ test('CLI gif-frames turns a folder of PNG frames into an exact GIF and writes o
   await writeFile(path.join(frames, 'other_0002.png'), encodePNG(rgba(...Array.from({ length: 300 }, (_, i) => [i & 255, i >> 8, 1, 255])), 300, 1));
   refused([frames, '--fps', '25', '--out', path.join(dir, 'x.gif'), '--prefix', 'other_'], /other_0002\.png uses 300 colours; a GIF frame holds 256 and Pixelbolt does not quantize/);
   assert.equal(run(frames, '--fps', '25', '--out', path.join(dir, 'x.gif'), '--prefix', 'glow_').status, 0);
+});
+
+test('asGIFShows is each frame as its GIF holds it: blended onto a background, or cut to 1-bit alpha', () => {
+  // A ramp of alpha in one colour, so both halves of the 50% cut and the blend's rounding are read back.
+  const project = renderProject({ version: 1, name: 'fade', width: 6, height: 1, palette: Object.fromEntries([0, 64, 127, 128, 200, 255].map((a, i) => [`k${i}`, `#c86432${a.toString(16).padStart(2, '0')}`])),
+    frames: [{ name: 'a', ops: [0, 1, 2, 3, 4, 5].map(x => ({ op: 'pixel', x, y: 0, color: `k${x}` })) }] });
+  for (const background of [undefined, '#203040']) {
+    const gif = decodeGIF(animationGIF(project, undefined, background ? { background } : {}).data);
+    const under = background ? [0x20, 0x30, 0x40] : null, shown = asGIFShows(project.frames[0].data, under);
+    assert.deepEqual(gif.frames[0].pixels, hexPixels({ data: shown }), background ?? 'no background');
+    for (let at = 3; at < shown.length; at += 4) assert.ok(shown[at] === 0 || shown[at] === 255, 'alpha is all or nothing');
+  }
 });

@@ -434,7 +434,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation } = {})
   const played = Object.fromEntries(names.slice(0, 16).map(key => [key, { frames: animations[key].frames.length, loop: animations[key].loop }]));
   const delivered = {
     size: [width * scale, height * scale], ...(scale !== 1 && { canvas: [width, height], scale }),
-    animations: played, ...(names.length > 16 && { animationsOmitted: names.length - 16 }),
+    // A tile set that names no animations plays nothing: its frames are tiles, and a "default" loop of them is noise.
+    ...(set && recipe?.animations === undefined ? { tiles: project.frames.length } : { animations: played, ...(names.length > 16 && { animationsOmitted: names.length - 16 }) }),
     colors: colors.size, transparent: clearOpen.length === open.length ? true : clearOpen.length ? 'some frames' : false,
     ...(seeThrough.length && { partlyTransparent: seeThrough.length === frames.length ? true : 'some frames' }),
     ...(gifs?.length && { gifs: [gifs[0].width, gifs[0].height] }),

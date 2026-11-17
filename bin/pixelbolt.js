@@ -9,7 +9,7 @@ import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepA
 import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from '../src/export.js';
 import { shareLink, readEmbeddedRecipe, recipeKind } from '../src/share.js';
 import { PRESET_FOLDER, listPresets, briefListing, findListing, namedLike, presetWords, presetEntries, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from '../src/presets.js';
-import { renderProject, animationGIF, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
+import { renderProject, animationGIF, asGIFShows, parseColor, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
 
 // A reader that stops early (`| head -1`) closes the pipe: stop quietly, as other command-line tools do. Commands print
 // their reply after writing their files, so only the rest of the reply is lost.
@@ -47,8 +47,8 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            Share one animation as a GIF; writes only --out
   pixelbolt gif --preset <name> --out anim.gif [--size 32x32] [--frames 8] [--scale 8] [--sheet frames.png]
                                            A shipped preset straight to its GIF, in one call: --size and --frames as
-                                           in compile, --sheet also writes the frames as a contact sheet to look at
-                                           (all three work with a recipe file too)
+                                           in compile, --sheet also writes the frames as a contact sheet to look at,
+                                           as the GIF shows them (all three work with a recipe file too)
   pixelbolt gif <scene.json> --out scene.gif [--scale 1-16] [--fps 25]
                                            A whole scene as one looping GIF, through its duration once
   pixelbolt gif-frames <folder> --fps 25 --out loop.gif [--loops 0] [--background color] [--prefix name_]
@@ -737,8 +737,11 @@ try {
       }
       const project = renderProject(recipe), names = Object.keys(project.animations);
       const { data, ...gif } = animationGIF(project, options.animation, { ...(options.scale !== undefined && { scale: Number(options.scale) }), ...(options.background !== undefined && { background: options.background }) });
-      // --sheet: the frames of that animation as a contact sheet, to look at before delivering.
-      const sheet = options.sheet !== undefined ? inspectProject(project, { animation: gif.animation }).sheet : null;
+      // --sheet: the frames of that animation as a contact sheet, to look at before delivering, drawn as the GIF shows
+      // them (blended onto --background, or with 1-bit transparency) so what is judged is what is delivered.
+      const under = options.background !== undefined && options.background !== 'transparent' ? parseColor(options.background, project.palette, '--background') : null;
+      const shown = { ...project, frames: project.frames.map(frame => ({ ...frame, data: asGIFShows(frame.data, under) })) };
+      const sheet = options.sheet !== undefined ? inspectProject(shown, { animation: gif.animation }).sheet : null;
       const written = await writeOutputs({ file: [options.out, data, '--out'], ...(sheet && { sheet: [options.sheet, encodePNG(sheet.data, sheet.width, sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
       // The cut is already said once: the clipping it causes is not a second problem.
       const margins = resized && resizeMargins(resized, [project.width, project.height]);

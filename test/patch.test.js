@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderProject, compareProjects } from '../src/core.js';
+import { renderProject, compareProjects, briefComparison } from '../src/core.js';
 import { patchRecipe } from '../src/patch.js';
 
 const recipe = () => ({ version: 1, name: 'probe', width: 4, height: 2, palette: { k: '#000', w: '#fff', 'dark.green': '#040' }, frames: [
@@ -186,4 +186,19 @@ test('[*] in a set, remove or insert reaches every item of a list, and passes ov
   assert.throws(() => patchRecipe(recipe, [{ paint: 'frames[*]', value: [{ x: 0, y: 0, color: 'p' }] }]), /\[\*\] is every item of a list, for set, remove and insert/);
   // A change in another tool's shape is answered with a patch's.
   assert.throws(() => patchRecipe(recipe, [{ op: 'set', path: 'frames[0].duration', value: 120 }]), /changes\[0\]\.op: unknown field in patch: a change is \{"set": "<path>", "value": …\}/);
+});
+
+test('a recolour said once: keys recoloured in every frame are one summary, not each pixel of each frame', () => {
+  const ops = [{ op: 'rect', x: 0, y: 0, w: 3, h: 3, color: 'r' }, { op: 'pixel', x: 0, y: 0, color: 'R' }];
+  const before = { version: 1, name: 'gem', width: 4, height: 4, palette: { r: '#b8324a', R: '#f06a7a', k: '#000' }, frames: [{ name: 'a', ops }, { name: 'b', from: 'a', translate: [1, 1] }, { name: 'c', from: 'a' }] };
+  const after = patchRecipe(before, [{ set: 'palette.r', value: '#2f5fd0' }, { set: 'palette.R', value: '#7fb2ff' }]).recipe;
+  const report = compareProjects(renderProject(before), renderProject(after));
+  // Each frame: two colours each became one other colour, so what became what, not nine pixels.
+  for (const entry of report.frames.changed) assert.equal(entry.changes, undefined, entry.frame);
+  const { changed } = briefComparison(report).frames;
+  assert.deepEqual(changed, { count: 3, frames: 'every frame', pixels: 27, box: { x: 0, y: 0, w: 4, h: 4 }, transitions: [{ from: '#b8324a', to: '#2f5fd0 (r)', pixels: 24 }, { from: '#f06a7a', to: '#7fb2ff (R)', pixels: 3 }] });
+  // A few exact pixels painted over different colours are still listed one by one.
+  const painted = patchRecipe(before, [{ paint: 'frames[a]', value: [{ x: 0, y: 0, color: 'k' }, { x: 1, y: 0, color: 'k' }, { x: 3, y: 3, color: 'k' }, { x: 2, y: 2, color: 'k' }], scope: 'frame' }]).recipe;
+  const one = compareProjects(renderProject(before), renderProject(painted)).frames.changed;
+  assert.equal(one.length, 1); assert.equal(one[0].changes.length, 4);
 });

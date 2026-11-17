@@ -131,6 +131,9 @@ test('expect.transparent judges a tile set by its tiles with an open side, since
   const { recipe } = compileAutotile(meadowSource), check = spec => checkDelivery(renderProject(spec), { recipe: spec, expect: { transparent: true } });
   assert.equal(check(recipe).ok, true);
   assert.equal(check(recipe).delivered.transparent, true);
+  // Its frames are tiles, not a loop that plays: the reply counts them.
+  assert.equal(check(recipe).delivered.tiles, recipe.frames.length);
+  assert.equal(check(recipe).delivered.animations, undefined);
   // An edge tile drawn solid is still a miss.
   const filled = { ...recipe, frames: recipe.frames.map(frame => (frame.name === 'meadow-1-a' ? { ...frame, ops: [...frame.ops, { op: 'rect', x: 0, y: 0, w: 16, h: 16, color: 'g' }] } : frame)) };
   const result = check(filled);

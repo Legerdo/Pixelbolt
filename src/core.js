@@ -1874,9 +1874,11 @@ export function briefCells(cells) {
 const COMPARED = 8;
 export function briefComparison(report) {
   const { changed, unchanged, ...rest } = report.frames;
-  if (changed.length <= COMPARED && unchanged.length <= COMPARED * 2) return report;
+  // Frames that all changed alike (a recoloured key in every frame) are said once, as many frames are.
+  const alike = changed.length > 1 && changed.every(entry => entry.transitions && JSON.stringify(entry.transitions) === JSON.stringify(changed[0].transitions));
+  if (changed.length <= COMPARED && unchanged.length <= COMPARED * 2 && !alike) return report;
   const brief = list => (list.length <= COMPARED * 2 ? list : { count: list.length, frames: nameRuns(list).join(', ') });
-  if (changed.length <= COMPARED) return { ...report, frames: { changed, unchanged: brief(unchanged), ...rest } };
+  if (changed.length <= COMPARED && !alike) return { ...report, frames: { changed, unchanged: brief(unchanged), ...rest } };
   const measured = changed.filter(entry => entry.box), sums = new Map();
   // A frame with few changed pixels lists each one; a frame with many, its colour changes. Both are counted.
   const add = (from, to, pixels) => { const key = `${from}\n${to}`; sums.set(key, (sums.get(key) ?? 0) + pixels); };
@@ -1886,7 +1888,7 @@ export function briefComparison(report) {
   return { ...report, frames: {
     changed: { count: changed.length, frames: unchanged.length ? nameRuns(changed.map(entry => entry.frame)).join(', ') : 'every frame', pixels: changed.reduce((sum, entry) => sum + (entry.pixels ?? 0), 0),
       ...(box && { box: { x: box.x, y: box.y, w: box.x2 - box.x, h: box.y2 - box.y } }), ...(transitions.length && { transitions }),
-      most: [...measured].sort((a, b) => b.pixels - a.pixels).slice(0, 3).map(({ frame, pixels, box: b }) => ({ frame, pixels, box: b })) },
+      ...(!alike && { most: [...measured].sort((a, b) => b.pixels - a.pixels).slice(0, 3).map(({ frame, pixels, box: b }) => ({ frame, pixels, box: b })) }) },
     unchanged: brief(unchanged), ...rest } };
 }
 
@@ -1933,9 +1935,10 @@ export function compareProjects(before, after) {
     }
     if (!pixels) { unchanged.push(frame.name); continue; }
     const box = { x: left, y: top, w: right - left + 1, h: bottom - top + 1 };
-    // A few pixels are listed one by one. More, or four or more that all make the same change (a recoloured palette
-    // key, a filled patch), are summed up by what became what.
-    const detail = pixels <= 16 && !(pixels >= 4 && transitions.size === 1) ? { changes } : { transitions: [...transitions].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([pair, count]) => ({ from: names.chars[Math.floor(pair / NAME_PAIRS)], to: names.chars[pair % NAME_PAIRS], pixels: count })) };
+    // A few pixels are listed one by one. More, or four or more where each colour became one colour and no two became
+    // the same one (recoloured palette keys, a filled patch), are summed up by what became what.
+    const pairs = [...transitions.keys()], recoloured = pixels >= 4 && new Set(pairs.map(pair => Math.floor(pair / NAME_PAIRS))).size === pairs.length && new Set(pairs.map(pair => pair % NAME_PAIRS)).size === pairs.length;
+    const detail = pixels <= 16 && !recoloured ? { changes } : { transitions: [...transitions].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([pair, count]) => ({ from: names.chars[Math.floor(pair / NAME_PAIRS)], to: names.chars[pair % NAME_PAIRS], pixels: count })) };
     changed.push({ frame: frame.name, pixels, box, ...detail });
     shown.push({ frame: frame.name, status: 'changed', before: old.data, after: frame.data, box });
   }

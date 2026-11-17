@@ -42,6 +42,20 @@ function compress(indices, minimum, slots, state) {
 // alpha become transparent and the rest opaque; with `background` ([r, g, b]) every pixel is blended onto that colour
 // instead. A transparent frame keeps index 0 for transparency. `describe` names the frame in the error raised when it
 // needs more than 256 entries.
+// One RGBA frame as a GIF shows it, by indexFrame's rule: blended onto `background` ([r, g, b]), or cut to 1-bit alpha
+// at 50%. A contact sheet of these is a picture of the GIF itself, not of the recipe.
+export function asGIFShows(data, background = null) {
+  const out = new Uint8ClampedArray(data.length);
+  for (let at = 0; at < data.length; at += 4) {
+    const alpha = data[at + 3];
+    if (background) {
+      for (let c = 0; c < 3; c++) out[at + c] = (data[at + c] * alpha + background[c] * (255 - alpha) + 127) / 255 | 0;
+      out[at + 3] = 255;
+    } else if (alpha >= 128) { out.set(data.subarray(at, at + 3), at); out[at + 3] = 255; }
+  }
+  return out;
+}
+
 function indexFrame(data, area, background, describe) {
   const colors = new Map(), wide = new Uint16Array(area);
   let transparent = false, partialAlpha = 0, last = -1, lastIndex = 0;
