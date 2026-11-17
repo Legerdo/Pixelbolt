@@ -23,6 +23,8 @@ function regionPixels(recipe, frameIndex, verb, value, where) {
   for (const key of Object.keys(value)) if (!allowed.includes(key) || value[key] === null) fail(`${where}.${key}`, 'unknown or null region field');
   const rows = value.rows;
   if (verb === 'grid' && (!Array.isArray(rows) || !rows.length || rows.length > CANVAS_SIDE || typeof rows[0] !== 'string' || !rows[0].length)) fail(`${where}.rows`, ROWS);
+  // A grid row is as wide as core's readRows takes, even on a still wider than an animation frame.
+  if (verb === 'grid' && rows[0].length > CANVAS_SIDE) fail(`${where}.rows[0]`, `row must contain 1–${CANVAS_SIDE} characters`);
   const w = verb === 'grid' ? rows[0].length : value.w, h = verb === 'grid' ? rows.length : value.h;
   for (const [key, number, max] of [['x', value.x, recipe.width - 1], ['y', value.y, recipe.height - 1], ['w', w, recipe.width], ['h', h, recipe.height]]) {
     if (!Number.isInteger(number) || number < (key === 'w' || key === 'h' ? 1 : 0) || number > max) fail(`${where}.${key}`, 'expected an integer region inside the canvas');
@@ -58,6 +60,21 @@ function regionPixels(recipe, frameIndex, verb, value, where) {
     }
   }
   return [...pixels, ...moved]; // Capture before clearing so overlapping moves preserve every highlight.
+}
+// The refusal of a frame's corrections past FRAME_PIXELS names what does work: operations that draw over the frame,
+// which are its top shown layer's when it has layers (core draws frame.ops beneath them), and says that the frame's own
+// pixel corrections still draw over whatever operations draw.
+function tooManyCorrections(frame, verb, count) {
+  const layers = Array.isArray(frame.layers) ? frame.layers : [];
+  let top = layers.findLastIndex(layer => isObject(layer) && layer.visible !== false && layer.opacity !== 0);
+  let ops = `frames[${frame.name}].ops`, whose = "the frame's";
+  if (top >= 0) {
+    const named = layers[top].name, unique = typeof named === 'string' && /^[a-zA-Z][\w-]*$/.test(named) && layers.filter(layer => isObject(layer) && layer.name === named).length === 1;
+    ops = `frames[${frame.name}].layers[${unique ? named : top}].ops`; whose = "its top layer's";
+  }
+  const kept = Array.isArray(frame.pixels) ? frame.pixels.length : 0;
+  return `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${count.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with ${whose} operations (a set of ${ops} or an insert at ${ops}[-]), or change a smaller region` +
+    (kept ? `. The frame's ${kept.toLocaleString('en-US')} pixel corrections still draw over its operations (remove frames[${frame.name}].pixels to drop them)` : '');
 }
 // Names an exact colour as this frame draws it: a palette key (single characters first), transparent, or hex.
 function frameColorNamer(recipe, frameIndex) {
@@ -218,10 +235,20 @@ export function patchRecipe(recipe, changes) {
       const protectedFrames = change.scope === 'frame' ? renderProject(next).frames : null;
       const cleaned = verb === 'cleanup' ? cleanupPixels(next, slot, change.value, `${where}.value`) : null;
       const entries = verb === 'paint' ? change.value : cleaned ? cleaned.entries : regionPixels(next, slot, verb, change.value, `${where}.value`);
-      if (!Array.isArray(entries) || (verb === 'paint' && !entries.length) || entries.length > 2 * FRAME_PIXELS) fail(`${where}.value`, verb === 'paint' ? PAINT : 'expected a bounded pixel list');
-      if (verb === 'paint' && entries.length > FRAME_PIXELS) fail(`${where}.value`, PAINT);
+      if (!Array.isArray(entries) || (verb === 'paint' && (!entries.length || entries.length > FRAME_PIXELS))) fail(`${where}.value`, verb === 'paint' ? PAINT : 'expected a bounded pixel list');
       const frame = parent[slot];
       if (frame.pixels !== undefined && (!Array.isArray(frame.pixels) || frame.pixels.some(pixel => !isObject(pixel)))) fail(target, `${path}.pixels must be a list of pixel objects`);
+      // A region change past twice a frame's corrections (a move clears and writes each pixel) is refused before its
+      // pixels are merged, with the same advice; the count is of the distinct pixels it and the frame would correct.
+      if (entries.length > 2 * FRAME_PIXELS) {
+        const seen = new Uint8Array(next.width * next.height);
+        let count = 0;
+        for (const pixel of [...(frame.pixels ?? []), ...entries]) {
+          const at = pixel.y * next.width + pixel.x;
+          if (Number.isInteger(pixel.x) && Number.isInteger(pixel.y) && at >= 0 && at < seen.length && !seen[at]) { seen[at] = 1; count++; }
+        }
+        fail(`${where}.value`, tooManyCorrections(frame, verb, count));
+      }
       // Keep one correction per coordinate. Later paint replaces an earlier correction, without touching layers.
       const pixels = new Map((frame.pixels ?? []).map(pixel => [`${pixel.x},${pixel.y}`, pixel]));
       entries.forEach((pixel, j) => {
@@ -235,7 +262,7 @@ export function patchRecipe(recipe, changes) {
         pixels.set(`${pixel.x},${pixel.y}`, structuredClone(pixel));
       });
       // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
-      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with the frame's operations (a set of frames[${frame.name}].ops or an insert at frames[${frame.name}].ops[-]), or change a smaller region`);
+      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, tooManyCorrections(frame, verb, pixels.size));
       if (pixels.size) frame.pixels = [...pixels.values()];
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);
