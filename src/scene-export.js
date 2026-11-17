@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes } from './scene.js';
-import { framesGIF, gifBackground, asGIFShows } from './gif.js';
+import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, MAX_PLANE } from './scene.js';
+import { framesGIF, gifBackground, asGIFShows, MAX_FRAMES_PIXELS } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
-import { buildAtlas, inspectProject, namesAnimations } from './core.js';
+import { buildAtlas, inspectProject, namesAnimations, largestScale, fail } from './core.js';
 import { spriteFrames, canvasTexture, normalsYUp, tileSets, parallaxScene } from './godot.js';
 import { tileSource } from './export.js';
 import { tiledTileset, tiledMap } from './tiled.js';
@@ -19,6 +19,14 @@ import { tiledTileset, tiledMap } from './tiled.js';
 // frames inspect skips are never kept.
 export function sceneGIF(scene, { fps = 25, scale = 1, background, sheet = false } = {}) {
   const rate = parseFrameRate(fps, 'gif.fps'), frameMs = 1000 * rate.denominator / rate.numerator, count = Math.max(1, Math.round(scene.duration / frameMs));
+  // The whole loop at this scale is held to what one GIF holds, and each frame to one image, before a frame is drawn,
+  // so a refusal names the largest scale at which all of it fits rather than one that fails a frame later.
+  const { width, height } = scene, plane = width * height * scale * scale, loop = count * plane;
+  if (Number.isInteger(scale) && scale >= 1 && scale <= 16 && (loop > MAX_FRAMES_PIXELS || plane > MAX_PLANE)) {
+    const fits = Math.min(largestScale(count * width * height, MAX_FRAMES_PIXELS, scale), largestScale(width * height, MAX_PLANE, scale));
+    const past = plane > MAX_PLANE ? 'more pixels than one image holds' : `${loop.toLocaleString('en-US')} pixels in all, past the 134,217,728 a GIF holds`;
+    fail('scale', `at scale ${scale} the ${count} frame${count === 1 ? '' : 's'} of the ${width}×${height} scene ${count === 1 ? 'is' : 'are'} ${width * scale}×${height * scale}, ${past}; ${fits ? `scale ${fits} is the largest that fits, or shorten the scene` : 'shorten the scene'}`);
+  }
   const blend = gifBackground(background), at = (k, enlarge) => sceneImage(renderScene(scene, { time: k * frameMs }), { scale: enlarge });
   function* frames() {
     for (let k = 0; k < count; k++) { const image = at(k, scale); yield { data: image.data, width: image.width, height: image.height, name: `frame ${k + 1}` }; }

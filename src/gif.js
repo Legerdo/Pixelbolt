@@ -218,7 +218,8 @@ export function encodeGIF(frames, width, height, { loop = true, scale = 1, backg
   return { data: gif.data, width: width * scale, height: height * scale, colors: gif.colors, transparent: gif.transparent, delays, partialAlpha, backgroundClears: gif.backgroundClears };
 }
 
-const MAX_FRAMES_PIXELS = 134217728, MAX_FRAMES = 18000;
+// The pixels over all of one GIF's frames, and its frames: what a scene GIF's scale is held to up front (scene-export.js).
+export const MAX_FRAMES_PIXELS = 134217728, MAX_FRAMES = 18000;
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 // The note for frames that writeFrames had to clear without naming a transparent index.
 const backgroundNote = count => `${plural(count, 'frame')} with 256 colours of ${count === 1 ? 'its' : 'their'} own ${count === 1 ? 'is' : 'are'} followed by transparent pixels that GIF cannot clear for every viewer: browsers and ffmpeg clear them, but Pillow shows a colour of the frame's table there. At most 255 colours in ${count === 1 ? 'that frame' : 'those frames'} keeps them clear everywhere.`;

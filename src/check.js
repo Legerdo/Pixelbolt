@@ -519,12 +519,13 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
     const large = k === null && (project.frames.length === 1 ? past : !frameFits(expect.width ?? width, expect.height ?? height));
     const refused = k === null && !large ? exportBudget(project, expect.width ?? width, expect.height ?? height, 1, recipe) : null;
     const over = k !== null ? exportBudget(project, width, height, k, recipe) : past ? null : refused;
-    const sets = Object.entries(asked).map(([field, value]) => `{ "set": "${field}", "value": ${value} }`);
+    // The direct fix's patch, whole: the canvas asked for and, when the sheet enlarges it, sheet.scale back to 1.
+    const sets = [...Object.entries(asked), ...(scale !== 1 ? [['sheet.scale', 1]] : [])].map(([field, value]) => `{ "set": "${field}", "value": ${value} }`);
     const fix = over ? tooBig(over, sheet)
       : k !== null
       ? `${k === 1 ? `sheet.scale ${scale} enlarges every export: ` : ''}pixel_patch ${recipe !== undefined && recipe.sheet === undefined ? `{ "set": "sheet", "value": { "scale": ${k} } }` : `{ "set": "sheet.scale", "value": ${k} }`}, then render again`
       : large || refused ? largeSizeFix(expect, project, recipe, refused ?? FRAME_LIMIT)
-      : `the canvas is ${width}x${height}${scale !== 1 ? ` at sheet.scale ${scale}` : ''}: change the recipe's ${Object.keys(asked).join(' and ')} (pixel_patch ${sets.length === 1 ? sets[0] : `[${sets.join(', ')}]`}${scale !== 1 ? ' and sheet.scale 1' : ''}), fit the drawing to it, pixel_inspect, then render again`;
+      : `the canvas is ${width}x${height}${scale !== 1 ? ` at sheet.scale ${scale}` : ''}: change the recipe's ${Object.keys(asked).join(' and ')}${scale !== 1 ? ' with sheet.scale 1' : ''} (pixel_patch ${sets.length === 1 ? sets[0] : `[${sets.join(', ')}]`}), fit the drawing to it, pixel_inspect, then render again`;
     problems.push({ file: frameFiles, asked, got: { width: width * scale, height: height * scale }, fix });
   }
   const sheetMiss = expect.sheet === undefined ? null : sheetProblem(project, expect, recipe, call);

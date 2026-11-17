@@ -4,7 +4,7 @@ import path from 'node:path';
 import { inspectMotion } from '../src/motion.js';
 import { expandPoses } from '../src/authoring.js';
 import { compileWaves } from '../src/wave.js';
-import { isObject } from '../src/core.js';
+import { isObject, largestScale, columnsOfCall } from '../src/core.js';
 import { readExpect, checkDelivery, briefCheck } from '../src/check.js';
 import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepAnimations } from '../src/resize.js';
 import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from '../src/export.js';
@@ -37,14 +37,15 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            Preview edits; writes only --out and --image
   pixelbolt render <file.json|-> --out dir [--scale 1-16] [--columns n] [--look] [--gif | --gif-scale 1-16]
                     [--normal <file>]      Export a complete asset bundle. --scale enlarges every exported pixel that
-                                           many times (the recipe's sheet.scale, for this export); --columns n lays
-                                           the sheet out n frames across, 1 to the frame count (sheet.columns, for
-                                           this export: a one-row strip is --columns <frame count>); --look also writes
-                                           look.png there, a contact sheet to look at, enlarged when the frames are
-                                           small (inspect --region zooms into a big one); --gif a GIF of each
-                                           animation in gifs/, at the frames' own size or --gif-scale times it;
-                                           --normal a normal recipe or a pixelforge-normals source of this recipe,
-                                           exported beside the sheet with a Godot CanvasTexture that lights it
+                                           many times (the recipe's sheet.scale, for this export; the largest depends
+                                           on frame size and count); --columns n lays the sheet out n frames across,
+                                           1 to the frame count (sheet.columns, for this export: a one-row strip is
+                                           --columns <frame count>); --look also writes look.png there, a contact
+                                           sheet to look at, enlarged when the frames are small (inspect --region
+                                           zooms into a big one); --gif a GIF of each animation in gifs/, at the
+                                           frames' own size or --gif-scale times it; --normal a normal recipe or a
+                                           pixelforge-normals source of this recipe, exported beside the sheet with a
+                                           Godot CanvasTexture that lights it
                                            --expect '{"width":32,"height":32,"frames":8}' (or a .json file) checks it
                                            against the request; --animation <name> checks only that animation
   pixelbolt share <file.json|->           Print a playground link for the resolved source recipe
@@ -131,7 +132,8 @@ recipe (its first frame without :name) under every cell, repeated: a sprite on t
 --palette lists each palette key with its colour, its pixels and the layers or pose parts it colours (ramps
 together, dark to light): which keys to change for a colour variant;
 --beside b.json,c.json draws the same view of up to eight more recipes under this one, in the one image, each
-under its file name, to compare variants (the reply's stack says where each starts);
+under its file name, to compare variants (the reply's stack says where each starts); at the automatic scale the
+stack is kept within 8,000 px tall, by a lower scale or fewer cells, and an explicit --scale past it is refused;
 --native adds a 1x PNG (none when the sheet is 1x already); --diagnostics adds advisory evidence (past 8 frames,
 totals and the three frames with the most to clean up, their findings, and the rest of the findings counted; --full
 lists every frame).
@@ -747,6 +749,8 @@ try {
         ({ recipe, kept } = thinned); warnings.push(...thinned.notes);
       }
       if (options.size !== undefined) {
+        // A GIF plays one animation, so only it moves to the new canvas: the frame total counts its frames alone.
+        if (options.animation !== undefined) recipe = keepAnimations(recipe, [options.animation], '--animation').recipe;
         ({ recipe, resized } = resizeRecipe(recipe, options.size, '--size'));
         const cut = resizeWarning(resized, [recipe.width, recipe.height]);
         if (cut) warnings.push(cut);
@@ -797,13 +801,17 @@ try {
         // beside the colour sheet with what Godot needs to light it.
         const lit = options.normal === undefined ? null : await readResolved(options.normal, '--normal');
         const normal = !lit ? undefined : lit.document?.format === 'pixelforge-normals' ? COMPILERS['pixelforge-normals'](lit.document).recipe : lit.document;
-        const bundle = await createBundle(input.document, { normal }), scale = options['gif-scale'] === undefined ? undefined : Number(options['gif-scale']);
+        const bundle = await createBundle(input.document, { normal }).catch(error => { throw options.columns === undefined ? error : columnsOfCall(error, '--columns'); });
+        const scale = options['gif-scale'] === undefined ? undefined : Number(options['gif-scale']);
         if (options.columns !== undefined && Number(options.columns) > bundle.project.frames.length) throw new Error(`--columns expects a whole number from 1 to the frame count, ${bundle.project.frames.length}: --columns ${bundle.project.frames.length} is a one-row strip`);
         // Stills have no animation to make a GIF of: none is written, with one note.
         const asked = options.gif || scale !== undefined;
         if (asked && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
         const gifs = asked && !bundle.project.stills ? Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, { ...(scale !== undefined && { scale }) })) : undefined;
-        if (gifs && gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new Error('--gif-scale: all animations at this scale exceed 67,108,864 pixels; use a lower scale');
+        if (gifs && gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) {
+          const at = gifs[0].scale, fits = largestScale(gifs.reduce((sum, item) => sum + item.frames, 0) * bundle.project.width * bundle.project.height, 67108864, at);
+          throw new Error(`--gif-scale: the GIFs of every animation at scale ${at} pass the 67,108,864 pixels one render's GIFs hold; ${fits ? `--gif-scale ${fits} is the largest that fits` : 'shorten the animations'}`);
+        }
         const check = checkDelivery(bundle.project, { recipe: input.document, gifs, expect, animation: options.animation, call: 'cli' });
         if (options['embed-recipe']) await embedBundleRecipe(bundle, input.document, await engineVersion());
         for (const item of gifs ?? []) bundle.files.set(`gifs/${item.animation}.gif`, Buffer.from(item.data));
