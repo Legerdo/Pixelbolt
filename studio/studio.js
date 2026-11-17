@@ -52,12 +52,12 @@ const isLarge = p => p.width > SPRITE_SIDE || p.height > SPRITE_SIDE;
 const exportScale = max => Math.min(max, zoom === 'fit' ? Math.max(1, Math.floor(shownScale)) : zoom);
 // The largest scale whose frames pixelbolt sequence can make without a size: at most 4096 a side and 16,777,216 pixels.
 // A 256 px sprite keeps 16 and a 640 × 360 frame stops at 6, so the Frames dialog's "current zoom" never asks for more.
-// A copy of sequence.js SEQUENCE_SIDE and SEQUENCE_PIXELS (placeSprite's canvas limits): the studio cannot load that
-// module, which encodes PNGs with node:zlib, so whoever changes one changes the other.
-const SEQUENCE_SIDE = 4096, SEQUENCE_PIXELS = 16777216;
+// A copy of sequence.js SEQUENCE_SIDE and SEQUENCE_CANVAS_PIXELS (placeSprite's canvas limits): the studio cannot load that
+// module, which encodes PNGs with node:zlib, so whoever changes one changes the other (test/interfaces.test.js holds them equal).
+const SEQUENCE_SIDE = 4096, SEQUENCE_CANVAS_PIXELS = 16777216;
 function sequenceScale(width, height) {
   let scale = 256;
-  while (scale > 1 && (width * scale > SEQUENCE_SIDE || height * scale > SEQUENCE_SIDE || width * scale * height * scale > SEQUENCE_PIXELS)) scale--;
+  while (scale > 1 && (width * scale > SEQUENCE_SIDE || height * scale > SEQUENCE_SIDE || width * scale * height * scale > SEQUENCE_CANVAS_PIXELS)) scale--;
   return scale;
 }
 function fitZoom(next) {
