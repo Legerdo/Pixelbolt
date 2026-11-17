@@ -161,16 +161,19 @@ test('GIFs enlarged by the scale the call gave are noted, not failed, until expe
 const changesAfter = (fix, marker) => { const start = fix.indexOf(marker) + marker.length - 1; return JSON.parse(fix.slice(start, fix.indexOf(']', start) + 1)); };
 
 test('the render check\'s fixes stay inside the format\'s limits, and applying them passes the check', () => {
-  // Over 256 px a side: a smaller canvas at a whole sheet.scale, the one nearest the drawing and the most detailed.
-  const big = check(spirit, { expect: { width: 512, height: 512 } }).problems[0].fix;
-  assert.match(big, /^canvases stop at 256 px a side, so 512x512 is a 32x32 canvas at sheet\.scale 16, the nearest to the current 24x24: .*a 256x256 canvas at sheet\.scale 2, for the most detail\)/);
+  // Past an animation frame's 262,144 pixels: a smaller canvas at a whole sheet.scale, the one nearest the drawing and
+  // the most detailed.
+  const big = check(spirit, { expect: { width: 1024, height: 1024 } }).problems[0].fix;
+  assert.match(big, /^an animation frame is at most 1024 px a side and 262,144 pixels, so 1024x1024 is a 64x64 canvas at sheet\.scale 16, the nearest to the current 24x24: .*a 512x512 canvas at sheet\.scale 2, for the most detail\)/);
   for (const changes of [changesAfter(big, 'pixel_patch ['), changesAfter(big, '(or [')]) {
-    assert.equal(check(patchRecipe(spirit, changes).recipe, { expect: { width: 512, height: 512 } }).ok, true, JSON.stringify(changes));
+    assert.equal(check(patchRecipe(spirit, changes).recipe, { expect: { width: 1024, height: 1024 } }).ok, true, JSON.stringify(changes));
   }
-  // One side asked: the other keeps its canvas size. 300 = 25 x 12 is nearest 24.
-  const wide = check(spirit, { expect: { width: 300 } }).problems[0].fix;
-  assert.deepEqual(changesAfter(wide, 'pixel_patch ['), [{ set: 'width', value: 25 }, { set: 'sheet.scale', value: 12 }]);
-  assert.equal(check(patchRecipe(spirit, changesAfter(wide, 'pixel_patch [')).recipe, { expect: { width: 300 } }).ok, true);
+  // A size a frame holds is the canvas itself.
+  assert.match(check(spirit, { expect: { width: 512, height: 512 } }).problems[0].fix, /^the canvas is 24x24: change the recipe's width and height \(pixel_patch \{ "set": "width", "value": 512 \}\)/);
+  // One side asked: the other keeps its canvas size. 1200 = 75 x 16 is nearest 24.
+  const wide = check(spirit, { expect: { width: 1200 } }).problems[0].fix;
+  assert.deepEqual(changesAfter(wide, 'pixel_patch ['), [{ set: 'width', value: 75 }, { set: 'sheet.scale', value: 16 }]);
+  assert.equal(check(patchRecipe(spirit, changesAfter(wide, 'pixel_patch [')).recipe, { expect: { width: 1200 } }).ok, true);
   // An atlas the renderer refuses is never offered: 100 frames of 512x512 pass 16,777,216 pixels at any scale.
   const dots = { version: 1, name: 'dots', width: 2, height: 2, palette: { r: '#ff0000' }, frames: Array.from({ length: 100 }, (_, i) => ({ name: `f${i}`, ops: [{ op: 'pixel', x: 0, y: 0, color: 'r' }] })) };
   assert.equal(check(dots, { expect: { width: 512, height: 512 } }).problems[0].fix, 'at every whole scale that makes 512x512, an atlas of 100 frames at 512x512 passes 16,777,216 pixels: ask for fewer frames or a smaller size, or set sheet.trim if the frames have empty margins');
@@ -192,9 +195,9 @@ test('the render check\'s fixes stay inside the format\'s limits, and applying t
   // Frame-count fixes are held to the animation pixels: 300 frames of 256x256 at sheet.scale 2 pass 67,108,864.
   const poster = { version: 1, name: 'poster', width: 256, height: 256, palette: { r: '#ff0000' }, sheet: { scale: 2 }, frames: [{ name: 'a', ops: [{ op: 'pixel', x: 0, y: 0, color: 'r' }] }] };
   assert.equal(check(poster, { expect: { frames: 300 } }).problems[0].fix, '300 frames in "default" make 300 played frames at 512x512, past the 67,108,864 animation pixels an export holds: ask for fewer frames or a smaller size');
-  // The nearest size offered when no whole scale fits is held to the same budgets: 100 played frames at 4096x384.
-  const repeated = { ...spirit, animations: { idle: { frames: Array(100).fill('rest') } } };
-  assert.match(check(repeated, { expect: { width: 4093 } }).problems[0].fix, /and the nearest size, 4096x384, is refused too \(100 played frames at 4096x384 pass the 67,108,864 animation pixels an export holds\): tell the user, and ask for fewer frames or a smaller size$/);
+  // The nearest size offered when no whole scale fits is held to the same budgets: 200 played frames at 4092x96.
+  const repeated = { ...spirit, animations: { idle: { frames: Array(200).fill('rest') } } };
+  assert.match(check(repeated, { expect: { width: 4093 } }).problems[0].fix, /and the nearest size, 4092x96, is refused too \(200 played frames at 4092x96 pass the 67,108,864 animation pixels an export holds\): tell the user, and ask for fewer frames or a smaller size$/);
   // Many animations: each frame-count fix is weighed against one count of the played frames, not a rescan.
   const many = { version: 1, name: 'many', width: 1, height: 1, palette: { r: '#f00' }, frames: [{ name: 'a', ops: [{ op: 'pixel', x: 0, y: 0, color: 'r' }] }], animations: Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`m${i}`, { frames: ['a'] }])) };
   const crowd = check(many, { expect: { frames: 2 } });
@@ -209,7 +212,11 @@ test('the render check\'s fixes stay inside the format\'s limits, and applying t
   const forty = { ...dots, frames: dots.frames.slice(0, 40) }, roomy = check(forty, { expect: { width: 512, height: 512 } }).problems[0].fix;
   assert.equal(check(patchRecipe(forty, changesAfter(roomy, '(or [')).recipe, { expect: { width: 512, height: 512 } }).ok, true);
   // No whole scale: say so and offer the nearest size that exists.
-  assert.match(check(spirit, { expect: { width: 4093 } }).problems[0].fix, /no whole scale exports a width of 4093 exactly from 6 frames: tell the user, and offer 4096x384 \(a 256x24 canvas at sheet\.scale 16\) instead$/);
+  assert.match(check(spirit, { expect: { width: 4093 } }).problems[0].fix, /^an animation frame is at most 1024 px a side and 262,144 pixels, sheet\.scale at most 16, and no whole scale exports a width of 4093 exactly from 6 frames: tell the user, and offer 4092x96 \(a 1023x24 canvas at sheet\.scale 4\) instead$/);
+  // Asked both sides, the nearest canvas also keeps a frame's area: 1021x1021 is a 511x511 canvas at scale 2, not
+  // 1021x1021 at scale 1 (1,042,441 pixels).
+  assert.match(check(spirit, { expect: { width: 1021, height: 1021 } }).problems[0].fix, /exactly from 6 frames: tell the user, and offer 1022x1022 \(a 511x511 canvas at sheet\.scale 2\) instead$/);
+  assert.match(check(spirit, { expect: { width: 4093, height: 4093 } }).problems[0].fix, /and the nearest size, 4096x4096, is refused too \(14 played frames at 4096x4096 pass/);
 
   // An opaque background asked for, with pixels erased after the background: name what erases them.
   const cleared = { version: 1, name: 'cleared', width: 4, height: 2, background: 'r', palette: { r: '#ff0000' }, frames: [{ name: 'a', ops: [{ op: 'clear', x: 0, y: 0, w: 1, h: 1 }] }, { name: 'b', from: 'a' }] };

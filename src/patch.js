@@ -1,5 +1,5 @@
 // Browser-compatible recipe patching: targeted edits addressed by readable paths. No I/O.
-import { parseColor, renderProject, fail, isObject, sameWidth } from './core.js';
+import { parseColor, renderProject, fail, isObject, sameWidth, CANVAS_SIDE, FRAME_PIXELS } from './core.js';
 import { pixelId, colorOf, idsOf, cleanupIds } from './craft.js';
 
 const define = (target, key, value) => Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
@@ -11,26 +11,29 @@ const segmentPattern = /\.([^.[\]"]+)|\[(\d+|-|\*|[a-zA-Z][\w-]*)\]|\[("(?:[^"\\
 // Canvas verbs change final pixels in canvas coordinates; the rest edit the recipe structure.
 const CANVAS = ['paint', 'grid', 'move', 'recolor', 'cleanup'], VERBS = ['set', 'insert', 'remove', ...CANVAS];
 
+// A canvas change reaches across an animation frame: grid rows and moves up to its side, paint up to its area, and a
+// move or recolour up to twice that (a clear and a write for every pixel).
+const ROWS = `expected 1–${CANVAS_SIDE} equal-width rows`, PAINT = 'paint needs 1–262,144 pixels with x, y and color';
 const hex = data => '#' + [...data].map(v => v.toString(16).padStart(2, '0')).join('');
 function regionPixels(recipe, frameIndex, verb, value, where) {
   if (!isObject(value)) fail(where, 'expected a region object');
   const allowed = ['x', 'y', 'mask', ...(verb === 'grid' ? ['rows', 'erase'] : ['w', 'h', ...(verb === 'move' ? ['dx', 'dy'] : ['from', 'to'])])];
   for (const key of Object.keys(value)) if (!allowed.includes(key) || value[key] === null) fail(`${where}.${key}`, 'unknown or null region field');
   const rows = value.rows;
-  if (verb === 'grid' && (!Array.isArray(rows) || !rows.length || rows.length > 256 || typeof rows[0] !== 'string' || !rows[0].length)) fail(`${where}.rows`, 'expected 1–256 equal-width rows');
+  if (verb === 'grid' && (!Array.isArray(rows) || !rows.length || rows.length > CANVAS_SIDE || typeof rows[0] !== 'string' || !rows[0].length)) fail(`${where}.rows`, ROWS);
   const w = verb === 'grid' ? rows[0].length : value.w, h = verb === 'grid' ? rows.length : value.h;
   for (const [key, number, max] of [['x', value.x, recipe.width - 1], ['y', value.y, recipe.height - 1], ['w', w, recipe.width], ['h', h, recipe.height]]) {
     if (!Number.isInteger(number) || number < (key === 'w' || key === 'h' ? 1 : 0) || number > max) fail(`${where}.${key}`, 'expected an integer region inside the canvas');
   }
   if (value.x + w > recipe.width || value.y + h > recipe.height) fail(where, 'region must fit inside the canvas');
-  if (rows && rows.some(row => typeof row !== 'string')) fail(`${where}.rows`, 'expected 1–256 equal-width rows');
+  if (rows && rows.some(row => typeof row !== 'string')) fail(`${where}.rows`, ROWS);
   if (rows) sameWidth(rows, `${where}.rows`);
   if (value.mask !== undefined && (!Array.isArray(value.mask) || value.mask.length !== h || value.mask.some(row => typeof row !== 'string' || row.length !== w || /[^x.]/.test(row)))) fail(`${where}.mask`, 'mask must match the region: x selects, dot preserves');
   if (value.erase !== undefined && (typeof value.erase !== 'string' || value.erase.length !== 1 || '. '.includes(value.erase) || Object.hasOwn(recipe.palette ?? {}, value.erase))) fail(`${where}.erase`, 'choose one non-palette character other than dot/space for erasure');
   let data, from, to;
   if (verb !== 'grid') data = renderProject(recipe).frames[frameIndex].data;
   if (verb === 'move') {
-    for (const key of ['dx', 'dy']) if (!Number.isInteger(value[key]) || Math.abs(value[key]) > 256) fail(`${where}.${key}`, 'expected an integer offset from -256 to 256');
+    for (const key of ['dx', 'dy']) if (!Number.isInteger(value[key]) || Math.abs(value[key]) > CANVAS_SIDE) fail(`${where}.${key}`, `expected an integer offset from -${CANVAS_SIDE} to ${CANVAS_SIDE}`);
   } else if (verb === 'recolor') {
     // A key means its colour as this frame draws it: a frame palette recolours the frame's own drawing.
     from = parseColor(value.from, { ...recipe.palette, ...recipe.frames[frameIndex].palette }, `${where}.from`); to = value.to; parseColor(to, recipe.palette, `${where}.to`);
@@ -213,8 +216,8 @@ export function patchRecipe(recipe, changes) {
       const protectedFrames = change.scope === 'frame' ? renderProject(next).frames : null;
       const cleaned = verb === 'cleanup' ? cleanupPixels(next, slot, change.value, `${where}.value`) : null;
       const entries = verb === 'paint' ? change.value : cleaned ? cleaned.entries : regionPixels(next, slot, verb, change.value, `${where}.value`);
-      if (!Array.isArray(entries) || (verb === 'paint' && !entries.length) || entries.length > 131072) fail(`${where}.value`, verb === 'paint' ? 'paint needs 1–65,536 pixels with x, y and color' : 'expected a bounded pixel list');
-      if (verb === 'paint' && entries.length > 65536) fail(`${where}.value`, 'paint needs 1–65,536 pixels with x, y and color');
+      if (!Array.isArray(entries) || (verb === 'paint' && !entries.length) || entries.length > 2 * FRAME_PIXELS) fail(`${where}.value`, verb === 'paint' ? PAINT : 'expected a bounded pixel list');
+      if (verb === 'paint' && entries.length > FRAME_PIXELS) fail(`${where}.value`, PAINT);
       const frame = parent[slot];
       if (frame.pixels !== undefined && (!Array.isArray(frame.pixels) || frame.pixels.some(pixel => !isObject(pixel)))) fail(target, `${path}.pixels must be a list of pixel objects`);
       // Keep one correction per coordinate. Later paint replaces an earlier correction, without touching layers.

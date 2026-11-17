@@ -1,16 +1,21 @@
 // What a render delivered, and how it differs from what the user asked for (`expect`). Each problem names the file
 // and the call that fixes it, so an agent can correct an export before handing it on. Read-only: it never changes
 // the bundle.
-import { PixelError, isObject, renderProject, STILL_SIDE, stillsHaveNoAnimation, stillTileSet } from './core.js';
+import { PixelError, isObject, renderProject, CANVAS_SIDE as CANVAS, FRAME_PIXELS, STILL_SIDE, FRAME_AREA, sheetColumns, stillsHaveNoAnimation, stillTileSet } from './core.js';
 import { autotileFrames } from './autotile.js';
 
-// The format's limits, as core.js enforces them, so no fix asks for a recipe the renderer refuses: canvas sides,
-// sheet.scale, source frames, their total area, and the names one animation lists. A pingpong of n names (n > 2)
-// plays 2n - 2 frames, so an animation plays at most 2,046.
-const CANVAS = 256, SCALE = 16, SOURCE_FRAMES = 256, FRAME_AREA = 4194304, ATLAS = 16777216, NAMES = 1024, PLAYED = 2 * NAMES - 2;
+// The format's limits, as core.js enforces them, so no fix asks for a recipe the renderer refuses: an animation
+// frame's side and area (from core.js), sheet.scale, source frames, their total area, and the names one animation
+// lists. A pingpong of n names (n > 2) plays 2n - 2 frames, so an animation plays at most 2,046.
+const SCALE = 16, SOURCE_FRAMES = 256, ATLAS = 16777216, NAMES = 1024, PLAYED = 2 * NAMES - 2;
+// What an animation frame holds, said where a size fix names it.
+const FRAME_LIMIT = `an animation frame is at most ${CANVAS} px a side and 262,144 pixels`;
+// Whether w x h is a canvas any recipe may have, an animation's frame included.
+const frameFits = (w, h) => w <= CANVAS && h <= CANVAS && w * h <= FRAME_PIXELS;
 // The pixels one export's APNG animations hold (export.js), and all of one render's GIFs (mcp.js, gif.js).
 const EXPORT_PIXELS = 67108864, GIF_PIXELS = 67108864;
-const LIMITS = { width: CANVAS * SCALE, height: CANVAS * SCALE, frames: PLAYED, colors: 65536, gifScale: SCALE };
+// The size asked of a frame file: at most a still's side, the most one PNG holds of a square.
+const LIMITS = { width: STILL_SIDE, height: STILL_SIDE, frames: PLAYED, colors: 65536, gifScale: SCALE };
 // The sprite sheet the user named: its size in pixels, or its grid (a one-row strip is { "rows": 1 }).
 const SHEET = { width: ATLAS, height: ATLAS, columns: SOURCE_FRAMES, rows: SOURCE_FRAMES };
 
@@ -57,14 +62,19 @@ const wholeScale = (pairs, max) => {
 // Why the exporter would refuse this project at canvas w x h and sheet.scale k, or null: the frames' total area, the
 // animations' pixels and the atlas. A trimmed atlas packs each frame's visible bounds, so the change is rendered
 // (with the current drawing) to measure it; an untrimmed one is a grid.
-function exportBudget({ frames, animations, sheet }, w, h, k, recipe) {
+function exportBudget({ width, frames, animations, sheet }, w, h, k, recipe) {
+  if (frames.length > 1 && w * h > FRAME_PIXELS) return `a ${w}x${h} frame passes the 262,144 pixels an animation frame holds`;
   if (w * h * frames.length > FRAME_AREA) return `${frames.length} frames of ${w}x${h} pass the limit of 4,194,304 pixels of frames`;
   const played = Object.values(animations).reduce((sum, item) => sum + item.frames.length, 0);
   if (played * w * h * k * k > EXPORT_PIXELS) return `${played} played frames at ${w * k}x${h * k} pass the 67,108,864 animation pixels an export holds`;
   if (sheet.trim && recipe !== undefined) {
     try { renderProject({ ...recipe, width: w, height: h, sheet: { ...recipe.sheet, scale: k } }); }
     catch (error) { return error.path === 'project.sheet' ? `an atlas of ${frames.length} trimmed frames at sheet.scale ${k} passes 16,777,216 pixels` : `sheet.scale ${k} is refused (${error.message})`; }
-  } else if (sheet.columns * (w + sheet.padding * 2) * k * Math.ceil(frames.length / sheet.columns) * (h + sheet.padding * 2) * k > ATLAS) return `an atlas of ${frames.length} frames at ${w * k}x${h * k} passes 16,777,216 pixels`;
+  } else {
+    // Columns the recipe leaves out follow the frame width.
+    const columns = recipe?.sheet?.columns ?? (recipe === undefined && sheet.columns !== sheetColumns(frames.length, width) ? sheet.columns : sheetColumns(frames.length, w));
+    if (columns * (w + sheet.padding * 2) * k * Math.ceil(frames.length / columns) * (h + sheet.padding * 2) * k > ATLAS) return `an atlas of ${frames.length} frames at ${w * k}x${h * k} passes 16,777,216 pixels`;
+  }
   return null;
 }
 const tooBig = (reason, sheet) => `${reason}: ask for fewer frames or a smaller size${reason.includes('an atlas') && !sheet.trim ? ', or set sheet.trim if the frames have empty margins' : ''}`;
@@ -106,11 +116,11 @@ function sheetProblem(project, expect, recipe, call) {
   return problem(`${trimmed}${shape}${scaled}: pixel_patch ${JSON.stringify(changes.length === 1 ? changes[0] : changes)}, then render again`);
 }
 
-// A size with a side over 256 px is a smaller canvas exported at a whole sheet.scale. Offers the canvas nearest the
-// current one (the least redrawing) and, when it differs, the one with the most detail. A still (one frame) may also
-// be the asked size itself, drawn at one screen pixel per art pixel; that is offered after the enlargements, or alone
-// when no whole scale makes the size.
-function largeSizeFix(expect, project, recipe) {
+// A size past an animation frame's side or area (or one whose frames the export refuses at that size, `reason`) is a
+// smaller canvas exported at a whole sheet.scale. Offers the canvas nearest the current one (the least redrawing) and,
+// when it differs, the one with the most detail. A still (one frame) may also be the asked size itself, drawn at one
+// screen pixel per art pixel; that is offered after the enlargements, or alone when no whole scale makes the size.
+function largeSizeFix(expect, project, recipe, reason = FRAME_LIMIT) {
   const { width, height, frames, sheet } = project;
   const asked = expect.width !== undefined && expect.height !== undefined ? `${expect.width}x${expect.height}` : expect.width !== undefined ? `a width of ${expect.width}` : `a height of ${expect.height}`;
   const still = (() => {
@@ -125,7 +135,7 @@ function largeSizeFix(expect, project, recipe) {
   const candidates = [];
   for (let k = 2; k <= SCALE; k++) {
     const w = expect.width === undefined ? width : expect.width / k, h = expect.height === undefined ? height : expect.height / k;
-    if (Number.isInteger(w) && Number.isInteger(h) && w <= CANVAS && h <= CANVAS) candidates.push({ k, w, h, distance: Math.abs(w - width) + Math.abs(h - height) });
+    if (Number.isInteger(w) && Number.isInteger(h) && frameFits(w, h)) candidates.push({ k, w, h, distance: Math.abs(w - width) + Math.abs(h - height) });
   }
   // Budgets are checked only for the candidates offered (a trimmed sheet is rendered to measure), nearest first.
   let refused = null;
@@ -136,17 +146,21 @@ function largeSizeFix(expect, project, recipe) {
   const nearest = [...candidates].sort((a, b) => a.distance - b.distance || a.k - b.k).find(passes), detailed = nearest && candidates.find(passes);
   if (!nearest && still) return stillOnly;
   if (!nearest && refused) return tooBig(`at every whole scale that makes ${asked}, ${refused}`, sheet);
+  if (!nearest && reason !== FRAME_LIMIT) return tooBig(reason, sheet);
   if (!nearest) {
-    const k = Math.min(SCALE, Math.ceil(Math.max(expect.width ?? 0, expect.height ?? 0) / CANVAS)), side = (value, canvas) => value === undefined ? canvas : Math.min(CANVAS, Math.max(1, Math.round(value / k)));
+    // The smallest scale whose nearest canvas fits a frame's side and area.
+    let k = Math.min(SCALE, Math.ceil(Math.max(expect.width ?? 0, expect.height ?? 0) / CANVAS));
+    const side = (value, canvas) => value === undefined ? canvas : Math.min(CANVAS, Math.max(1, Math.round(value / k)));
+    while (k < SCALE && !frameFits(side(expect.width, width), side(expect.height, height))) k++;
     const w = side(expect.width, width), h = side(expect.height, height), over = exportBudget(project, w, h, k, recipe);
-    const head = frames.length === 1 ? `${tooLarge}, sheet.scale stops at ${SCALE}, and no whole scale exports ${asked} exactly from this canvas` : `canvases stop at ${CANVAS} px a side and sheet.scale at ${SCALE}, and no whole scale exports ${asked} exactly from ${frames.length} frames`;
+    const head = frames.length === 1 ? `${tooLarge}, sheet.scale stops at ${SCALE}, and no whole scale exports ${asked} exactly from this canvas` : `${reason}, sheet.scale at most ${SCALE}, and no whole scale exports ${asked} exactly from ${frames.length} frames`;
     return over ? `${head}, and the nearest size, ${w * k}x${h * k}, is refused too (${over}): tell the user, and ask for fewer frames or a smaller size`
       : `${head}: tell the user, and offer ${w * k}x${h * k} (a ${w}x${h} canvas at sheet.scale ${k}) instead`;
   }
   const changes = fit => JSON.stringify([...(expect.width !== undefined ? [{ set: 'width', value: fit.w }] : []), ...(expect.height !== undefined ? [{ set: 'height', value: fit.h }] : []), recipe !== undefined && recipe.sheet === undefined ? { set: 'sheet', value: { scale: fit.k } } : { set: 'sheet.scale', value: fit.k }]);
   const alternative = nearest === detailed ? '' : ` (or ${changes(detailed)}, a ${detailed.w}x${detailed.h} canvas at sheet.scale ${detailed.k}, for the most detail)`;
   if (still) return `${asked} is a ${nearest.w}x${nearest.h} canvas at sheet.scale ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}; or, since this is a still, ${still}. Either way, fit the drawing to the new canvas, pixel_inspect, then render again`;
-  return `${frames.length === 1 ? tooLarge : `canvases stop at ${CANVAS} px a side`}, so ${asked} is a ${nearest.w}x${nearest.h} canvas at sheet.scale ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}, fit the drawing to the new canvas, pixel_inspect, then render again`;
+  return `${frames.length === 1 ? tooLarge : reason}, so ${asked} is a ${nearest.w}x${nearest.h} canvas at sheet.scale ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}, fit the drawing to the new canvas, pixel_inspect, then render again`;
 }
 
 // What leaves see-through pixels after the background is drawn, in the named frames or the earlier frames they copy
@@ -212,7 +226,7 @@ function framesFix(key, want, named, direction, project, recipe, total) {
   if (played * width * height * s * s > EXPORT_PIXELS) return tooBig(`${want} frames in "${key}" make ${played} played frames at ${width * s}x${height * s}, past the 67,108,864 animation pixels an export holds`, { trim: true });
   if (!named) {
     const head = 'the recipe has no animations field, so every frame plays once in order';
-    const cap = want > SOURCE_FRAMES ? `a recipe holds at most ${SOURCE_FRAMES} frames` : exportBudget({ ...project, frames: { length: want }, animations: {}, sheet: { ...sheet, trim: false, columns: recipe?.sheet?.columns ?? Math.min(want, 8) } }, width, height, s);
+    const cap = want > SOURCE_FRAMES ? `a recipe holds at most ${SOURCE_FRAMES} frames` : exportBudget({ ...project, frames: { length: want }, animations: {}, sheet: { ...sheet, trim: false, columns: recipe?.sheet?.columns ?? sheetColumns(want, width) } }, width, height, s);
     if (!cap) return `${head}: add or remove frames (pixel_patch insert or remove under frames) until there are ${want}, or add an animation that lists ${want} frame names (a name may repeat)`;
     return want <= NAMES
       ? `${head}, and ${cap}: add an animation that lists ${want} frame names in play order (a name may repeat), pixel_patch set "animations" to { "${key}": { "frames": [${want} names] } }, then render again`
@@ -485,12 +499,14 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
   const asked = { ...(expect.width !== undefined && { width: expect.width }), ...(expect.height !== undefined && { height: expect.height }) };
   if ((expect.width !== undefined && expect.width !== width * scale) || (expect.height !== undefined && expect.height !== height * scale)) {
     const k = wholeScale([[expect.width, width], [expect.height, height]], 16);
-    // Each fix is held to the exporter's budgets at the size it proposes.
-    const over = k !== null ? exportBudget(project, width, height, k, recipe) : (expect.width ?? 0) > CANVAS || (expect.height ?? 0) > CANVAS ? null : exportBudget(project, expect.width ?? width, expect.height ?? height, 1, recipe);
+    // Each fix is held to the exporter's budgets at the size it proposes. A size an animation frame holds is the canvas
+    // itself, unless the export refuses its frames at that size: then, as for a larger size, a smaller canvas enlarged.
+    const direct = k === null && frameFits(expect.width ?? width, expect.height ?? height);
+    const over = k !== null ? exportBudget(project, width, height, k, recipe) : null, refused = direct ? exportBudget(project, expect.width ?? width, expect.height ?? height, 1, recipe) : null;
     const fix = over ? tooBig(over, sheet)
       : k !== null
       ? `${k === 1 ? `sheet.scale ${scale} enlarges every export: ` : ''}pixel_patch ${recipe !== undefined && recipe.sheet === undefined ? `{ "set": "sheet", "value": { "scale": ${k} } }` : `{ "set": "sheet.scale", "value": ${k} }`}, then render again`
-      : (expect.width ?? 0) > CANVAS || (expect.height ?? 0) > CANVAS ? largeSizeFix(expect, project, recipe)
+      : !direct || refused ? largeSizeFix(expect, project, recipe, refused ?? FRAME_LIMIT)
       : `the canvas is ${width}x${height}${scale !== 1 ? ` at sheet.scale ${scale}` : ''}: change the recipe's ${Object.keys(asked).join(' and ')} (pixel_patch { "set": "${Object.keys(asked)[0]}", "value": ${Object.values(asked)[0]} }${scale !== 1 ? ' and sheet.scale 1' : ''}), fit the drawing to it, pixel_inspect, then render again`;
     problems.push({ file: frameFiles, asked, got: { width: width * scale, height: height * scale }, fix });
   }

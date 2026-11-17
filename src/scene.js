@@ -1,12 +1,13 @@
 // Bounded scene review, not a game engine. In-memory recipes only; no filesystem or network access.
-import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, fail } from './core.js';
+import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_PIXELS, fail } from './core.js';
 import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
 import { fields, point, number, integer } from './authoring.js';
 import { expandTilemap, isoLayout } from './autotile.js';
 
 // A scene is one view: up to SCENE_SIDE pixels a side and SCENE_AREA in all (1024×256, 640×360, 512×512), so a level
-// some sixty tiles long is one picture. Its assets stay at the animation canvas, and a map may still be larger than it.
-export const SCENE_SIDE = 1024, SCENE_AREA = 262144;
+// some sixty tiles long is one picture. It is the size of an animation frame (core.js), and so is each asset at most,
+// a still one included; a map may still be larger than the view.
+export const SCENE_SIDE = CANVAS_SIDE, SCENE_AREA = FRAME_PIXELS;
 const smooth = t => t * t * (3 - 2 * t);
 // A light's flicker at `time`: seeded value noise from 0 to 1 over `steps` evenly spaced points per scene duration,
 // eased between them, wrapping at the duration so a looping scene flickers without a seam.
@@ -67,7 +68,7 @@ const MAX_DRAWS = 4096, MAX_WORK = 4194304, MAX_CASTS = 2048;
 // drawn after it.
 function sceneTilemap(tilemap, project, path) {
   fields(tilemap, ['tile', 'rows', 'legend', 'outside', 'empty', 'classes', 'seed', 'layout'], path);
-  const tile = point(tilemap.tile ?? [project.width, project.height], `${path}.tile`, 256);
+  const tile = point(tilemap.tile ?? [project.width, project.height], `${path}.tile`, CANVAS_SIDE);
   if (tile.some(n => n < 1)) fail(`${path}.tile`, 'tile size must be positive');
   if (tilemap.layout !== undefined && tilemap.layout !== 'square' && tilemap.layout !== 'iso') fail(`${path}.layout`, 'expected square or iso');
   const iso = tilemap.layout === 'iso';
@@ -175,8 +176,8 @@ export function prepareScene(source) {
     const passes = {};
     for (const key of ['recipe', 'normal', 'emissive']) if (entry[key] !== undefined) {
       const spec = key === 'recipe' ? themed(entry[key], scenePalette, assetPalette) : entry[key];
-      // A still larger than 256 pixels a side renders on its own; scenes keep their assets to the animation canvas.
-      if (spec?.width > CANVAS_SIDE || spec?.height > CANVAS_SIDE) fail(`scene.assets.${id}`, `a scene asset is at most ${CANVAS_SIDE}×${CANVAS_SIDE} pixels; a larger still renders on its own, not in a scene`);
+      // A still larger than an animation frame renders on its own; scenes keep their assets to the frame's side and area.
+      if (spec?.width > CANVAS_SIDE || spec?.height > CANVAS_SIDE || spec?.width * spec?.height > FRAME_PIXELS) fail(`scene.assets.${id}`, `a scene asset is at most ${CANVAS_SIDE} pixels a side and 262,144 pixels (320×180, 640×360 and 512×512 fit), and this one is ${spec.width}×${spec.height}; a larger still renders on its own, not in a scene`);
       const area = spec?.width * spec?.height * spec?.frames?.length;
       if (!Number.isFinite(area) || (sourceArea += area) > 4194304) fail(`scene.assets.${id}`, 'combined scene source passes exceed 4,194,304 pixels or have invalid dimensions');
       passes[key] = renderProject(spec);

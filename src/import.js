@@ -4,9 +4,12 @@
 import { inflateSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { crc32 } from './png.js';
-import { PixelError, renderProject, isObject } from './core.js';
+import { PixelError, renderProject, isObject, CANVAS_SIDE, FRAME_PIXELS, frameTotalProblem } from './core.js';
 
 const fail = message => { throw new PixelError('import', message); };
+// An imported frame is an animation frame (one grid op holds it whole): at most CANVAS_SIDE a side and FRAME_PIXELS.
+const frameFits = (w, h) => w <= CANVAS_SIDE && h <= CANVAS_SIDE && w * h <= FRAME_PIXELS;
+const FRAME_SIZE = `at most ${CANVAS_SIDE} a side and 262,144 pixels (320×180, 640×360 and 512×512 fit)`;
 // Per PNG colour type: its name, samples per pixel and allowed bit depths.
 const COLOR_TYPES = { 0: ['greyscale', 1, [1, 2, 4, 8, 16]], 2: ['RGB', 3, [8, 16]], 3: ['indexed', 1, [1, 2, 4, 8]], 4: ['greyscale with alpha', 2, [8, 16]], 6: ['RGBA', 4, [8, 16]] };
 
@@ -116,7 +119,7 @@ export function decodePNG(bytes) {
 // 0 to 8 that makes the frames tile the image exactly.
 function gridFrames(image, name, frame, padding, count) {
   const [w, h] = frame ?? [];
-  if (!Array.isArray(frame) || frame.length !== 2 || !Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > 256 || h > 256) fail('frame: expected the size of one frame, [width, height], each 1–256');
+  if (!Array.isArray(frame) || frame.length !== 2 || !Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || !frameFits(w, h)) fail(`frame: expected the size of one frame, [width, height], ${FRAME_SIZE}`);
   if (padding !== undefined && (!Number.isInteger(padding) || padding < 0 || padding > 64)) fail('padding: expected the empty border round each frame, a whole number from 0 to 64');
   if (count !== undefined && (!Number.isInteger(count) || count < 1 || count > 256)) fail('frames: expected a whole number from 1 to 256');
   const fits = p => image.width % (w + 2 * p) === 0 && image.height % (h + 2 * p) === 0;
@@ -202,7 +205,10 @@ export function importPNG(bytes, { name = 'imported', atlas, frame, padding, fra
   if (!entries.length || entries.length > 256) fail('expected 1–256 atlas frames');
   const first = entries[0][1]?.frame, width = first?.w, height = first?.h, names = importNames(entries.map(([frameName]) => frameName)), renamed = new Map();
   entries.forEach(([frameName], i) => { if (!renamed.has(frameName)) renamed.set(frameName, names[i]); });
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 256 || height > 256 || width * height * entries.length > 4194304) fail('frames must fit the 256×256 canvas and total 4,194,304 source pixel limit');
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) fail('atlas frames need a whole-number width and height');
+  if (!frameFits(width, height)) fail(`a ${width}×${height} frame is past what one imported frame holds, ${FRAME_SIZE}${atlas === undefined ? '; give frame, the size of one frame in a sheet' : ''}`);
+  const total = frameTotalProblem(entries.length, width, height);
+  if (total) fail(total);
   const frames = entries.map(([, entry], i) => {
     const rect = entry?.frame;
     if (!rect || !Number.isInteger(rect.x) || !Number.isInteger(rect.y) || rect.x < 0 || rect.y < 0 || rect.w !== width || rect.h !== height || rect.x + width > image.width || rect.y + height > image.height || entry.rotated || entry.trimmed) fail('atlas needs equal-size, untrimmed, unrotated rectangles inside the PNG');

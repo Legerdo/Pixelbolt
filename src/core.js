@@ -6,7 +6,7 @@ export class PixelError extends Error {
   constructor(path, message) { super(`${path}: ${message}`); this.name = 'PixelError'; this.path = path; }
 }
 // Largest JSON request accepted by the MCP server and the studio export endpoint. It exceeds the largest single
-// frame the format allows (a 256x256 frame of explicit pixel corrections serializes to about 2.5 MB).
+// animation frame the format allows (a 512x512 frame of explicit pixel corrections serializes to about 10 MB).
 export const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 export const fail = (path, message) => { throw new PixelError(path, message); };
 // Several errors as one: the first, naming the others in its message and listing every one in `errors`. `stopped`
@@ -181,13 +181,16 @@ export function sameWidth(rows, path) {
   const width = rows[0].length, uneven = rows.flatMap((row, y) => row.length === width ? [] : [y]);
   if (uneven.length) fail(`${path}[${uneven[0]}]`, `all rows must be ${width} characters wide, as row 0 is: ${uneven.slice(0, 8).map(y => `row ${y} has ${rows[y].length}`).join(', ')}${uneven.length > 8 ? ` and ${uneven.length - 8} more rows differ` : ''}`);
 }
-export function readRows(rows, path, palette) {
-  list(rows, path, 256);
+// A grid covers an animation frame: up to CANVAS_SIDE rows of CANVAS_SIDE characters and FRAME_PIXELS cells. A source
+// that keeps a smaller canvas reads its rows with its own `side`.
+export function readRows(rows, path, palette, side = CANVAS_SIDE) {
+  list(rows, path, side);
   if (!rows.length) fail(path, 'grid must contain at least one row');
-  if (typeof rows[0] !== 'string' || rows[0].length < 1 || rows[0].length > 256) fail(`${path}[0]`, 'row must contain 1–256 characters');
+  if (typeof rows[0] !== 'string' || rows[0].length < 1 || rows[0].length > side) fail(`${path}[0]`, `row must contain 1–${side} characters`);
   const width = rows[0].length;
   rows.forEach((row, y) => { if (typeof row !== 'string') fail(`${path}[${y}]`, `all rows must be ${width} characters wide`); });
   sameWidth(rows, path);
+  if (width * rows.length > ROW_CELLS) fail(path, `a ${width}×${rows.length} grid is ${grouped(width * rows.length)} cells; a grid holds at most 262,144, as an animation frame does, so split it into several grids`);
   const unknown = new Map();
   rows.forEach((row, y) => {
     for (const char of row) if (char !== '.' && char !== ' ') {
@@ -204,26 +207,47 @@ export function readRows(rows, path, palette) {
 }
 const round6 = value => Math.round(value * 1e6) / 1e6;
 
-// Canvas sides. A recipe with several frames is at most 256 pixels a side. A recipe with a single frame (a still: a
-// backdrop, mural or wallpaper drawn at one pixel per screen pixel) may be up to 4096 a side, within the same
-// 4,194,304 pixels that bound every recipe's frames.
-export const CANVAS_SIDE = 256, STILL_SIDE = 4096, FRAME_AREA = 4194304;
+// Canvas sizes. A recipe with several frames (an animation) is at most CANVAS_SIDE pixels a side and FRAME_PIXELS a
+// frame (320×180, 480×270, 640×360, 512×512 and 1024×256 fit), the same as a scene's view. A recipe with a single
+// frame (a still: a backdrop, mural or wallpaper drawn at one pixel per screen pixel) may be up to 4096 a side. Every
+// recipe's frames share FRAME_AREA pixels in all, which keeps a still and the studio, the playground, the MCP server
+// and the atlas within bounds: 16 frames of 512×512, 72 of 320×180.
+export const CANVAS_SIDE = 1024, FRAME_PIXELS = 262144, STILL_SIDE = 4096, FRAME_AREA = 4194304;
+// Pose sources (describeStampRecipe, authoring.js) keep 256 a side: a rig's per-frame cost is not budgeted.
+export const POSE_SIDE = 256;
+// The most cells one grid or symbol holds: a whole animation frame.
+const ROW_CELLS = FRAME_PIXELS;
+const grouped = value => String(value).replace(/\B(?=(\d{3})+$)/g, ',');
+// What the total says when `count` frames of width × height pass FRAME_AREA, with how many of that size fit; null
+// when they fit. One wording for every recipe and source that makes frames.
+export function frameTotalProblem(count, width, height) {
+  if (width * height * count <= FRAME_AREA) return null;
+  const fit = Math.floor(FRAME_AREA / (width * height));
+  return `${count} frames of ${width}×${height} are ${grouped(width * height * count)} pixels; a recipe's frames hold at most 4,194,304 in all, so ${fit ? `${fit} frame${fit === 1 ? '' : 's'} of ${width}×${height} fit` : `not one frame of ${width}×${height} fits`}: use fewer frames or a smaller canvas`;
+}
+// The sheet's columns when the recipe gives none: up to 8, and as many frames as keep the sheet within 4096 pixels
+// wide at scale 1 (one column at least).
+export const sheetColumns = (frames, width) => Math.min(frames, 8, Math.max(1, Math.floor(4096 / width)));
+// The largest image one PNG holds (png.js), so each scaled frame of an export fits it.
+const PNG_PIXELS = 16777216;
 // What may stand in a layer with sort "ground", and what works on an area instead.
 const STANDING = new Set(['pixel', 'rect', 'ellipse', 'line', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box']);
 const AREA = new Set(['clear', 'fill', 'replace', 'tilemap', 'outline', 'dither', 'shade', 'rewrite']);
 
-// `stills: false` keeps a document to the animation limit even with one frame (pose sources compile to animations).
-function readProject(spec, { stills = true } = {}) {
+// `stills: false` keeps a document to the animation limit even with one frame, and `side` gives a source that keeps a
+// smaller canvas its own (pose sources compile to animations at most POSE_SIDE a side).
+function readProject(spec, { stills = true, side: most = CANVAS_SIDE } = {}) {
   object(spec, 'project', ['$schema', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'background', 'symbols', 'frames', 'animations', 'sheet', 'anchor']);
   if (spec.version !== 1) fail('project.version', 'expected 1');
   const projectName = name(spec.name, 'project.name');
   const frameCount = Array.isArray(spec.frames) ? spec.frames.length : 0, still = stills && frameCount === 1;
   const side = (value, path) => {
-    if (stills && frameCount > 1 && Number.isInteger(value) && value > CANVAS_SIDE && value <= STILL_SIDE) fail(path, `expected an integer from 1 to ${CANVAS_SIDE}; only a single-frame still may be larger (up to ${STILL_SIDE}), and this recipe has ${frameCount} frames`);
-    return integer(value, path, 1, still ? STILL_SIDE : CANVAS_SIDE);
+    if (stills && frameCount > 1 && Number.isInteger(value) && value > most && value <= STILL_SIDE) fail(path, `expected an integer from 1 to ${most}; only a single-frame still may be larger (up to ${STILL_SIDE}), and this recipe has ${frameCount} frames`);
+    return integer(value, path, 1, still ? STILL_SIDE : most);
   };
   const width = side(spec.width, 'project.width'), height = side(spec.height, 'project.height');
-  if (still && width * height > FRAME_AREA) fail('project', `a ${width}×${height} still is ${String(width * height).replace(/\B(?=(\d{3})+$)/g, ',')} pixels; a still holds at most 4,194,304 (1920×1080, 2560×1440 and 2048×2048 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale`);
+  if (still && width * height > FRAME_AREA) fail('project', `a ${width}×${height} still is ${grouped(width * height)} pixels; a still holds at most 4,194,304 (1920×1080, 2560×1440 and 2048×2048 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale`);
+  if ((frameCount > 1 || !stills) && width * height > FRAME_PIXELS) fail('project', `a ${width}×${height} frame is ${grouped(width * height)} pixels; an animation frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale${stills ? '; only a single-frame still may be larger' : ''}`);
   const palette = spec.palette ?? {};
   object(palette, 'project.palette');
   if (own(palette, '$ref')) fail('project.palette.$ref', 'palette files are resolved by the CLI, MCP or resolveRecipe(); inline the palette to render here');
@@ -251,11 +275,12 @@ function readProject(spec, { stills = true } = {}) {
   object(spec.symbols ?? {}, 'project.symbols');
   for (const [key, rows] of Object.entries(spec.symbols ?? {})) {
     name(key, `project.symbols.${key}`);
-    symbols[key] = readRows(rows, `project.symbols.${key}`, palette);
+    symbols[key] = readRows(rows, `project.symbols.${key}`, palette, most);
   }
   list(spec.frames, 'project.frames', 256);
   if (!spec.frames.length) fail('project.frames', 'at least one frame is required');
-  if (width * height * spec.frames.length > 4194304) fail('project.frames', 'total frame area exceeds 4,194,304 pixels');
+  const total = frameTotalProblem(spec.frames.length, width, height);
+  if (total) fail('project.frames', total);
   object(spec.animations ?? {}, 'project.animations');
   const animationCount = spec.animations === undefined ? 1 : Object.keys(spec.animations).length;
   // Support files: sheet, atlas, SpriteFrames, recipe, CSS, player, preview and README, and a Godot TileSet and a Tiled
@@ -293,8 +318,8 @@ export function renderProject(spec, options = {}) {
     return renderProject(isolated, { ...(options.stats && { stats: true }), ...(options.owners && { owners: true }) });
   }
   const { projectName, width, height, palette, ramps, background, projectAnchor, symbols } = readProject(spec);
-  // Rectangles, ellipses and dither or shade regions may overhang the canvas: up to 512 pixels, or twice the side of a
-  // larger still.
+  // Rectangles, ellipses and dither or shade regions may overhang the canvas: up to 512 pixels, or twice the canvas's
+  // side when that is over 256.
   const boxWidth = Math.max(512, 2 * width), boxHeight = Math.max(512, 2 * height);
   let activePalette = palette;
   const color = (value, path) => parseColor(value, activePalette, path);
@@ -736,7 +761,7 @@ export function renderProject(spec, options = {}) {
           return ruleVariants({ w: match.w, h: match.h, match: match.cells, replace: replace.cells }, turns);
         });
         const steps = integer(op.steps ?? 1, `${p}.steps`, 1, 64), seed = integer(op.seed ?? 0, `${p}.seed`, 0, 2147483647);
-        const chance = op.chance === undefined ? 1 : number(op.chance, `${p}.chance`, 0, 1), limit = op.limit === undefined ? Infinity : integer(op.limit, `${p}.limit`, 1, 65536);
+        const chance = op.chance === undefined ? 1 : number(op.chance, `${p}.chance`, 0, 1), limit = op.limit === undefined ? Infinity : integer(op.limit, `${p}.limit`, 1, FRAME_PIXELS);
         const ids = idsOf(data);
         for (const index of rewriteIds(ids, width, height, rules, { x: rx, y: ry, w: rw, h: rh, steps, chance, limit, seed, spend })) {
           touch(index % width, Math.floor(index / width));
@@ -878,7 +903,7 @@ export function renderProject(spec, options = {}) {
       for (let y = bounds[1]; y <= bounds[3]; y++) pixels.fill(0, (y * width + bounds[0]) * 4, (y * width + bounds[2] + 1) * 4);
     }
     // Final canvas-space corrections replace RGBA, including transparency, after all layers.
-    list(frame.pixels ?? [], `${p}.pixels`, 65536);
+    list(frame.pixels ?? [], `${p}.pixels`, FRAME_PIXELS);
     spend((frame.pixels ?? []).length);
     for (const [i, pixel] of (frame.pixels ?? []).entries()) {
       const pp = `${p}.pixels[${i}]`;
@@ -927,7 +952,7 @@ export function renderProject(spec, options = {}) {
 // recolouring the same drawn keys, share a cell here; the renderer compares pixels, so it also shares frames that only
 // come out the same: this sheet is an upper bound on the renderer's, not a copy of it.
 export function describeStampRecipe(spec) {
-  const { width, height, palette, symbols } = readProject(spec, { stills: false });
+  const { width, height, palette, symbols } = readProject(spec, { stills: false, side: POSE_SIDE });
   if (spec.background !== undefined) fail('project.background', 'compiler stamp recipes omit the background');
   const frameNames = new Set(), boundsBySymbol = new Map(), keysBySymbol = new Map(), boxes = [];
   let work = 0, operations = 0;
@@ -1003,7 +1028,7 @@ export function describeStampRecipe(spec) {
       top = Math.min(top, y0); bottom = Math.max(bottom, y1);
     }
     // Final pixels in palette keys, such as a posed figure's inner lines.
-    list(frame.pixels ?? [], `${p}.pixels`, 65536);
+    list(frame.pixels ?? [], `${p}.pixels`, FRAME_PIXELS);
     spend((frame.pixels ?? []).length);
     for (const [i, pixel] of (frame.pixels ?? []).entries()) {
       const pp = `${p}.pixels[${i}]`;
@@ -1087,13 +1112,19 @@ function readAnimations(spec, frames) {
 
 function readSheet(spec, frames, width, height, boxes = null) {
   const sheet = object(spec.sheet ?? {}, 'project.sheet', ['columns', 'padding', 'scale', 'trim']);
-  const columns = integer(sheet.columns ?? Math.min(frames.length, 8), 'project.sheet.columns', 1, 256);
+  const columns = integer(sheet.columns ?? sheetColumns(frames.length, width), 'project.sheet.columns', 1, 256);
   const padding = integer(sheet.padding ?? 0, 'project.sheet.padding', 0, 16);
   const scale = integer(sheet.scale ?? 1, 'project.sheet.scale', 1, 16);
   const trim = boolean(sheet.trim ?? false, 'project.sheet.trim');
   const layout = trim ? (boxes ? packBoxes(boxes, padding, scale) : packTrimmed(frames, width, height, padding, scale)) : null;
   const sheetWidth = layout ? layout.width : columns * (width + padding * 2) * scale, sheetHeight = layout ? layout.height : Math.ceil(frames.length / columns) * (height + padding * 2) * scale;
   if (sheetWidth * sheetHeight > 16777216) fail('project.sheet', 'atlas exceeds 16,777,216 pixels; reduce scale or columns');
+  // Each frame is also exported on its own at this scale (a trimmed atlas can be smaller than one frame).
+  if (width * height * scale * scale > PNG_PIXELS) {
+    let fits = scale;
+    while (fits > 1 && width * height * fits * fits > PNG_PIXELS) fits--;
+    fail('project.sheet.scale', `a ${width}×${height} frame at scale ${scale} is ${width * scale}×${height * scale}, past the 16,777,216 pixels one PNG holds; scale ${fits} is the largest that fits`);
+  }
   return { columns, padding, scale, width: sheetWidth, height: sheetHeight, ...(layout && { trim: true, layout: layout.cells }) };
 }
 

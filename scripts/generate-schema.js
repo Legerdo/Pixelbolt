@@ -13,12 +13,18 @@ const object = (properties, required = []) => ({ type: 'object', properties, req
 const ref = name => ({ $ref: `#/$defs/${name}` });
 const array = (items, maxItems = 2048) => ({ type: 'array', items, maxItems });
 const xy = { x: int(-4096, 4096), y: int(-4096, 4096) };
-// Shapes and dither or shade regions may overhang the canvas: up to 512 pixels, or twice the side of a larger still.
-const wh = { w: int(1, 8192, 'At most 512, or twice the canvas width on a still wider than 256.'), h: int(1, 8192, 'At most 512, or twice the canvas height on a still taller than 256.') };
+// Shapes and dither or shade regions may overhang the canvas: up to 512 pixels, or twice the canvas side when that is
+// over 256.
+const wh = { w: int(1, 8192, 'At most 512, or twice the canvas width when that is over 256.'), h: int(1, 8192, 'At most 512, or twice the canvas height when that is over 256.') };
 // A rewrite region stays inside the canvas; it runs to the canvas edge by default.
 const region = { w: int(1, 4096, 'Default: to the canvas edge. The region stays inside the canvas.'), h: int(1, 4096, 'Default: to the canvas edge. The region stays inside the canvas.') };
-// One frame may be a still larger than 256 pixels a side; a recipe with several frames may not.
-const side = int(1, 4096, '1–256 pixels; a still (a recipe with exactly one frame) may be up to 4096, within 4,194,304 pixels in all.');
+// An animation frame is at most 1024 a side and 262,144 pixels (core.js CANVAS_SIDE, FRAME_PIXELS), which JSON Schema
+// can say only in words; one frame may be a still up to 4096 a side.
+const side = int(1, 4096, '1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit); a still (a recipe with exactly one frame) may be up to 4096, within 4,194,304 pixels in all. All the frames of a recipe hold at most 4,194,304 pixels: 72 frames of 320×180, 16 of 512×512.');
+// Grid and symbol rows cover an animation frame (262,144 cells at most); sources that keep 256 a side keep their rows
+// to 256 too.
+const rowsOf = most => ({ ...array({ type: 'string', minLength: 1, maxLength: most }, most), minItems: 1, description: `Equal-width text rows${most > 256 ? ', at most 262,144 characters in all' : ''}. Every character is a palette key; dot and space skip a pixel.` });
+const smallRows = rowsOf(256);
 // The row an operation stands on, in a layer with sort "ground".
 const ground = int(-4096, 4096, 'In a layer with sort "ground": the row this stands on, which orders the drawing far to near. Default: the lowest row it draws (a line\'s lower end). Text needs it.');
 const point = { ...array(int(-4096, 4096), 2), minItems: 2, description: '[x, y] in unscaled canvas pixels; the top-left corner of that pixel.' };
@@ -80,9 +86,9 @@ const schema = {
     sheet: object({ columns: int(1, 256), padding: int(0, 16), scale: int(1, 16), trim: { type: 'boolean', description: 'Pack each frame by its visible bounds; the atlas reports trimmed rectangles with spriteSourceSize. Ignores columns. Frames whose visible pictures are the same (a hold, a frame moved whole) share one rectangle.' } })
   }, ['version', 'name', 'width', 'height', 'frames']),
   if: { properties: { frames: { minItems: 2 } }, required: ['frames'] },
-  then: { properties: { width: { maximum: 256 }, height: { maximum: 256 } } },
+  then: { properties: { width: { maximum: 1024 }, height: { maximum: 1024 } } },
   $defs: {
-    rows: { ...array({ type: 'string', minLength: 1, maxLength: 256 }, 256), minItems: 1, description: 'Equal-width text rows. Every character is a palette key; dot and space skip a pixel.' },
+    rows: rowsOf(1024),
     frame: object({ name: id, duration: int(1, 60000, 'Frame duration in milliseconds; default 100.'), from: id, translate: { ...array(int(-4096, 4096), 2), minItems: 2 }, wrap: { type: 'boolean', description: 'Translation wraps around the canvas instead of clipping (scrolling tiles).' }, flipX: bool, flipY: bool,
       palette: { type: 'object', maxProperties: 256, additionalProperties: color, description: 'Recolor project palette keys for this frame only (palette cycling). Keys must exist in the project palette.' },
       anchor: point, points: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: point, description: 'Named frame positions (hands, hit points, glyph advance), exported in the atlas in exported pixels.' },
@@ -90,7 +96,7 @@ const schema = {
         corners: { ...array(id, 4), minItems: 4, description: 'A layered set\'s tile: the terrains at its NW, NE, SW and SE corners, instead of terrain. The recipe\'s layered tiles are one Godot corner terrain set, its terrains in order of first appearance, the first the ground under the others.' }, weight: int(1, 1000, 'How often this frame is picked against the other frames for the same cell; default 1.'),
         collision: { oneOf: [{ ...array(point, 32), minItems: 3 }, { ...array({ ...array(point, 32), minItems: 3 }, 8), minItems: 1 }], description: 'Polygon around the solid part in canvas pixels (pixel corners from [0, 0] to [width, height]), in order around the shape; or a list of up to 8 for separate parts.' }, oneWay: { type: 'boolean', description: 'Bodies pass up through the collision polygon and land on top (a platform).' } }),
         description: 'This frame as a tile in the Godot TileSet: its terrain, weight and collision. A frame with tile makes the export write a TileSet.' },
-      ops: array(ref('op')), layers: array(ref('layer'), 64), pixels: { ...array(ref('pixel'), 65536), description: 'Final canvas-coordinate RGBA replacements after ops and layers. Coordinates must be inside this canvas. Later entries win; transparent erases.' } }, ['name']),
+      ops: array(ref('op')), layers: array(ref('layer'), 64), pixels: { ...array(ref('pixel'), 262144), description: 'Final canvas-coordinate RGBA replacements after ops and layers. Coordinates must be inside this canvas. Later entries win; transparent erases.' } }, ['name']),
     pixel: object({ x: int(0, 4095), y: int(0, 4095), color }, ['x', 'y', 'color']),
     layer: object({ name: id, visible: bool, opacity: { type: 'number', minimum: 0, maximum: 1 }, ...xy,
       sort: { enum: ['ground'], description: 'ground: draw the operations far to near by the row each stands on (its ground, or the lowest row it draws), list order breaking ties, as a game draws actors and props. Use it for everything standing on the ground: trees, grass, rocks, figures. Area operations (dither, shade, fill, outline, tilemap...) are refused.' },
@@ -108,7 +114,7 @@ const schema = {
       operation('stamp', { ...xy, ground, symbol: id, ...transform, remap }, ['symbol']),
       { ...operation('text', { ...xy, ground, text: { type: 'string', minLength: 1, maxLength: 512, description: 'Printable ASCII, western European accented letters and common symbols; \\n starts a new line (at most 64).' }, color, align: { enum: ['left', 'center', 'right'], description: 'What x is: the left edge of the text (default), its centre or its right edge. Lines align the same way.' }, spacing: int(0, 16, 'Pixels between glyphs; default 1.'), lineHeight: int(1, 64, 'Pixels from the top of one line to the top of the next; default 10.'), ...transform }, ['text', 'color']),
         description: 'Draw text in the built-in pixel font. y is the top of the capitals; a line is 8 rows: capitals 7 tall, lowercase 5, descenders 1 below, and the accent of a capital reaches 2 rows above y. Glyphs are 1 to 5 pixels wide (© ® — Œ œ are 7), digits always 5, a space 3. One line of n average characters is about 6n pixels wide.' },
-      { ...operation('copy', { ...xy, ground, from: id, symbol: id, sx: int(0, 255), sy: int(0, 255), w: int(1, 256), h: int(1, 256), ...transform, remap: { type: 'object', maxProperties: 256, propertyNames: { minLength: 1, maxLength: 64 }, additionalProperties: color, description: 'Symbol copies: recolor grid characters (one character each) → palette name or colour. Frame copies: swap exact colours, named by project palette key or hex (#RGB to #RRGGBBAA), for a palette name or colour.' } }), oneOf: [{ required: ['from'] }, { required: ['symbol'] }], description: 'Copy a rectangle of a symbol (palette characters) or an earlier frame (exact RGBA).' },
+      { ...operation('copy', { ...xy, ground, from: id, symbol: id, sx: int(0, 1023), sy: int(0, 1023), w: int(1, 1024), h: int(1, 1024), ...transform, remap: { type: 'object', maxProperties: 256, propertyNames: { minLength: 1, maxLength: 64 }, additionalProperties: color, description: 'Symbol copies: recolor grid characters (one character each) → palette name or colour. Frame copies: swap exact colours, named by project palette key or hex (#RGB to #RRGGBBAA), for a palette name or colour.' } }), oneOf: [{ required: ['from'] }, { required: ['symbol'] }], description: 'Copy a rectangle of a symbol (palette characters) or an earlier frame (exact RGBA).' },
       { ...operation('autotile', { ...xy, ground, symbol: id, mask: int(0, 255, 'Neighbour mask. Blob: N=1, NE=2, E=4, SE=8, S=16, SW=32, W=64, NW=128, reduced so a diagonal counts only with both of its sides. Cardinal: N=1, E=2, S=4, W=8. Corner: the terrain cells among the four the tile sits between, NW=1, NE=2, SW=4, SE=8.'), mode: { enum: ['blob', 'cardinal', 'corner'], description: 'blob (default), cardinal or corner.' }, remap }, ['symbol', 'mask']),
         description: 'Draw one autotile tile from a template symbol two tiles wide and three tall: the four quarters the mask selects (see the autotile template format). The autotile compiler emits one per frame, so editing the template redraws every tile.' },
       { ...operation('box', { ...xy, ground, w: { ...int(2, 512), multipleOf: 2, description: 'How far the top face\'s right edge runs across, in pixels (even); it runs half as far down.' }, d: { ...int(2, 512), multipleOf: 2, description: 'How far the top face\'s left edge runs across, in pixels (even).' },
@@ -124,7 +130,7 @@ const schema = {
         description: 'Draw a character map from this recipe\'s symbols and autotile templates, with variants, weights and neighbour rules, so later operations see the composed result (dither over its floor, rewrite rules at its corners).' },
       { ...operation('rewrite', { ...xy, ...region, rules: { ...array(object({ match: ruleRows, replace: ruleRows }, ['match', 'replace']), 16), minItems: 1 },
         empty: { type: 'string', minLength: 1, maxLength: 1, description: 'A non-palette character meaning a transparent pixel in match and erasure in replace.' },
-        steps: int(1, 64, 'Passes over every rule; stops early when a pass changes nothing.'), chance: num(0, 1, 'Seeded probability that each match is applied.'), limit: int(1, 65536, 'Most replacements per rule per step.'),
+        steps: int(1, 64, 'Passes over every rule; stops early when a pass changes nothing.'), chance: num(0, 1, 'Seeded probability that each match is applied.'), limit: int(1, 262144, 'Most replacements per rule per step.'),
         seed: int(0, 2147483647), rotate: { type: 'boolean', description: 'Also match the rules turned 90°, 180° and 270°.' }, mirror: { type: 'boolean', description: 'Also match the rules mirrored horizontally.' } }, ['rules']),
         description: 'Markov-style rewrite rules on this buffer: each small match grid found on exact colors is replaced, in a seeded order, without overlapping rewrites. The region defaults to the whole canvas.' }
     ] }
@@ -201,11 +207,11 @@ const poses = {
       markers: array(object({ name: id, part: id, point: id }, ['name', 'part', 'point']), 64),
       contacts: { ...array(id, 64), uniqueItems: true, description: 'Markers planted on the ground in this pose. Mirrors inherit contacts; tweens must declare their own.' }
     }, ['name']), anyOf: [{ required: ['parts'] }, { required: ['mirror'] }, { required: ['tween'] }] }, 256), minItems: 1 }, animations: schema.properties.animations, sheet: schema.properties.sheet
-  }, ['format', 'version', 'name', 'width', 'height', 'parts', 'poses']), $defs: { rows: schema.$defs.rows }
+  }, ['format', 'version', 'name', 'width', 'height', 'parts', 'poses']), $defs: { rows: smallRows }
 };
 const recipeSchema = { ...schema }; delete recipeSchema.$schema; delete recipeSchema.$defs; delete recipeSchema.title;
-// Scene assets keep to the animation canvas: a still larger than 256 pixels a side renders on its own.
-const assetSide = int(1, 256, 'A scene asset is at most 256 pixels a side.');
+// Scene assets keep to an animation frame's side and area: a larger still renders on its own.
+const assetSide = int(1, 1024, 'A scene asset is at most 1024 pixels a side and 262,144 pixels in all (320×180, 640×360 and 512×512 fit), a still one too.');
 const sceneRecipe = { ...recipeSchema, properties: { ...recipeSchema.properties, width: assetSide, height: assetSide } }; delete sceneRecipe.if; delete sceneRecipe.then;
 const themePalette = description => ({ oneOf: [{ type: 'string', description: 'Palette file, resolved by the CLI relative to the scene or inside the MCP root.' }, { type: 'object', additionalProperties: { type: 'string', pattern: hex } }], description });
 const cueTime = (maximum, description) => ({ oneOf: [int(0, maximum), { type: 'string', pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}([+-][0-9]{1,5})?$' }], description });
@@ -453,7 +459,7 @@ const fx = {
       turn: { ...object({ angles: { ...array(int(0, 359), 16), minItems: 1, uniqueItems: true, description: 'Whole degrees clockwise from the direction the effect is drawn in: [0, 90, 180, 270] for four directions, every 45 for eight. Default [0].' }, about: vector(-4096, 4096, 'The point the copies turn about (and mirror across); default the canvas centre.'), mirror: { type: 'boolean', description: 'Also make a mirrored copy of each angle, flipped left to right before it turns: a slash that sweeps the other way, an effect facing left.' } }),
         description: 'Compile a copy of the effect for each direction, named <effect>-<angle> (and <effect>-<angle>-mirror), with its geometry turned instead of its pixels rotated: places, spawn offsets, launch angles, attract points, slash arcs, beam and bolt ends, stream and trail points. Gravity, floors, sway and the looks\' light stay as they are, so sparks still fall and highlights stay where the light is. Not with sprite emitters or auras, whose sprites can\'t turn. Use a canvas with room in every direction.' } }, ['frames']), anyOf: [{ required: ['emitters'] }, { required: ['layers', 'looks'] }] } },
     sheet: schema.properties.sheet
-  }, ['format', 'version', 'name', 'width', 'height', 'effects']), $defs: { rows: schema.$defs.rows, 'shape-look': shapeLook, ...Object.fromEntries(Object.entries({ ...layerCommon, ...layerPlaced }).map(([key, value]) => [`layer-${key}`, value])) }
+  }, ['format', 'version', 'name', 'width', 'height', 'effects']), $defs: { rows: smallRows, 'shape-look': shapeLook, ...Object.fromEntries(Object.entries({ ...layerCommon, ...layerPlaced }).map(([key, value]) => [`layer-${key}`, value])) }
 };
 const key = { type: 'string', minLength: 1, maxLength: 1, description: 'A one-character palette key (grid rows name colours by character).' };
 const keys = description => ({ ...array(key, 16), minItems: 1, description });
@@ -683,7 +689,7 @@ const fluid = {
       cleanup: { ...object({ strays: bool, corners: bool }), description: 'De-Stray (specks and pinholes take their surroundings\' colour, the commonest where bands meet; a liquid\'s lone pixel is a drop, and stays) and De-Corner cleanup of the fluid before outline and sparks.' }
     }, ['frames', 'emitters', 'look']) },
     sheet: schema.properties.sheet
-  }, ['format', 'version', 'name', 'width', 'height', 'effects']), $defs: { rows: schema.$defs.rows }
+  }, ['format', 'version', 'name', 'width', 'height', 'effects']), $defs: { rows: smallRows }
 };
 const waveCommon = {
   at: vector(-4096, 4096, 'Source centre or phase origin [x, y] in pixel coordinates.'),
