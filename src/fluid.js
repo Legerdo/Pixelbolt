@@ -18,6 +18,7 @@ import { patternProblem, ditherThreshold, cleanupIds, traceLine, random, sinDeg,
 import { atan2Deg } from './shapes.js';
 import { readElectric, readElectrode, createElectric, stepElectric, electricFields, electricWork, ELECTRODE_FIELDS, MATTER } from './electric.js';
 import { readBodies, createBodyWorld, bodyCells, heldCells, poseCells, startCells, paintBodies, drawBodies, areaBeyond, readSubpixels, framesFit, scaleAnchor } from './bodies.js';
+import { createLight, spreadLight } from './light.js';
 
 export const FLUID_KINDS = ['gas', 'liquid'];
 export const FLUID_FIELDS = ['density', 'temperature', 'speed', 'depth', 'light', 'shadow', 'strand', 'ionization', 'current'];
@@ -213,6 +214,50 @@ function readLook(layer, path, context) {
     halo = { color: paletteKey(layer.halo.color, `${path}.halo.color`, palette).charCodeAt(0), width: integer(layer.halo.width ?? 1, `${path}.halo.width`, 1, 4) };
   }
   return { field: FLUID_FIELDS.indexOf(layer.field), colors: colors.map(key => key.charCodeAt(0)), thresholds, gaps: thresholds.map((t, i) => t - (i ? thresholds[i - 1] : 0)), dither: number(layer.dither ?? 0.5, `${path}.dither`, 0, 1), threshold: ditherThreshold(pattern, [0, 0], seed), halo };
+}
+
+// What shines and how its light looks (`shine`): light spreads from the cells of a gas whose `field` is at least `from`,
+// in full from `full` up, by the flood in light.js (see stepShine). `thresholds` are rising shares of full light, and
+// three lists give each level its colour, feathered in below its threshold as a look layer's are: `colors` on the
+// obstacles, `smoke` on what the gas itself drew that does not shine, and `wall` on the empty pixels, for a wall or a
+// floor behind the effect. `dark`, if given, lies on the obstacles wherever the light is below the first threshold:
+// then they are drawn as they look fully lit, and the light is seen by what it leaves dark. A colour that is fully
+// clear draws nothing: at that level what is drawn shows as it is. `own` holds the colours the shining field is itself
+// drawn in, halos included: light is never laid over what gives it.
+const SHINE_FIELDS = { temperature: 1, density: 0, ionization: 4, current: 5 }, SHINE_LISTS = ['colors', 'smoke', 'wall'];
+function readShine(value, path, context, look) {
+  if (!isObject(value)) fail(path, 'expected { from, reach, thresholds } and colors, smoke or wall for the light of what shines');
+  fields(value, ['field', 'from', 'full', 'reach', 'depth', 'ease', 'thresholds', ...SHINE_LISTS, 'dark', 'dither', 'pattern'], path);
+  if (context.liquid) fail(path, 'shine is the light of a gas (a fire, an explosion, an arc); a liquid has none');
+  const name = value.field ?? 'temperature', { palette } = context;
+  if (!Object.hasOwn(SHINE_FIELDS, name)) fail(`${path}.field`, `expected ${Object.keys(SHINE_FIELDS).join(', ')}: the field whose high values shine`);
+  if ((name === 'ionization' || name === 'current') && !context.electric) fail(`${path}.field`, `${name} is a plasma's; give the effect electric settings and an electrode (an obstacle with a voltage)`);
+  if (!Array.isArray(value.thresholds) || !value.thresholds.length || value.thresholds.length > LIMITS.colors) fail(`${path}.thresholds`, `expected 1–${LIMITS.colors} rising shares of full light, each above 0 and at most 1: one for each colour`);
+  const thresholds = value.thresholds.map((share, i) => {
+    number(share, `${path}.thresholds[${i}]`, 0.001, 1);
+    if (i && share <= value.thresholds[i - 1]) fail(`${path}.thresholds[${i}]`, 'thresholds must rise from one colour to the next');
+    return share;
+  });
+  // A palette key as its code, or 0 for a colour that is fully clear.
+  const code = (key, where) => { const known = paletteKey(key, where, palette); return parseColor(palette[known])[3] ? known.charCodeAt(0) : 0; };
+  if (!SHINE_LISTS.some(list => value[list] !== undefined)) fail(`${path}.colors`, 'expected colors (the light on obstacles), smoke (on the smoke) or wall (on the empty pixels): palette keys, one for each threshold');
+  const [colors, smoke, wall] = SHINE_LISTS.map(list => {
+    if (value[list] === undefined) return null;
+    if (!Array.isArray(value[list]) || value[list].length !== thresholds.length) fail(`${path}.${list}`, `expected ${thresholds.length} palette keys, one for each threshold, from the least light to the most`);
+    return value[list].map((key, i) => code(key, `${path}.${list}[${i}]`));
+  });
+  const from = number(value.from, `${path}.from`, 0.001, 256), full = number(value.full ?? from * 2, `${path}.full`, 0.001, 512);
+  if (full <= from) fail(`${path}.full`, 'expected more than from: the level at which a pixel shines in full');
+  const pattern = value.pattern ?? 'bayer4', problem = patternProblem(pattern), drawn = FLUID_FIELDS.indexOf(name);
+  if (problem) fail(`${path}.pattern${problem[0]}`, problem[1]);
+  const reach = number(value.reach, `${path}.reach`, 2, 128);
+  return {
+    name, source: SHINE_FIELDS[name], from, full, reach, colors, smoke, wall, thresholds, gaps: thresholds.map((share, i) => share - (i ? thresholds[i - 1] : 0)),
+    dark: value.dark === undefined ? 0 : code(value.dark, `${path}.dark`), dither: number(value.dither ?? 0.5, `${path}.dither`, 0, 1), threshold: ditherThreshold(pattern, [0, 0], context.seed),
+    // A solid drinks light about as much faster than air as rock does in the game the model is from.
+    depth: number(value.depth ?? reach / 2.6, `${path}.depth`, 0.5, 64), ease: number(value.ease ?? 0.5, `${path}.ease`, 0.05, 1),
+    own: new Set(look.filter(other => other.field === drawn).flatMap(other => [...other.colors, ...(other.halo ? [other.halo.color] : [])]))
+  };
 }
 
 // A disc (at, radius), an ellipse (at, radius [x, y]), a box (x, y, w, h), or both: their overlap, such as the lower
@@ -460,7 +505,7 @@ function readVapour(value, path, context) {
 
 function readEffect(effect, path, source) {
   const { width, height, palette, symbols } = source;
-  fields(effect, ['kind', 'frames', 'duration', 'loop', 'seed', 'warmup', 'blend', 'substeps', 'iterations', 'buoyancy', 'weight', 'vorticity', 'dissipation', 'cooling', 'drag', 'wind', 'advection', 'viscosity', 'yield', 'slip', 'gravity', 'flip', 'apic', 'tension', 'adhesion', 'fill', 'walls', 'obstacles', 'emitters', 'look', 'whitewater', 'air', 'light', 'outline', 'cleanup', 'keys', 'electric', 'heat', 'vapour', 'ice', 'granular', 'bodies'], path);
+  fields(effect, ['kind', 'frames', 'duration', 'loop', 'seed', 'warmup', 'blend', 'substeps', 'iterations', 'buoyancy', 'weight', 'vorticity', 'dissipation', 'cooling', 'drag', 'wind', 'advection', 'viscosity', 'yield', 'slip', 'gravity', 'flip', 'apic', 'tension', 'adhesion', 'fill', 'walls', 'obstacles', 'emitters', 'look', 'whitewater', 'air', 'light', 'outline', 'cleanup', 'keys', 'electric', 'heat', 'vapour', 'ice', 'granular', 'bodies', 'shine'], path);
   const kind = effect.kind ?? 'gas';
   if (!FLUID_KINDS.includes(kind)) fail(`${path}.kind`, 'expected gas (smoke, fire, steam, magic) or liquid (water, potions)');
   const liquid = kind === 'liquid';
@@ -576,6 +621,7 @@ function readEffect(effect, path, source) {
   const emitters = listedEmitters.map((emitter, i) => readEmitter(emitter, `${path}.emitters[${i}]`, context, followable));
   if (!Array.isArray(effect.look) || !effect.look.length || effect.look.length > LIMITS.looks) fail(`${path}.look`, `expected 1–${LIMITS.looks} layers that map a field to palette colours`);
   const look = effect.look.map((layer, i) => readLook(layer, `${path}.look[${i}]`, context));
+  const shine = effect.shine === undefined ? null : readShine(effect.shine, `${path}.shine`, context, look);
   const gravity = effect.gravity === undefined ? [0, 0.3] : pair(effect.gravity, `${path}.gravity`, -2, 2);
   const adhesion = liquid ? number(effect.adhesion ?? 0, `${path}.adhesion`, 0, 4) : 0;
   const drag = number(effect.drag ?? (liquid ? 0 : 0.02), `${path}.drag`, 0, 1);
@@ -622,7 +668,7 @@ function readEffect(effect, path, source) {
     tension: number(effect.tension ?? (granular ? 0 : 0.5), `${path}.tension`, 0, 4), adhesion, schedule, most, electric, granular,
     outline: effect.outline === undefined ? 0 : paletteKey(effect.outline, `${path}.outline`, palette).charCodeAt(0),
     air: liquid && effect.air !== undefined ? readAir(effect.air, `${path}.air`, context) : null,
-    heat, vapour, iceLook, warm: !liquid && obstacles.some(o => o.props.temperature !== null), bodies
+    heat, vapour, iceLook, warm: !liquid && obstacles.some(o => o.props.temperature !== null), bodies, shine
   };
 }
 // Grains (see grainFriction): `repose` is the steepest slope, in degrees, a heap of them holds, at any height, and
@@ -4002,7 +4048,8 @@ function createRun(effect, width, height, path) {
   if (effect.liquid) { fillLiquid(state, effect); if (state.full) crowded(path); }
   // A gas's plasma has two fields more (ionization and current, after the strand's place); over a liquid the vapour's.
   const fieldSet = (electric = false) => Array.from({ length: electric ? 6 : 3 }, () => new Float64Array(N)), base = [...fieldSet(), ...Array.from({ length: effect.electric && !effect.liquid ? 3 : 1 }, () => new Float64Array(N))];
-  const run = { effect, view: effect, layout: effect.layout, state, base, sparks: [], pops: [], totals: { alive: 0, spawned: 0, maxAlive: 0 }, maxParticles: effect.liquid ? state.n : 0, fields: base, hold: { prev: null, now: null } };
+  const run = { effect, view: effect, layout: effect.layout, state, base, sparks: [], pops: [], totals: { alive: 0, spawned: 0, maxAlive: 0 }, maxParticles: effect.liquid ? state.n : 0, fields: base, hold: { prev: null, now: null },
+    shine: effect.shine ? { memory: createLight(width, height), level: new Float64Array(N), across: new Float64Array(N), power: new Float64Array(N), lit: new Float64Array(N) } : null };
   // A liquid with heat also has the ice's fields and the vapour's, which a loop's seam blends with the rest. What the
   // fills made is where the ledger starts (it counts what emitters add from here on), and a frozen fill is solid at once.
   if (state.heat) {
@@ -4330,6 +4377,78 @@ const drawFrame = (run, width, height, drawn = null) => {
   hold.prev = hold.now;
   return chars;
 };
+// ---- Light ------------------------------------------------------------------------------------------------------------
+// What an effect's `shine` lights (readShine; the flood is light.js). On each frame the shining field becomes each
+// cell's power: how far it is from `from` to `full`, averaged over the five by five cells about it, so the body of a
+// flame lights and a lone speck of heat barely does. The flood spreads that through the open cells, and what is solid
+// drinks it: a solid is lit on the side the light comes from and darker further in, and shadows what is behind it. A
+// decoration (solid: false) is a flat thing the light lies on: light crosses it as it crosses open air. The picture is
+// one plane to the flood, so things drawn one before another (stones behind a fire, logs before it) are best all
+// decorations, lit by how far they are from it. Then each cell's light moves `ease` of the way to what reached it:
+// the light follows the fire a little late, steadier than the flame's own edge, and a loop's closing frames take it
+// back to the warm-up's (see simulate). Nothing here is a shape laid over the picture: where there is light is where
+// the flood got to. A frame's count of pixels is the fluid's own; its light is not counted.
+const SHINE_MASKS = new WeakMap();
+// For a layout: the cells that are a surface the light shows on (the pixels of every obstacle that is drawn). The cells
+// that drink light are the layout's solid ones.
+function shineMasks(effect, layout, width, height) {
+  let masks = SHINE_MASKS.get(layout);
+  if (!masks) {
+    const surface = new Uint8Array(width * height);
+    effect.obstacles.forEach((o, i) => {
+      const at = layout.places[i];
+      if (!at.show || (o.draw === 'none' && o.body === undefined)) return;
+      o.rows.forEach((row, j) => {
+        if (at.y + j < 0 || at.y + j >= height) return;
+        for (let k = Math.max(0, -at.x); k < Math.min(row.length, width - at.x); k++) if (row[k] !== '.' && row[k] !== ' ') surface[(at.y + j) * width + at.x + k] = 1;
+      });
+    });
+    SHINE_MASKS.set(layout, masks = { drinks: layout.solid, surface });
+  }
+  return masks;
+}
+// One frame of a run's light, from the fields as they are now: `run.shine.lit` is each cell's light after it.
+function stepShine(run, width, height) {
+  const { source, from, full, reach, depth, ease } = run.effect.shine, N = width * height, values = run.base[source], span = full - from;
+  const { drinks } = shineMasks(run.effect, run.layout, width, height), { memory, level, across, power, lit } = run.shine;
+  let any = false;
+  for (let c = 0; c < N; c++) { const share = drinks[c] ? 0 : (values[c] - from) / span; level[c] = share <= 0 ? 0 : share >= 1 ? 1 : share; if (share > 0) any = true; }
+  if (!any) { for (let c = 0; c < N; c++) lit[c] -= lit[c] * ease; return; }
+  // The mean over five by five cells, across and then down; beyond the canvas nothing shines.
+  for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+    let sum = 0;
+    for (let k = Math.max(0, i - 2); k <= Math.min(width - 1, i + 2); k++) sum += level[j * width + k];
+    across[j * width + i] = sum;
+  }
+  for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+    let sum = 0;
+    for (let k = Math.max(0, j - 2); k <= Math.min(height - 1, j + 2); k++) sum += across[k * width + i];
+    power[j * width + i] = drinks[j * width + i] ? 0 : sum / 25;
+  }
+  const light = spreadLight(memory, power, drinks, reach, depth);
+  for (let c = 0; c < N; c++) lit[c] += (light[c] - lit[c]) * ease;
+}
+// A frame's light as palette codes (0 where none shows), or null if none shows anywhere. Every drawn obstacle's pixels
+// take `colors` by their light, or `dark` below the first of them; what the fluid drew in any colour but the shining
+// field's own takes `smoke`; the empty pixels take `wall`. Sparks and the shining gas itself take nothing, unless an
+// obstacle is drawn over them. `grid` is the frame as drawn, `sparks` marks its spark pixels (or null).
+function shineCodes(effect, layout, lit, grid, sparks, width, height) {
+  const shine = effect.shine, { colors, smoke, wall, thresholds, gaps, own, dark } = shine, N = width * height, n = thresholds.length;
+  const feathers = feathersOf(shine, width, height), { surface } = shineMasks(effect, layout, width, height), { front } = layout;
+  let codes = null;
+  for (let c = 0; c < N; c++) {
+    const ch = grid[c];
+    if ((sparks && sparks[c]) || (own.has(ch) && !front[c])) continue;
+    const keys = surface[c] ? colors : ch ? smoke : wall;
+    if (!keys && !(surface[c] && dark)) continue;
+    const value = lit[c];
+    let band = 0;
+    while (band < n && value >= thresholds[band] - feathers[c] * gaps[band]) band++;
+    const code = band ? (keys ? keys[band - 1] : 0) : surface[c] ? dark : 0;
+    if (code) (codes ??= new Uint16Array(N))[c] = code;
+  }
+  return codes;
+}
 // A loop's closing frames hand the drawing's memory back to the warm-up's (`to`, the bands drawn in the frame before the
 // one these fields blend toward): each pixel, by its own seeded draw, takes the warm-up's bands once the blend weight `w`
 // passes its draw, and keeps them on. At the last frame every pixel has, so it is drawn as the warm-up's last frame was,
@@ -4898,6 +5017,9 @@ function simulate(effect, context) {
   const shown = loop && (boilTail(effect) || bubbling) ? p => p.born === undefined || (p.born >= begin && p.born < begin + frames) : null, done = (effect.warmup + 1) * frames + sparkTail(effect);
   const tail = loop ? Array.from({ length: blend }, () => all.map(() => new Float64Array(N))) : [], seam = loop ? Array.from({ length: blend + 1 }, () => null) : null;
   const chars = Array.from({ length: frames }, () => null), drawn = Array.from({ length: frames }, () => []), n = context.subpixels ?? 1, fine = [];
+  // The light of each recorded frame, and for a loop the light of the warm-up's closing frames, which its own closing
+  // frames are blended toward as the fields are.
+  const lights = run.shine ? Array.from({ length: frames }, () => null) : null, shineTail = lights && loop ? Array.from({ length: blend }, () => null) : null;
   const peak = { density: 0, temperature: 0, speed: 0, ...(effect.electric && { ionization: 0, current: 0 }) }, figures = Array.from({ length: frames }, () => null), layouts = Array.from({ length: frames }, () => effect.layout);
   // A loop's bodies, where they were in the warm-up's closing frames, which its own closing frames are drawn blended toward,
   // and what those frames drew the fluid against (see closingView).
@@ -4922,6 +5044,7 @@ function simulate(effect, context) {
         tail[out + blend].forEach((field, f) => field.set(all[f]));
         if (poses) { poses[out + blend] = posesOf(crowd, run.heldCells); scenes[out + blend] = sceneOf(run, state); }
       }
+      if (lights) { stepShine(run, width, height); if (out >= -blend) shineTail[out + blend] = Float64Array.from(run.shine.lit); }
       if (run.sparks.length || bubbling) { const full = sparkFrame(run, here, cycle, false, bubbling); if (full) fail(path, full); }
       // The warm-up is drawn too, unseen, so the drawing's memory of each pixel's bands (see renderFields) runs on into
       // frame 0 as it runs through the cycle; the memories of its last blend + 1 frames are kept for the seam (handBack).
@@ -4960,6 +5083,11 @@ function simulate(effect, context) {
       handBack(run.hold, seam[k], w, effect.seed);
       if (closingScene) run.view = closingView(run, shownBodies, cycle, closingScene, w, effect.seed);
     }
+    if (lights) {
+      stepShine(run, width, height);
+      if (closing) { const w = smooth((k + 1) / blend), lit = run.shine.lit, then = shineTail[k]; for (let c = 0; c < N; c++) lit[c] = lit[c] * (1 - w) + then[c] * w; }
+      lights[frame] = Float32Array.from(run.shine.lit);
+    }
     for (let c = 0; c < N; c++) {
       if (base[0][c] > peak.density) peak.density = base[0][c];
       if (base[1][c] > peak.temperature) peak.temperature = base[1][c];
@@ -4995,6 +5123,19 @@ function simulate(effect, context) {
     }
     if (fine[i]?.op) { ops.push(fine[i].op); pixels += Math.round(fine[i].pixels / (n * n)); }
     ops.push(...stampsOf(effect, layouts[i], 'over', width, height));
+    // The light, last: over the obstacles, whose faces it lights.
+    if (lights) {
+      let sparks = null;
+      for (let k = 0; k < list.length; k += 2) (sparks ??= new Uint8Array(N))[list[k]] = 1;
+      const codes = shineCodes(effect, layouts[i], lights[i], grid, sparks, width, height);
+      if (codes) {
+        let x0 = width, y0 = height, x1 = -1, y1 = -1;
+        for (let c = 0; c < N; c++) if (codes[c]) { const x = c % width, y = (c - x) / width; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        const rows = [];
+        for (let y = y0; y <= y1; y++) { let row = ''; for (let x = x0; x <= x1; x++) { const ch = codes[y * width + x]; row += ch ? String.fromCharCode(ch) : '.'; } rows.push(row); }
+        ops.push({ op: 'grid', x: x0, y: y0, rows });
+      }
+    }
     // Drawn n times finer, the fluid and its obstacles are enlarged to the bodies' pixels.
     return { ops: n > 1 ? ops.map(op => (op === fine[i]?.op ? op : { ...op, x: op.x * n, y: op.y * n, scale: n })) : ops, pixels };
   });
@@ -5060,6 +5201,7 @@ export function compileFluid(source) {
     work += context.width * context.height * simulatedFrames(effect) * effect.substeps * stepWork(effect);
     if (work > LIMITS.work) fail(context.path, `the simulations need about ${Math.round(work / 1e6)} million cell updates, more than ${LIMITS.work / 1e6} million; lower frames, warmup, substeps, iterations or the canvas size`);
     const run = simulate(effect, context), effectWarnings = [...effect.warnings, ...(run.notes ?? [])];
+    if (effect.shine && run.peak[effect.shine.name] < effect.shine.from) effectWarnings.push(`${context.path}.shine.from is ${effect.shine.from}, above the most ${effect.shine.name} the gas reaches (${run.peak[effect.shine.name]}), so nothing shines: lower it`);
     warnings.push(...effectWarnings);
     metadata.effects[name] = {
       kind: effect.kind, frames: effect.frames, loop: effect.loop, seed: effect.seed, steps: run.steps, ...(effect.loop && { warmup: effect.warmup, blend: effect.blend }),
@@ -5158,6 +5300,7 @@ export function createLiveFluid(source, options = {}) {
     queue = [];
     solveFrame(run, cycle);
     fieldsOf(run);
+    if (run.shine) stepShine(run, width, height);
     sparkFrame(run, here, cycle, true);
     // Every step is drawn, as compileFluid draws every frame it simulates, so the drawing's memory of each pixel's bands
     // (see renderFields) runs on alike however the steps are batched; render and measure read this frame's drawing.
@@ -5280,6 +5423,12 @@ export function createLiveFluid(source, options = {}) {
       const rgba = under.slice(), codes = underKeys.slice();
       for (let c = 0; c < N; c++) if (chars[c]) { composite(rgba, c * 4, colours.get(chars[c])); codes[c] = chars[c]; }
       for (let k = 0; k < over.length; k += 2) { composite(rgba, over[k] * 4, colours.get(over[k + 1])); codes[over[k]] = over[k + 1]; }
+      if (run.shine) {
+        let sparks = null;
+        for (let k = 0; k < overlay.length; k += 2) (sparks ??= new Uint8Array(N))[overlay[k]] = 1;
+        const light = shineCodes(run.effect, run.layout, run.shine.lit, chars, sparks, width, height);
+        if (light) for (let c = 0; c < N; c++) if (light[c]) { composite(rgba, c * 4, colours.get(light[c])); codes[c] = light[c]; }
+      }
       const keys = [], fluid = [];
       for (let j = 0; j < height; j++) { let row = ''; for (let i = 0; i < width; i++) { const code = codes[j * width + i]; row += code ? String.fromCharCode(code) : '.'; } keys.push(row); }
       for (let j = 0; j < height; j++) { let row = ''; for (let i = 0; i < width; i++) row += drawn[j * width + i] ? '#' : '.'; fluid.push(row); }

@@ -46,14 +46,13 @@ golden.test('every fluid example compiles to its golden recipe, using only its p
       assert.ok(['grid', 'stamp', 'copy'].includes(op.op), `${name} ${frame.name}: ${op.op}`);
       if (op.op === 'grid') for (const row of op.rows) for (const char of row) assert.ok(char === '.' || keys.has(char), `${name} ${frame.name} draws ${char}`);
     }
-    // No colour outside the palette, by construction: every opaque pixel is one of the palette's opaque colours, and a
-    // see-through pixel (a see-through colour, or several over one another: smoke over light on a wall) appears only
-    // where the palette has see-through colours.
-    const sheer = solid.size < keys.size;
-    for (const frame of project.frames) for (let at = 0; at < frame.data.length; at += 4) {
-      const pixel = [...frame.data.subarray(at, at + 4)], colour = pixel.slice(0, 3).join();
-      if (pixel[3] === 255) assert.ok(solid.has(colour), `${name} ${frame.name} has ${colour}`);
-      else if (pixel[3]) assert.ok(sheer, `${name} ${frame.name} has a see-through pixel (${pixel.join()}) and no see-through colour in its palette`);
+    // No colour outside the palette, by construction: the operations checked above draw only its keys. With an opaque
+    // palette every pixel is therefore one of its colours. A palette with see-through colours lays them over one
+    // another and over what is drawn (smoke over a wall's light, the dark on an obstacle the light does not reach), so
+    // its pixels are mixes, and only the operations can be held to it.
+    if (solid.size === keys.size) for (const frame of project.frames) for (let at = 0; at < frame.data.length; at += 4) {
+      const pixel = [...frame.data.subarray(at, at + 4)];
+      if (pixel[3]) assert.ok(pixel[3] === 255 && solid.has(pixel.slice(0, 3).join()), `${name} ${frame.name} has ${pixel.join()}`);
     }
     assert.deepEqual(project.warnings, [], name);
   }
@@ -1469,6 +1468,7 @@ test('the fluid schema lists exactly the fields the compiler reads', async () =>
     [effect.properties.fill.items.properties, (s, key) => { Object.assign(s.effects.plume, { kind: 'liquid', fill: [{ x: 0, y: 0, w: 2, h: 2, [key]: 0 }] }); }, 'fluid.effects.plume.fill[0]'],
     [effect.properties.obstacles.items.properties, (s, key) => { s.effects.plume.obstacles = [{ symbol: 'lid', [key]: 0 }]; }, 'fluid.effects.plume.obstacles[0]'],
     [effect.properties.cleanup.properties, (s, key) => { s.effects.plume.cleanup = { [key]: 0 }; }, 'fluid.effects.plume.cleanup'],
+    [effect.properties.shine.properties, (s, key) => { s.effects.plume.shine = { [key]: 0 }; }, 'fluid.effects.plume.shine'],
     [effect.properties.whitewater.items.properties, (s, key) => { Object.assign(s.effects.plume, { kind: 'liquid', whitewater: [{ impact: 1, colors: ['s'], [key]: 0 }] }); }, 'fluid.effects.plume.whitewater[0]'],
     [emitter.properties.carry.properties, (s, key) => { s.effects.plume.emitters[0].carry = { [key]: 0 }; }, 'fluid.effects.plume.emitters[0].carry'],
     [effect.properties.keys.items.properties, (s, key) => { Object.assign(s.effects.plume, { kind: 'liquid', keys: [{ frame: 0, yield: 1, [key]: 0 }] }); }, 'fluid.effects.plume.keys[0]'],

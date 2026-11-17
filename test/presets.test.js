@@ -91,7 +91,7 @@ test('the presets listing covers every source and looping recipe in examples/, m
   }
   // An agent after one effect asks for it by a word and reads its line, not the listing.
   const found = reply(await mcp.call('pixel_help', { topic: 'presets', find: 'Campfire' }));
-  assert.deepEqual([found.guide, Object.keys(found.presets)], [FIND_NOTE, ['campfire']]);
+  assert.deepEqual([found.guide, Object.keys(found.presets)], [FIND_NOTE, ['campfire', 'campfire-stones']]);
   // Each call measures for 20 seconds and keeps what it measured, so on a slow machine the brief listing may have
   // been written before the campfire was measured and this one after: the lines then differ, and both are right.
   if (!/; not measured/.test(brief.presets.campfire)) assert.equal(found.presets.campfire, brief.presets.campfire);

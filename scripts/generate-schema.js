@@ -647,6 +647,21 @@ const fluid = {
       }), description: 'Liquid with heat: steam and fog, moved by the gas solver through the cells holding neither water nor ice; the water and ice are walls moving with it.' },
       ice: { ...object({ look: { ...array(fluidLook, 8), minItems: 1, description: 'Gas-style layers for the ice, drawn cell by cell over the water (density 0.5 is a cell of ice).' } }, ['look']), description: 'Liquid with heat: how ice is drawn; default the water\'s look.' },
       light: vector(-1, 1, 'Direction toward the light for the light and shadow fields; default [-1, -1], the upper left.'),
+      shine: { ...object({
+        field: { enum: ['temperature', 'density', 'ionization', 'current'], description: 'The field whose high values shine; default temperature.' },
+        from: num(0.001, 256, 'The field level at which a pixel begins to shine.'),
+        full: num(0.001, 512, 'The level at which it shines in full; default twice from.'),
+        reach: num(2, 128, 'Pixels of open air a full light crosses before it is gone.'),
+        depth: num(0.5, 64, 'Pixels into a solid obstacle the light gets; default reach / 2.6. Small: lit faces, hard shadows behind. Large: a soft gradient across the thing.'),
+        ease: num(0.05, 1, 'The share of the way each pixel\'s light moves to its new level each frame; default 0.5. 1 follows the fire at once (a flash); lower is steadier.'),
+        thresholds: { ...array(num(0.001, 1), 16), minItems: 1, description: 'Rising shares of full light (1 beside what shines, 0 at reach), one for each colour of colors, smoke and wall.' },
+        colors: keys('The light on drawn obstacles, from the least to the most. A fully clear colour draws nothing at its level.'),
+        smoke: keys('The light on what the gas itself drew that does not shine: its smoke.'),
+        wall: keys('The light on the empty pixels, when there is a wall or a floor behind the effect.'),
+        dark: { ...key, description: 'Lies on drawn obstacles wherever the light is below the first threshold: draw them as they look fully lit, and the light is seen by what it leaves dark.' },
+        dither: num(0, 1, 'Feather each colour in below its threshold, as a look layer does; default 0.5.'),
+        pattern: fluidLook.properties.pattern
+      }, ['from', 'reach', 'thresholds']), description: 'Gas: the light of what shines. It spreads from the pixels where field is at least from through the open pixels, losing 1 / reach a pixel; solid obstacles drink it (1 / depth a pixel) and shadow what is behind them; decorations (solid: false) are flat things it lies on. It moves with the fire, never as a shape of its own. Give at least one of colors, smoke and wall.' },
       outline: { ...key, description: 'Palette key for a one-pixel outline around the fluid.' },
       cleanup: { ...object({ strays: bool, corners: bool }), description: 'De-Stray (specks and pinholes take their surroundings\' colour, the commonest where bands meet; a liquid\'s lone pixel is a drop, and stays) and De-Corner cleanup of the fluid before outline and sparks.' }
     }, ['frames', 'emitters', 'look']) },
