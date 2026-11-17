@@ -1,7 +1,7 @@
 // Browser-compatible GIF89a export for sharing an animation where APNG or CSS scaling is not an option. Colours are
 // exact: nothing is quantized or dithered, so a frame that needs more than 256 colours is refused rather than
 // approximated. GIF has no partial transparency and times frames in 10 ms steps; both conversions are reported.
-import { PixelError, parseColor, stillsHaveNoAnimation } from './core.js';
+import { PixelError, parseColor, stillsHaveNoAnimation, largestScale } from './core.js';
 
 const MAX_PIXELS = 67108864;
 // Integer arithmetic only, so table sizes never depend on an engine's logarithm.
@@ -197,7 +197,10 @@ export function encodeGIF(frames, width, height, { loop = true, scale = 1, backg
   if (!Array.isArray(frames) || !frames.length) throw new PixelError('gif', 'at least one frame is required');
   if (!Number.isInteger(scale) || scale < 1 || scale > 16) throw new PixelError('gif.scale', 'expected a whole number from 1 to 16');
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * scale > 65535 || height * scale > 65535) throw new PixelError('gif', 'invalid dimensions');
-  if (frames.length * width * height * scale * scale > MAX_PIXELS) throw new PixelError('gif', `${frames.length} frames at ${width * scale}×${height * scale} exceed 67,108,864 pixels; lower the scale or shorten the animation`);
+  if (frames.length * width * height * scale * scale > MAX_PIXELS) {
+    const fits = largestScale(frames.length * width * height, MAX_PIXELS, scale);
+    throw new PixelError('gif', `${frames.length} frames at ${width * scale}×${height * scale} exceed 67,108,864 pixels; ${fits ? `scale ${fits} is the largest that fits, or shorten the animation` : 'shorten the animation'}`);
+  }
   const area = width * height, indexed = [], delays = [];
   let partialAlpha = 0, carry = 0;
   for (const [position, frame] of frames.entries()) {

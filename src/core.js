@@ -244,6 +244,13 @@ export function frameTotalProblem(count, width, height) {
 export const sheetColumns = (frames, width) => Math.min(frames, 8, Math.max(1, Math.floor(4096 / width)));
 // The largest image one PNG holds (png.js), so each scaled frame of an export fits it.
 const PNG_PIXELS = 16777216;
+// The largest whole scale below `scale` at which `pixels` (their count at scale 1) stay within `limit`, or 0 when not
+// even scale 1 does: what a budget refusal names.
+export function largestScale(pixels, limit, scale) {
+  let k = scale - 1;
+  while (k >= 1 && pixels * k * k > limit) k--;
+  return k;
+}
 // What may stand in a layer with sort "ground", and what works on an area instead.
 const STANDING = new Set(['pixel', 'rect', 'ellipse', 'line', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box']);
 const AREA = new Set(['clear', 'fill', 'replace', 'tilemap', 'outline', 'dither', 'shade', 'rewrite']);
@@ -1132,14 +1139,38 @@ function readSheet(spec, frames, width, height, boxes = null) {
   const trim = boolean(sheet.trim ?? false, 'project.sheet.trim');
   const layout = trim ? (boxes ? packBoxes(boxes, padding, scale) : packTrimmed(frames, width, height, padding, scale)) : null;
   const sheetWidth = layout ? layout.width : columns * (width + padding * 2) * scale, sheetHeight = layout ? layout.height : Math.ceil(frames.length / columns) * (height + padding * 2) * scale;
-  if (sheetWidth * sheetHeight > 16777216) fail('project.sheet', 'atlas exceeds 16,777,216 pixels; reduce scale or columns');
-  // Each frame is also exported on its own at this scale (a trimmed atlas can be smaller than one frame).
-  if (width * height * scale * scale > PNG_PIXELS) {
-    let fits = scale;
-    while (fits > 1 && width * height * fits * fits > PNG_PIXELS) fits--;
-    fail('project.sheet.scale', `a ${width}×${height} frame at scale ${scale} is ${width * scale}×${height * scale}, past the 16,777,216 pixels one PNG holds; scale ${fits} is the largest that fits`);
-  }
+  // A trimmed atlas is packed again at each smaller scale only when it does not fit, to name the largest that does.
+  const trimmedAt = k => (boxes ? packBoxes(boxes, padding, k) : packTrimmed(frames, width, height, padding, k));
+  sheetFits({ count: frames.length, width, height, columns, padding, scale, trim }, [sheetWidth, sheetHeight], trim ? trimmedAt : null);
   return { columns, padding, scale, width: sheetWidth, height: sheetHeight, ...(layout && { trim: true, layout: layout.cells }) };
+}
+
+// The atlas and each frame (every frame is also exported on its own) must each fit one PNG at the sheet's scale. When
+// they do not, the refusal is at project.sheet.scale and names the largest scale at which both fit; fewer columns only
+// where the last row leaves empty cells and a narrower grid fits, and what to change when even scale 1 does not fit.
+// `size` is the atlas at the sheet's scale; `trimmedAt(k)` packs a trimmed atlas at scale k (a grid needs no packing).
+function sheetFits({ count, width, height, columns, padding, scale, trim }, size, trimmedAt = null) {
+  const frameFits = k => width * height * k * k <= PNG_PIXELS;
+  const cells = c => c * Math.ceil(count / c) * (width + padding * 2) * (height + padding * 2);
+  const atlasFits = (k, c = columns) => { const packed = trimmedAt?.(k); return (packed ? packed.width * packed.height : cells(c) * k * k) <= PNG_PIXELS; };
+  const frameFirst = !frameFits(scale);
+  if (!frameFirst && size[0] * size[1] <= PNG_PIXELS) return;
+  let fits = scale - 1;
+  while (fits >= 1 && !(frameFits(fits) && atlasFits(fits))) fits--;
+  // The widest grid with fewer cells (and no more columns than frames) that fits at scale k, named at the largest scale
+  // where one fits when that is above `fits`.
+  const narrower = k => { if (trimmedAt || !frameFits(k)) return 0; for (let c = Math.min(columns - 1, count); c >= 1; c--) if (cells(c) < cells(columns) && atlasFits(k, c)) return c; return 0; };
+  let at = scale, columnsFit = 0;
+  while (at > fits && !(columnsFit = narrower(at))) at--;
+  const what = frameFirst
+    ? `a ${width}×${height} frame at scale ${scale} is ${width * scale}×${height * scale}`
+    : `at scale ${scale} ${count === 1 ? 'one' : `the ${count}`}${trim ? ' trimmed' : ''} frame${count === 1 ? '' : 's'} of ${width}×${height} make${count === 1 ? 's' : ''} an atlas of ${size[0]}×${size[1]}`;
+  const columnsAdvice = columnsFit ? `sheet.columns ${columnsFit} at scale ${at}` : '';
+  const advice = fits
+    ? `scale ${fits} is the largest that fits${columnsAdvice ? `, or ${columnsAdvice}` : ''}`
+    : columnsAdvice ? `${columnsAdvice} fits`
+      : `it does not fit even at scale 1: use fewer frames${padding ? ', less padding' : ''} or a smaller size`;
+  fail('project.sheet.scale', `${what}, past the 16,777,216 pixels one PNG holds; ${advice}`);
 }
 
 // Deterministic shelf packing of each frame's visible bounds (tallest first, then recipe order).
@@ -1288,7 +1319,8 @@ export function buildAtlas(project, { trim } = {}) {
   const trimmed = Boolean(sheet.trim) && trim !== false;
   const gridWidth = sheet.columns * (width + sheet.padding * 2) * s, gridHeight = Math.ceil(frames.length / sheet.columns) * (height + sheet.padding * 2) * s;
   const atlasWidth = trimmed ? sheet.width : gridWidth, atlasHeight = trimmed ? sheet.height : gridHeight;
-  if (atlasWidth * atlasHeight > 16777216) fail('project.sheet', 'atlas exceeds 16,777,216 pixels; reduce scale or columns');
+  // Only a grid asked of a trimmed recipe (trim: false) can pass what readSheet allowed.
+  if (atlasWidth * atlasHeight > PNG_PIXELS) sheetFits({ count: frames.length, width, height, columns: sheet.columns, padding: sheet.padding, scale: s, trim: false }, [atlasWidth, atlasHeight]);
   const data = new Uint8ClampedArray(atlasWidth * atlasHeight * 4);
   const entries = Object.create(null);
   const extras = frame => ({

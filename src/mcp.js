@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
-import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation } from './core.js';
+import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation, largestScale } from './core.js';
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
@@ -456,7 +456,10 @@ export function createToolRunner({ directory, root, version }) {
         // Stills have no animation to make a GIF of: none is written, with one note.
         if (gif !== undefined && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
         const gifs = gif === undefined || bundle.project.stills ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
-        if (gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new PixelError('gif', 'all animations at this scale exceed 67,108,864 pixels; lower gif.scale');
+        if (gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) {
+          const scale = gifs[0].scale, fits = largestScale(gifs.reduce((sum, item) => sum + item.frames, 0) * bundle.project.width * bundle.project.height, 67108864, scale);
+          throw new PixelError('gif', `the GIFs of every animation at scale ${scale} pass the 67,108,864 pixels one render's GIFs hold; ${fits ? `gif.scale ${fits} is the largest that fits` : 'shorten the animations'}`);
+        }
         const frames = sequence === undefined ? null : checkSequenceSize(createSequence(bundle.project, { ...(animation !== undefined && { animation }), ...(sequence !== null && typeof sequence === 'object' ? sequence : { fps: undefined }) }));
         let shared;
         if (share === true) {

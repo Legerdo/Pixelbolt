@@ -65,7 +65,7 @@ function exportBudget({ width, frames, animations, sheet }, w, h, k, recipe) {
   if (played * w * h * k * k > EXPORT_PIXELS) return `${played} played frames at ${w * k}x${h * k} pass the 67,108,864 animation pixels an export holds`;
   if (sheet.trim && recipe !== undefined) {
     try { renderProject({ ...recipe, width: w, height: h, sheet: { ...recipe.sheet, scale: k } }); }
-    catch (error) { return error.path === 'project.sheet' ? `an atlas of ${frames.length} trimmed frames at sheet.scale ${k} passes 16,777,216 pixels` : `sheet.scale ${k} is refused (${error.message})`; }
+    catch (error) { return error.path === 'project.sheet.scale' && error.message.includes(' atlas of ') ? `an atlas of ${frames.length} trimmed frames at sheet.scale ${k} passes 16,777,216 pixels` : `sheet.scale ${k} is refused (${error.message})`; }
   } else {
     // Columns the recipe leaves out follow the frame width.
     const columns = recipe?.sheet?.columns ?? (recipe === undefined && sheet.columns !== sheetColumns(frames.length, width) ? sheet.columns : sheetColumns(frames.length, w));

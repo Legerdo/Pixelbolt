@@ -1,4 +1,4 @@
-import { renderProject, buildAtlas, scalePixels, PixelError, animationFps, namesAnimations, exportsStill, exportAtlas, stillTileSet } from './core.js';
+import { renderProject, buildAtlas, scalePixels, PixelError, animationFps, namesAnimations, exportsStill, exportAtlas, stillTileSet, largestScale } from './core.js';
 import { encodePNG, encodeAPNG, crc32 } from './png.js';
 import { readFile, readdir, mkdir, writeFile, access, rm, rmdir, stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -72,7 +72,11 @@ export async function createBundle(spec, { normal } = {}) {
   const still = exportsStill(spec, project);
   atlas.metadata = exportAtlas(spec, project, atlas.metadata);
   const animationPixels = still ? 0 : Object.values(project.animations).reduce((sum, a) => sum + a.frames.length * width * height * sheet.scale ** 2, 0);
-  if (animationPixels > 67108864) throw new PixelError('project.animations', 'export exceeds 67,108,864 animation pixels; shorten sequences or reduce scale');
+  if (animationPixels > 67108864) {
+    // The fix is at sheet.scale when a smaller one fits, and in the animations when not even scale 1 does.
+    const s = sheet.scale, fits = largestScale(animationPixels / (s * s), 67108864, s), played = animationPixels / (width * height * s * s);
+    throw new PixelError(fits ? 'project.sheet.scale' : 'project.animations', `the animations play ${played} frames of ${width * s}×${height * s}, past the 67,108,864 animation pixels an export holds; ${fits ? `scale ${fits} is the largest that fits, or shorten them` : 'shorten them'}`);
+  }
   const files = new Map();
   files.set(`${name}.png`, encodePNG(atlas.data, atlas.width, atlas.height));
   files.set(`${name}.atlas.json`, Buffer.from(json(atlas.metadata)));
