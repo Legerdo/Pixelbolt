@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
-import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation, largestScale } from './core.js';
+import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation, largestScale, columnsOfCall } from './core.js';
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
@@ -443,7 +443,7 @@ export function createToolRunner({ directory, root, version }) {
           normal = given?.format === 'pixelforge-normals' ? COMPILERS['pixelforge-normals'](given).recipe : given;
           normalSources = [...relativeToRoot(files), ...(await Promise.all(referenced.map(sourcesOf))).flat()];
         }
-        const bundle = await createBundle(recipe, { normal });
+        const bundle = await createBundle(recipe, { normal }).catch(error => { throw options.columns === undefined ? error : columnsOfCall(error, 'columns'); });
         // Stills keep their flipbook for viewing, but it is no animation to choose.
         if (animation !== undefined && bundle.project.stills) throw new PixelError('animation', stillsHaveNoAnimation('choose'));
         const view = inspectProject(bundle.project, { ...(animation !== undefined && { animation }), maxCells: 256 });

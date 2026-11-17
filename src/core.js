@@ -1172,6 +1172,12 @@ function sheetFits({ count, width, height, columns, padding, scale, trim }, size
       : `it does not fit even at scale 1: use fewer frames${padding ? ', less padding' : ''} or a smaller size`;
   fail('project.sheet.scale', `${what}, past the 16,777,216 pixels one PNG holds; ${advice}`);
 }
+// sheetFits' refusal for a render whose call set the columns (CLI --columns, MCP columns), which take the place of the
+// recipe's sheet.columns: its columns advice names that option, since a patch of sheet.columns would change nothing.
+export function columnsOfCall(error, option) {
+  if (error?.path !== 'project.sheet.scale' || !error.message.includes(' sheet.columns ')) return error;
+  return new PixelError(error.path, error.message.slice(error.path.length + 2).replace(' sheet.columns ', ` ${option} `));
+}
 
 // Deterministic shelf packing of each frame's visible bounds (tallest first, then recipe order).
 // Cell coordinates are exported pixels; source bounds are unscaled canvas pixels.
