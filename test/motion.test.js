@@ -30,6 +30,18 @@ test('motion measures planted movement, signed height and pose differences in pi
   assert.deepEqual(f.metadata, before);
 });
 
+test('metadata from a resized canvas (resized.offset) is moved onto it, without editing the metadata', () => {
+  const f = fixture([[8, 12], [6, 12]]), before = structuredClone(f.metadata);
+  // The drawing moved 2 right and 1 up: the canvas starts at [-2, 1] in the old one.
+  const moved = fixture([[10, 11], [8, 11]]), metadata = { ...f.metadata, rig: { ground: 12 }, resized: { from: [16, 16], offset: [-2, 1], cut: 0 } };
+  const review = inspectMotion(moved.project, { animation: 'move', metadata, speed: 0 }).motion;
+  assert.deepEqual([review.ground, review.slide[0].samples.map(s => s.at), review.groundErrors.map(e => e.pixels)], [11, [[10, 11], [8, 11]], [0, 0]]);
+  assert.deepEqual(f.metadata, before);
+  assert.throws(() => inspectMotion(moved.project, { animation: 'move', metadata: { ...metadata, resized: { offset: [1.5, 0] } } }), /resized\.offset must be two integers/);
+  // A ground the resize put outside the canvas says so.
+  assert.throws(() => inspectMotion(moved.project, { animation: 'move', metadata: { ...metadata, resized: { offset: [0, -4] } } }), /row 16 on this canvas after its resize, is outside it; pass ground/);
+});
+
 test('contact phases merge across a loop seam, split on lifts and include the next cycle for continuously planted feet', () => {
   const wrapped = fixture([[4, 12], [5, 10], [8, 12], [6, 12]], { loop: true, contacts: [['foot'], [], ['foot'], ['foot']] }).review({ speed: 20 }).motion;
   assert.equal(wrapped.slide.length, 1);
