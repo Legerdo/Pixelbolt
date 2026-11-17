@@ -1,25 +1,33 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes } from './scene.js';
-import { framesGIF } from './gif.js';
+import { framesGIF, gifBackground, asGIFShows } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
-import { buildAtlas } from './core.js';
+import { buildAtlas, inspectProject } from './core.js';
 import { spriteFrames, canvasTexture, normalsYUp, tileSets, parallaxScene } from './godot.js';
 import { tileSource } from './export.js';
 import { tiledTileset, tiledMap } from './tiled.js';
 
 // A prepared scene as one looping GIF: the scene at each frame's start, through its duration once, `fps` frames a
-// second (25 unless given, which GIF's 10 ms steps hold exactly), each enlarged `scale` times. Returns framesGIF's
-// result, with a note when the duration is not a whole number of frames, since the loop then ends early or late, and
-// notes on the placements whose animations the duration cuts mid-loop or that play once: where the GIF repeats, those
-// jump.
-export function sceneGIF(scene, { fps = 25, scale = 1 } = {}) {
+// second (25 unless given, which GIF's 10 ms steps hold exactly), each enlarged `scale` times and, with `background`
+// (a hex colour), blended onto that colour as a recipe's GIF is (a scene's own opaque background is left as it is).
+// Returns framesGIF's result, with a note when the duration is not a whole number of frames, since the loop then ends
+// early or late, and notes on the placements whose animations the duration cuts mid-loop or that play once: where the
+// GIF repeats, those jump. `sheet: true` adds `sheet`, inspectProject's view of the frames as the GIF holds them (at
+// their own size, at most 256 evenly spaced cells, as inspect samples), drawn again rather than kept, so a long scene
+// still holds one frame at a time.
+export function sceneGIF(scene, { fps = 25, scale = 1, background, sheet = false } = {}) {
   const rate = parseFrameRate(fps, 'gif.fps'), frameMs = 1000 * rate.denominator / rate.numerator, count = Math.max(1, Math.round(scene.duration / frameMs));
+  const blend = gifBackground(background), at = (k, enlarge) => sceneImage(renderScene(scene, { time: k * frameMs }), { scale: enlarge });
   function* frames() {
-    for (let k = 0; k < count; k++) { const image = sceneImage(renderScene(scene, { time: k * frameMs }), { scale }); yield { data: image.data, width: image.width, height: image.height, name: `frame ${k + 1}` }; }
+    for (let k = 0; k < count; k++) { const image = at(k, scale); yield { data: image.data, width: image.width, height: image.height, name: `frame ${k + 1}` }; }
   }
-  const gif = framesGIF(frames(), { fps: rate });
+  const gif = framesGIF(frames(), { fps: rate, background: blend });
+  if (sheet) {
+    const shown = Array.from({ length: count }, (_, k) => ({ name: `frame ${k + 1}`, duration: Math.round(frameMs), get data() { return asGIFShows(at(k, 1).data, blend); } }));
+    gif.sheet = inspectProject({ width: gif.width / scale, height: gif.height / scale, palette: {}, frames: shown, animations: {} }, { maxCells: 256 });
+  }
   if (Math.abs(count * frameMs - scene.duration) > 0.5) gif.notes.push(`The scene lasts ${scene.duration} ms, ${Math.round(scene.duration / frameMs * 100) / 100} frames at ${rate.label} fps, and the GIF plays ${count}: give the scene a duration that is a whole number of frames (${Math.round(count * frameMs)} ms) and the loop closes exactly.`);
   // The placements that simply play one animation, each with its length: a loop the duration cuts, or a one-shot.
   const plays = scene.instances.flatMap((instance, i) => {

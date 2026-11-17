@@ -9,7 +9,7 @@ import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepA
 import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from '../src/export.js';
 import { shareLink, readEmbeddedRecipe, recipeKind } from '../src/share.js';
 import { PRESET_FOLDER, listPresets, briefListing, findListing, namedLike, presetWords, presetEntries, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from '../src/presets.js';
-import { renderProject, animationGIF, asGIFShows, parseColor, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
+import { renderProject, animationGIF, asGIFShows, gifBackground, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
 
 // A reader that stops early (`| head -1`) closes the pipe: stop quietly, as other command-line tools do. Commands print
 // their reply after writing their files, so only the rest of the reply is lost.
@@ -49,8 +49,9 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            A shipped preset straight to its GIF, in one call: --size and --frames as
                                            in compile, --sheet also writes the frames as a contact sheet to look at,
                                            as the GIF shows them (all three work with a recipe file too)
-  pixelbolt gif <scene.json> --out scene.gif [--scale 1-16] [--fps 25]
-                                           A whole scene as one looping GIF, through its duration once
+  pixelbolt gif <scene.json> --out scene.gif [--scale 1-16] [--fps 25] [--background color] [--sheet frames.png]
+                                           A whole scene as one looping GIF, through its duration once; --background
+                                           and --sheet as for a recipe (a long scene's sheet is evenly sampled)
   pixelbolt gif-frames <folder> --fps 25 --out loop.gif [--loops 0] [--background color] [--prefix name_]
                                            A GIF from numbered PNG frames (name_0001.png ...); writes only --out
   pixelbolt sequence <recipe|source|scene.json> --out folder --fps 30 [--size 1080p|WxH] [--scale n]
@@ -714,11 +715,14 @@ try {
     } else if (command === 'gif' && options.preset === undefined && await holdsScene(positional[0])) {
       // A scene: the whole of it as one looping GIF, sampled through its duration.
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
-      for (const key of ['animation', 'background', 'size', 'frames', 'sheet']) if (options[key] !== undefined) throw new Error(`--${key} goes with a recipe's GIF; a scene's takes --scale and --fps`);
+      for (const key of ['animation', 'size', 'frames']) if (options[key] !== undefined) throw new Error(`--${key} goes with a recipe's GIF; a scene's takes --scale, --fps, --background and --sheet`);
       if (options.scale !== undefined && !/^\d{1,2}$/.test(options.scale)) throw new Error('--scale expects a whole number from 1 to 16');
+      if (options.sheet !== undefined && !/\.png$/i.test(options.sheet)) throw new Error('--sheet must name a new .png file');
       const { sceneGIF } = await import('../src/scene-export.js');
-      const input = await readResolved(positional[0]), { data, ...gif } = sceneGIF(prepareScene(input.document), { ...(options.fps !== undefined && { fps: options.fps }), ...(options.scale !== undefined && { scale: Number(options.scale) }) });
-      print({ ok: true, name: input.document.name, width: gif.width, height: gif.height, frames: gif.frames, fps: gif.fps.label, duration: gif.duration, colors: gif.colors, bytes: data.length, ...await writeOutputs({ file: [options.out, data, '--out'] }, options.force, inputsOf(input)), ...(gif.notes.length && { notes: gif.notes }), ...referenced(input) });
+      const input = await readResolved(positional[0]), { data, sheet: view, ...gif } = sceneGIF(prepareScene(input.document), { ...(options.fps !== undefined && { fps: options.fps }), ...(options.scale !== undefined && { scale: Number(options.scale) }), ...(options.background !== undefined && { background: options.background }), sheet: options.sheet !== undefined });
+      // --sheet: the frames as the GIF holds them, as a recipe's gif --sheet draws them; a long scene's evenly sampled.
+      const written = await writeOutputs({ file: [options.out, data, '--out'], ...(view && { sheet: [options.sheet, encodePNG(view.sheet.data, view.sheet.width, view.sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
+      print({ ok: true, name: input.document.name, width: gif.width, height: gif.height, frames: gif.frames, fps: gif.fps.label, duration: gif.duration, colors: gif.colors, bytes: data.length, ...written, ...(view?.sampling && { sheetShows: `${view.sampling.shown} of the ${gif.frames} frames, evenly spaced, the first and last among them` }), ...(gif.notes.length && { notes: gif.notes }), ...referenced(input) });
     } else if (command === 'gif') {
       if (options.fps !== undefined) throw new Error('--fps goes with a scene\'s GIF; a recipe\'s frames carry their own durations');
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
@@ -739,7 +743,7 @@ try {
       const { data, ...gif } = animationGIF(project, options.animation, { ...(options.scale !== undefined && { scale: Number(options.scale) }), ...(options.background !== undefined && { background: options.background }) });
       // --sheet: the frames of that animation as a contact sheet, to look at before delivering, drawn as the GIF shows
       // them (blended onto --background, or with 1-bit transparency) so what is judged is what is delivered.
-      const under = options.background !== undefined && options.background !== 'transparent' ? parseColor(options.background, project.palette, '--background') : null;
+      const under = gifBackground(options.background, project.palette);
       const shown = { ...project, frames: project.frames.map(frame => ({ ...frame, data: asGIFShows(frame.data, under) })) };
       const sheet = options.sheet !== undefined ? inspectProject(shown, { animation: gif.animation }).sheet : null;
       const written = await writeOutputs({ file: [options.out, data, '--out'], ...(sheet && { sheet: [options.sheet, encodePNG(sheet.data, sheet.width, sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
