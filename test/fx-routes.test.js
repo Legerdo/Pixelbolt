@@ -181,10 +181,11 @@ test('for a loop, the frames route names the most that fit and divide it, so fol
   const dense = screen({ rain: rain({ rate: 9 }) });
   refusal(() => compileEffects(dense), /, so frames 36 fits \(pixelbolt compile --frames 36\): it keeps/);
   assert.deepEqual(follow(dense, 'rain', undefined, 36), { kept: { rain: '36 of 72' }, frames: 36, warnings: undefined });
-  // Where no count above 1 divides the loop, the most that fit is named still, and the compile warns as before.
+  // Where no count above 1 divides the loop, the loop's own frames are named instead: with 66, every frame fits, so
+  // frames thins nothing. Before: "so frames 66 fits", which the compile then warned thins the loop unevenly.
   const prime = screen({ rain: rain({ rate: 9, frames: 71 }) });
-  const named = refusal(() => compileEffects(prime), /, so frames (\d+) fits/);
-  assert.ok(Number(named[1]) > 36 && 71 % Number(named[1]), named[0]);
+  const named = refusal(() => compileEffects(prime), /, so giving the loop (\d+) frames fits, or lower burst, rate or trail$/);
+  assert.deepEqual(follow(prime, 'rain', Number(named[1]), Number(named[1])), { kept: {}, frames: Number(named[1]), warnings: undefined });
 });
 
 test('with frames given, the simulation, the particles spawned and the operations kept are worked out together', () => {
@@ -223,7 +224,7 @@ test('a release is told a share only once that share fits; when none can, the re
     { at: [0, 0], sprite: { symbol: 'big' }, release: { sweep: 0, jitter: 0.5, ...(first !== undefined && { share: first }) }, start: 0, end: 12, life: [10, 14], speed: [0.5, 1.5], angle: [0, 360] },
     { at: [100, 40], sprite: { symbol: 'small' }, release: { sweep: 90, jitter: 0.3, ...(second !== undefined && { share: second }) }, start: 2, end: 19, life: [4, 9], speed: [0.5, 1.5], angle: [0, 360] }] } }, 200, 120), symbols: { big: { recipe: still(90, 60), frame: 'f0' }, small: { recipe: still(60, 60), frame: 'f0' } } });
   // Before: "lower its release.share (about 0.0000068 fits)", a share never checked, which was refused again.
-  refusal(() => compileEffects(source()), /^fx\.effects\.e: more than 1024 particles are alive at once, and no share of emitters\[0\]'s release fits: the other emitters' peaks alone pass 1024 alive \(emitters\[1\] [\d,]+\); lower release\.share or life$/);
+  refusal(() => compileEffects(source()), /^fx\.effects\.e: more than 1024 particles are alive at once, and no share of emitters\[0\]'s release fits: the other emitters alone keep more than 1024 alive in frame \d+ \(emitters\[1\] [\d,]+\); lower release\.share or life$/);
   // Lowering the share of the release named lets a share of the first fit, and that share compiles.
   const share = refusal(() => compileEffects(source(undefined, 0.5)), /emitters\[0\] releases .*: lower its release\.share \(about ([\d.]+) fits\)/);
   assert.ok(compileEffects(source(Number(share[1]), 0.5)));

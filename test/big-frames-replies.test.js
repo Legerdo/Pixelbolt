@@ -93,8 +93,8 @@ test('a release past a particle limit is told to lower its share, by about how m
   const release = (share, life) => ({ format: 'pixelforge-fx', version: 1, name: 'r', width: 640, height: 360, palette: { d: '#9fb8d8' }, symbols: { pic: { recipe: still, frame: 'f0' } },
     effects: { e: { frames: 12, emitters: [{ at: [0, 0], sprite: { symbol: 'pic' }, release: { sweep: 270, ...(share !== undefined && { share }) }, start: 1, end: 10, life }] } } });
   // Before: "lower burst, rate or life", which a release has none of.
-  refusal(() => compileEffects(release(undefined, [5, 8])), /^fx\.effects\.e: more than 1024 particles are alive at once; emitters\[0\] releases every one of its sprite's 230,400 pixels: lower its release\.share \(about 0\.0045 fits\) or use a smaller sprite$/);
-  assert.equal(compileEffects(release(0.0045, [5, 8])).recipe.frames.length, 12);
+  refusal(() => compileEffects(release(undefined, [5, 8])), /^fx\.effects\.e: more than 1024 particles are alive at once; emitters\[0\] releases every one of its sprite's 230,400 pixels: lower its release\.share \(about 0\.0046 fits\) or use a smaller sprite$/);
+  assert.equal(compileEffects(release(0.0046, [5, 8])).recipe.frames.length, 12);
   // Short lives keep fewer alive at once, and the share is then held by the particles spawned in all.
   refusal(() => compileEffects(release(0.02, [1, 1])), /^fx\.effects\.e\.emitters: more than 4096 particles; emitters\[0\] releases a 0\.02 share of its sprite's 230,400 pixels: lower its release\.share \(about 0\.017 fits\) or use a smaller sprite$/);
   assert.equal(compileEffects(release(0.017, [1, 1])).recipe.frames.length, 12);

@@ -147,8 +147,10 @@ const kept = (source, frames) => {
 };
 
 test('compile --frames holds the 20,000 drawing operations to the frames it keeps: 72 frames of a 320x180 rain', () => {
-  // 73 frames of 320x180 are past the recipe's pixels, and the refusal names frames 72.
-  refused(rain(320, 180, 73, 6), 'fx.effects', /; or compile with frames 72 \(pixelbolt compile --frames 72\)/);
+  // 73 frames of 320x180 are past the recipe's pixels. Frames 72 would thin the 73-frame loop unevenly (the compile
+  // warns), so the refusal names a loop of 72 frames, which thins nothing and compiles clean.
+  refused(rain(320, 180, 73, 6), 'fx.effects', /; or give the loop 72 frames$/);
+  assert.equal(compileEffects(rain(320, 180, 72, 6)).warnings, undefined);
   // Before, the operations of every frame simulated were counted, so frames 72 was refused ("needs about 24,004 drawing
   // operations (250 a frame) and makes at most 20000, so about 79 frames fit") and no frames value led anywhere.
   assert.deepEqual(kept(rain(320, 180, 73, 6), 72), { kept: { rain: '72 of 73' }, frames: 72 });
