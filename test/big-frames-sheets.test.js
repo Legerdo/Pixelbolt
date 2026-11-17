@@ -309,8 +309,9 @@ test('diagnostics past eight frames still name the empty frames, and add off-pal
   assert.deepEqual(one.frames.map(row => row.frame), ['walk-0', 'walk-1', 'walk-2']);
   assert.deepEqual(one.findings.find(finding => finding.code === 'empty'), { code: 'empty', frame: 'walk-7', note: 'An empty effect/transition frame may be intentional.' });
   // Each colour once, with the frames it is in among the others: not "7 colours in 7 frames", which counted a colour
-  // again in every frame it is in.
-  assert.deepEqual(one.findingTotals, { isolated: '8 pixels in 8 frames', palette: '#123456 in 6 frames, #abcdef in 1 frame' });
+  // again in every frame it is in. Strays in eight frames or fewer name them.
+  assert.deepEqual(one.findingTotals, { isolated: '8 pixels in walk-3 … walk-6, walk-8 … walk-11', palette: '#123456 in 6 frames, #abcdef in 1 frame' });
+  assert.equal(brief(walk(13, [])).findingTotals.isolated, '10 pixels in 10 frames');
   // Several empty frames are one finding naming them, runs as their ends.
   const four = brief(walk(20, [5, 6, 7, 12]));
   assert.deepEqual(four.findings.filter(finding => finding.code === 'empty'), [{ code: 'empty', frames: 'walk-5 … walk-7, walk-12', note: 'An empty effect/transition frame may be intentional.' }]);
@@ -326,6 +327,19 @@ test('diagnostics past eight frames still name the empty frames, and add off-pal
   assert.deepEqual(JSON.parse(made.stdout).diagnostics, JSON.parse(JSON.stringify(one)));
 });
 
+test('diagnostics keep the frames that carry findings, so a long recipe with two flagged frames lists both', () => {
+  // The shipped interference wave: 40 frames, stray pixels only in resonate-5 and resonate-25, which have few corners.
+  // The three rows kept were the most cornered frames, and the reply listed no finding: "8 pixels in 2 frames".
+  const source = JSON.parse(readFileSync(path.join(root, 'examples', 'interference.wave.json'), 'utf8'));
+  const { diagnostics } = inspectProject(renderProject(COMPILERS[source.format](source).recipe), { diagnostics: true });
+  const brief = briefDiagnostics(diagnostics), isolated = diagnostics.findings.filter(finding => finding.code === 'isolated');
+  assert.deepEqual(isolated.map(finding => finding.frame), ['resonate-5', 'resonate-25']);
+  assert.deepEqual([brief.frameTotals.frames, brief.frames.length], [40, 3]);
+  assert.deepEqual(brief.frames.map(row => row.frame).slice(0, 2), ['resonate-5', 'resonate-25']);
+  assert.deepEqual(brief.findings, isolated);
+  assert.equal(brief.findingTotals, undefined);
+});
+
 test('a contact sheet refusal states the rule it enforces: gutters as wide as the scale count past 2 pixels', () => {
   const wide = renderProject(screen(1024, 256, 16));
   // 4096 pixels of frames and two 4-pixel gutters at scale 4: 4104, past the 4100 that 2-pixel gutters allow.
@@ -339,6 +353,68 @@ test('a contact sheet refusal states the rule it enforces: gutters as wide as th
   const big = renderProject(screen(512, 512, 16));
   assert.throws(() => inspectProject(big, { scale: 1, frames: Array.from({ length: 64 }, (_, i) => `f${i % 16}`) }), {
     message: 'inspect: the contact sheet would be 4114×4114 pixels, past the 16,777,216 one PNG holds; select fewer frames, a smaller region or a lower scale' });
+  // One pixel is said as one.
+  assert.throws(() => inspectProject(renderProject(screen(1366, 16, 1)), { scale: 3 }), {
+    message: 'inspect: the contact sheet would be 4104×54 pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters; the 3-pixel gutters at scale 3 count their other 1 pixel against the 4096); select fewer frames, a smaller region or a lower scale' });
+  // A frame whose 3×3 repeat no sheet holds is said as that: it had the advice above, though it has one frame, is at
+  // scale 1 already and tile view takes no region.
+  assert.throws(() => inspectProject(renderProject(screen(4096, 1024, 1)), { view: 'tile' }), { path: 'inspect.view',
+    message: 'inspect.view: a 4096×1024 frame repeated 3×3 makes a sheet of 12292×3076 pixels with its gutters at scale 1, more than one holds (4096 pixels of frames a side, 16,777,216 pixels in all), so tile view cannot show it' });
+  assert.throws(() => inspectProject(renderProject(screen(1366, 16, 1)), { view: 'tile' }), { path: 'inspect.view' });
+  assert.throws(() => inspectProject(renderProject(screen(1365, 1365, 1)), { view: 'tile' }), { path: 'inspect.view' });
+  assert.equal(inspectProject(renderProject(screen(1365, 16, 1)), { view: 'tile' }).sheet.width, 4099);
+});
+
+test('beside refits a stack of composites from the recipe given, so stack and a translucent under are drawn once', () => {
+  // 24 cells of a ground frame under a sprite frame, nine times: past 8,000 pixels, so the sheets are refitted. The
+  // refit laid stack's composites again (unknown frame "b0") and under's ground a second time.
+  const pal = { k: '#102030', r: '#e04030' }, square = i => ({ op: 'rect', x: i * 8, y: 4, w: 8, h: 8, color: 'r' }), ground = { op: 'rect', x: 0, y: 0, w: 256, h: 256, color: 'k' };
+  const recipe = frames => ({ version: 1, name: 'cells', width: 256, height: 256, palette: pal, frames });
+  const nine = (project, options) => { const view = inspectProject(project, { ...options, sheets: 9 }); return stackViews(Array.from({ length: 9 }, (_, i) => ({ ...view, name: `v${i}` }))); };
+  const pieces = renderProject(recipe([...Array.from({ length: 24 }, (_, i) => ({ name: `b${i}`, ops: [ground] })), ...Array.from({ length: 24 }, (_, i) => ({ name: `t${i}`, ops: [square(i)] }))]));
+  const drawnTogether = renderProject(recipe(Array.from({ length: 24 }, (_, i) => ({ name: `c${i}`, ops: [ground, square(i)] }))));
+  const stacked = nine(pieces, { stack: Array.from({ length: 24 }, (_, i) => [`b${i}`, `t${i}`]) }), expected = nine(drawnTogether, {});
+  assert.ok(expected.stack.length === 9 && expected.sheet.height <= 8000 && expected.stack[0].height < inspectProject(drawnTogether).sheet.height, 'the stack is refitted');
+  assert.deepEqual([stacked.sheet.width, stacked.sheet.height], [expected.sheet.width, expected.sheet.height]);
+  assert.ok(Buffer.from(stacked.sheet.data).equals(Buffer.from(expected.sheet.data)));
+  // A half-transparent grey under the sprites: where a sprite is not, the grey shows once, at alpha 128.
+  const sprites = renderProject(recipe(Array.from({ length: 24 }, (_, i) => ({ name: `t${i}`, ops: [square(i)] }))));
+  const grey = { width: 4, height: 4, data: new Uint8ClampedArray(64).map((_, i) => (i % 4 === 3 ? 128 : 200)) };
+  const laid = { ...sprites, frames: sprites.frames.map(frame => ({ ...frame, data: frame.data.map((v, i) => (frame.data[i - i % 4 + 3] ? v : grey.data[i % 4])) })) };
+  const under = nine(sprites, { under: grey }), once = nine(laid, {});
+  assert.deepEqual([under.sheet.width, under.sheet.height], [once.sheet.width, once.sheet.height]);
+  assert.ok(Buffer.from(under.sheet.data).equals(Buffer.from(once.sheet.data)));
+});
+
+test('every beside other recipes is refused once, with the every that holds the whole stack', async t => {
+  // Nine 1024x256 loops of 16 frames at one cell per 10 ms. The first refusal named the every one 4096-pixel sheet
+  // holds (22), which the stack then refused again (214).
+  const project = renderProject(screen(1024, 256, 16)), names = ['a.json', 'b.json', 'c.json', 'd.json', 'e.json', 'f.json', 'g.json', 'h.json', 'i.json'];
+  const nine = every => names.map(name => ({ ...inspectProject(project, { animation: 'run', every, sheets: 9 }), name }));
+  let advised;
+  assert.throws(() => stackViews(nine(10)), error => {
+    assert.equal(error.path, 'inspect.every');
+    assert.match(error.message, /^inspect\.every: a\.json: 1280 ms at one cell per 10 ms is 128 cells, and the height left to it in an image of 9 sheets stacked \([^)]*\) holds \d+; choose every (\d+) or more$/);
+    advised = Number(/choose every (\d+)/.exec(error.message)[1]);
+    return true;
+  });
+  // Following it works: every sheet shows every cell, within 8,000 pixels.
+  const followed = stackViews(nine(advised));
+  assert.deepEqual([followed.stack.length, followed.cells.length, followed.sampling.every], [9, Math.ceil(1280 / advised), advised]);
+  assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
+  encodes(followed.sheet);
+  // An every between the two is refused with the same advice, not one a sheet further down refuses.
+  assert.throws(() => stackViews(nine(100)), { message: new RegExp(`choose every ${advised} or more$`) });
+});
+
+test('a beside row too tall for its share counts the other recipes by the least each takes', () => {
+  // One 256x900 recipe above eight 256x1024 ones: one row of 900 is refused, and as many others as tall as it would
+  // be 7, which with taller neighbours is refused again.
+  const views = (n, sheets) => [screen(256, 900, 4), ...Array(n).fill(screen(256, 1024, 4))].map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { sheets }), name: `v${i}` }));
+  assert.throws(() => stackViews(views(8, 9)), { path: 'inspect.sheets',
+    message: 'inspect.sheets: v0: one row of 256×900 cells is 928 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
+  const six = stackViews(views(6, 7));
+  assert.ok(six.stack.length === 7 && six.sheet.height <= 8000, `${six.sheet.height}`);
 });
 
 test('motion review of tall frames keeps the arcs and the trajectory it can, and names what crowds a trajectory out', () => {
