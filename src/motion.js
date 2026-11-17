@@ -404,10 +404,11 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
     }
     return null;
   };
-  const layout = fitting(true, true) ?? fitting(true, false) ?? fitting(false, true) ?? fitting(false, false);
+  // Only a still bigger than any animation frame (one cell of it past the image) fits none of them.
+  const layout = fitting(true, true) ?? fitting(true, false) ?? fitting(false, true) ?? fitting(false, false)
+    ?? fail('image', `motion strip exceeds 4,194,304 pixels: one ${w}×${h} frame takes ${w + 8}×${h + 8} with its border; review the motion of an animation (frames up to 1024 a side always fit), or inspect a region of this frame instead`);
   const { columns, timingHeight, magnification, arcsWidth, key, lanes, panel: panelWidth, width, height } = layout, arcs = magnification > 0, trajectory = lanes > 0;
   const actualScale = Math.max(1, Math.min(requestedScale, Math.floor(Math.sqrt(STRIP_PIXELS / (width * height)))));
-  if (width * height > STRIP_PIXELS) fail('image', 'motion strip exceeds 4,194,304 pixels');
   const data = new Uint8ClampedArray(width * height * 4), bg = parseColor(background ?? '#18212b', project.palette, 'motion.background');
   for (let i = 0; i < data.length; i += 4) data.set(bg, i);
   const pixel = (x, y, color) => { if (x >= 0 && y >= 0 && x < width && y < height) data.set(color, (y * width + x) * 4); };

@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { compilePoses } from '../src/authoring.js';
-import { renderProject, scalePixels } from '../src/core.js';
+import { PixelError, renderProject, scalePixels } from '../src/core.js';
 import { inspectMotion } from '../src/motion.js';
 import { skinkRig } from '../scripts/figure-rigs.mjs';
 
@@ -146,4 +150,22 @@ test('old skink fails pose spread while the bone skink passes every run motion c
   const view = inspectMotion(project, { animation: 'run', speed: 48, metadata });
   assert.deepEqual(view.motion.checks, { slide: true, ground: true, poseSpread: true, loopSeam: true, armSwing: null, contactLegs: null, kneeLift: null });
   assert.equal(Math.max(...view.motion.slide.map(p => p.pixels)), .16);
+});
+
+test('a still whose one timing cell passes the image limit fails as motion.image, saying what to review instead', async t => {
+  // A one-frame animation: 2040 a side is the largest square whose cell (8 more with its border) fits 4,194,304 pixels.
+  const still = side => ({ version: 1, name: 'still', width: side, height: side, palette: { k: '#102030' },
+    frames: [{ name: 'f0', duration: 100, ops: [{ op: 'rect', x: 0, y: 0, w: side, h: side, color: 'k' }] }], animations: { hold: { frames: ['f0'] } } });
+  const fits = inspectMotion(renderProject(still(2040)), { animation: 'hold' });
+  assert.deepEqual([fits.nativeSheet.width, fits.nativeSheet.height], [2048, 2048]);
+  const message = 'motion.image: motion strip exceeds 4,194,304 pixels: one 2048×2048 frame takes 2056×2056 with its border; review the motion of an animation (frames up to 1024 a side always fit), or inspect a region of this frame instead';
+  assert.throws(() => inspectMotion(renderProject(still(2048)), { animation: 'hold', speed: 20 }), error => error instanceof PixelError && error.path === 'motion.image' && error.message === message);
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-motion-still-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(path.join(dir, 'still.json'), JSON.stringify(still(2048)));
+  const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'pixelbolt.js');
+  const run = spawnSync(process.execPath, [bin, 'inspect', 'still.json', '--motion', 'hold', '--out', 'still.png'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr + run.stdout, /motion strip exceeds 4,194,304 pixels: one 2048×2048 frame takes 2056×2056/);
+  assert.doesNotMatch(run.stderr + run.stdout, /TypeError/);
 });
