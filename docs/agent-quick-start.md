@@ -1,6 +1,6 @@
 # Pixelbolt quick start
 
-Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic; no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. This page covers most jobs; the last section lists the rest.
+Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic; no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. The last section lists the longer references.
 
 ## A complete recipe
 
@@ -29,11 +29,11 @@ Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, t
 ```
 
 - Required: `version: 1`, `name`, `width` and `height` (1–256; a single-frame still may be up to 4096 a side and 4,194,304 pixels), and `frames` (1–256). Names start with a letter, then letters, digits, `-` or `_`; frame and animation names are unique ignoring case.
-- `palette` maps keys to `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` or `transparent`. Single-character keys draw in grid rows, where `.` and space leave pixels alone; so do `pixel`, `rect`, `ellipse`, `line` and `grid` in `transparent`; `clear`, and `fill` or `replace` to `transparent`, erase. A shared palette file is `{"$ref": "palette.json"}` (CLI, or MCP inside its root).
+- `palette` maps keys to `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` or `transparent`. Single-character keys draw in grid rows, where `.` and space leave pixels alone, as `transparent` does in shapes and grids; `clear` erases, as do `fill` and `replace` to `transparent`. A shared palette file is `{"$ref": "palette.json"}` (MCP: inside its root).
 - `symbols` are reusable grids that `stamp` draws. A frame is `{name, duration?, from?, translate?, flipX?, palette?, anchor?, points?, ops?, layers?, pixels?}`: `duration` in ms (default 100), `from` copies an earlier frame as it was finally drawn (its `pixels` corrections too), a frame `palette` recolours keys for palette cycling, `layers` are `{name?, opacity?, x?, y?, palette?, sort?, ops}` (`sort: "ground"` draws them far to near by the row each operation stands on), and `pixels` are final `{x, y, color}` corrections.
-- `animations` map names to `{frames, direction?: forward | reverse | pingpong, loop?}`. Without them, one animation plays every frame; an icon set, UI states or a 9-slice panel take `"animations": {}` (stills).
+- `animations` map names to `{frames, direction?: forward | reverse | pingpong, loop?}`. Without them, one animation plays every frame; `{}` makes the frames stills (icons, UI states).
 - `ramps` (optional) list palette keys from dark to light, one list per material, so `shade` and scene lighting move colours along them without leaving the palette.
-- Unknown fields are errors, and every error names its path, such as `project.frames[1].ops[0].rows[2]`. Broken operations are reported together, up to ten, in the reply's `errors`, so fix them all before validating again.
+- Unknown fields are errors, and every error names its path, such as `project.frames[1].ops[0]`. Broken operations are reported together, up to ten, in the reply's `errors`, so fix them all before validating again.
 
 ## Operations
 

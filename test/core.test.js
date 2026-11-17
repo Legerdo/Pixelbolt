@@ -207,7 +207,7 @@ test('pixel, rect, ellipse, line and grid in transparent leave pixels as they ar
   for (const op of drawn) assert.deepEqual(after(op), [255, 0, 0, 255], op.op);
   for (const op of erased) assert.deepEqual(after(op), [0, 0, 0, 0], op.op);
   const quick = await readFile(new URL('../docs/agent-quick-start.md', import.meta.url), 'utf8');
-  assert.match(quick, /so do `pixel`, `rect`, `ellipse`, `line` and `grid` in `transparent`; `clear`, and `fill` or `replace` to `transparent`, erase\./);
+  assert.match(quick, /as `transparent` does in shapes and grids; `clear` erases, as do `fill` and `replace` to `transparent`\./);
 });
 test('the palette keys . and space are refused with what they do instead', () => {
   for (const key of ['.', ' ']) assert.throws(() => renderProject(make([], { palette: { [key]: 'transparent' } })), { message: `project.palette.${key}: "." and space are reserved: in grid rows they leave the pixel alone and need no palette entry (a transparent colour is "transparent" under another key)` });
