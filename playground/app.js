@@ -36,6 +36,11 @@ function controls() {
   $('show-error').hidden = !failure?.line;
   if (failure?.line) { $('show-error').textContent = `Go to line ${failure.line}`; $('show-error').dataset.line = String(failure.line); }
   for (const id of ['copy-link', 'export-frame', 'export-sheet', 'export-gif']) $(id).disabled = !ready;
+  // Stills ("animations": {}) have no animation to pick or make a GIF of: the picker is hidden and GIF is off.
+  const stills = rendered?.stills === true;
+  if (stills) $('export-gif').disabled = true;
+  $('export-gif').title = stills ? 'The frames are stills ("animations": {}), so there is no animation to make a GIF of.' : '';
+  $('animation').hidden = stills; $('animation-label').hidden = stills;
   $('export-atlas').disabled = !ready || rendered?.kind === 'scene';
   $('export-atlas').title = rendered?.kind === 'scene' ? 'Scenes have no sprite atlas metadata. Download the sheet instead.' : 'Download the sheet PNG and its atlas JSON';
   $('atlas-help').hidden = rendered?.kind !== 'scene';
@@ -130,7 +135,7 @@ const frameIndex = () => animation()?.frames[position] ?? 0;
 function gifSize() {
   if (!rendered) return;
   const scale = Number($('gif-scale').value);
-  $('gif-size').textContent = `GIF: ${rendered.width * scale}×${rendered.height * scale} px, ${animation().frames.length} frames, scale ${scale}`;
+  $('gif-size').textContent = rendered.stills ? `No GIF: the frames are stills. Frame PNGs at scale ${scale}.` : `GIF: ${rendered.width * scale}×${rendered.height * scale} px, ${animation().frames.length} frames, scale ${scale}`;
 }
 // Until someone picks a zoom, the art gets the largest whole zoom (1 to 16) that fits the preview box.
 function fitZoom() {
@@ -168,8 +173,8 @@ function acceptRender(result) {
   $('frame-count').textContent = String(result.frames.length);
   $('warnings').textContent = result.warnings.length ? result.warnings.join('\n') : 'None';
   fitZoom(); draw(); controls();
-  const animations = Object.keys(result.animations).length;
-  outcome(`Rendered ${result.name} · ${result.frames.length} frames${animations > 1 ? ` in ${animations} animations` : ''}${result.warnings.length ? ' · see warnings in About this render' : ''}.`);
+  const animations = result.stills ? 0 : Object.keys(result.animations).length;
+  outcome(`Rendered ${result.name} · ${result.frames.length} ${result.stills ? 'stills' : 'frames'}${animations > 1 ? ` in ${animations} animations` : ''}${result.warnings.length ? ' · see warnings in About this render' : ''}.`);
 }
 async function runRender(type = 'render', extra = {}) {
   clearTimeout(debounce);

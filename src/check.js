@@ -1,7 +1,7 @@
 // What a render delivered, and how it differs from what the user asked for (`expect`). Each problem names the file
 // and the call that fixes it, so an agent can correct an export before handing it on. Read-only: it never changes
 // the bundle.
-import { PixelError, isObject, renderProject, STILL_SIDE } from './core.js';
+import { PixelError, isObject, renderProject, STILL_SIDE, stillsHaveNoAnimation, stillTileSet } from './core.js';
 import { autotileFrames } from './autotile.js';
 
 // The format's limits, as core.js enforces them, so no fix asks for a recipe the renderer refuses: canvas sides,
@@ -406,7 +406,13 @@ export function briefCheck(check) {
 }
 
 export function checkDelivery(project, { recipe, gifs, expect, animation, call } = {}) {
-  const { name, width, height, sheet, animations } = project, scale = sheet.scale;
+  const { name, width, height, sheet, animations } = project, scale = sheet.scale, stills = project.stills === true;
+  // A still tile set (core's stillTileSet: a tile set whose recipe names no animations) and stills play nothing, by
+  // the rule the export writes them with (core's exportsStill): no animated PNGs, so no loop or motion to check.
+  const tileSet = Array.isArray(recipe?.frames) && stillTileSet(recipe, project), still = stills || tileSet;
+  const noAnimation = what => (stills ? stillsHaveNoAnimation(what) : `the frames are tiles (a tile set whose recipe names no animations), so there is no animation to ${what}: list the frames to play under "animations", such as { "loop": { "frames": ["a", "b"] } }`);
+  // Stills keep their flipbook for viewing, but it is no animation to check.
+  if (animation !== undefined && stills) throw new PixelError('animation', stillsHaveNoAnimation('choose'));
   if (animation !== undefined && !Object.hasOwn(animations, animation)) throw new PixelError('animation', `no animation named "${animation}"; choose one of: ${Object.keys(animations).join(', ')}`);
   const names = animation === undefined ? Object.keys(animations) : [animation];
   const frames = animation === undefined ? project.frames : [...new Set(animations[animation].frames)].sort((a, b) => a - b).map(index => project.frames[index]);
@@ -445,8 +451,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
   const played = Object.fromEntries(names.slice(0, 16).map(key => [key, { frames: animations[key].frames.length, loop: animations[key].loop }]));
   const delivered = {
     size: [width * scale, height * scale], ...(scale !== 1 && { canvas: [width, height], scale }),
-    // A tile set that names no animations plays nothing: its frames are tiles, and a "default" loop of them is noise.
-    ...(set && recipe?.animations === undefined ? { tiles: project.frames.length } : { animations: played, ...(names.length > 16 && { animationsOmitted: names.length - 16 }) }),
+    // A still tile set and stills play nothing: their frames are tiles or stills, and a "default" loop of them is noise.
+    ...(tileSet ? { tiles: project.frames.length } : stills ? { stills: project.frames.length } : { animations: played, ...(names.length > 16 && { animationsOmitted: names.length - 16 }) }),
     colors: colors.size, transparent: clearOpen.length === open.length ? true : clearOpen.length ? 'some frames' : false,
     ...(seeThrough.length && { partlyTransparent: seeThrough.length === frames.length ? true : 'some frames' }),
     ...(gifs?.length && { gifs: [gifs[0].width, gifs[0].height] }),
@@ -454,7 +460,7 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
     // not when the recipe chose its columns, or when expect.sheet checks the sheet (its problem says what came out).
     ...(!sheet.trim && project.frames.length > sheet.columns && recipe?.sheet?.columns === undefined && expect?.sheet === undefined && { sheet: { size: [sheet.width, sheet.height], columns: sheet.columns, rows: Math.ceil(project.frames.length / sheet.columns) } })
   };
-  const frameFiles = `${name}.png, frames/ and animations/`;
+  const frameFiles = still ? `${name}.png and frames/` : `${name}.png, frames/ and animations/`;
   // Nothing visible at all is never a delivery, whatever was asked: it is a problem even without expect. A few empty
   // frames (a blink-out, an effect that ends empty) are only a note.
   const blank = empty.length === frames.length ? { file: animation === undefined ? frameFiles : `animations/${animation}.png`, asked: 'something visible', got: `${frames.length === 1 ? 'one frame' : `all ${frames.length} frames`}, fully transparent`,
@@ -468,12 +474,11 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
     order.forEach((frame, i) => { if (blankFrames.has(frame)) (i >= tail ? ending.set(frame, true) : elsewhere.add(frame)); });
   }
   const unexpected = empty.filter(frame => !emptyTiles.has(frame) && !(ending.has(frame) && !elsewhere.has(frame)));
-  const notes = unexpected.length && !blank ? [`Frame${unexpected.length === 1 ? '' : 's'} ${list(unexpected)} ${unexpected.length === 1 ? 'is' : 'are'} fully transparent; if that is not intended, draw ${unexpected.length === 1 ? 'it' : 'them'} (pixel_patch) or take ${unexpected.length === 1 ? 'it' : 'them'} out of the animation.`] : [];
-  // A tile set without animations of its own only flips through its tiles, which the export treats as no animation.
-  const tileSet = recipe?.animations === undefined && (set || project.frames.some(frame => frame.tile));
-  const { motion, notes: moves } = tileSet ? { notes: [] } : reviewMotion(project, names.slice(0, 16), boxes, drawn, recipe);
+  const notes = unexpected.length && !blank ? [`Frame${unexpected.length === 1 ? '' : 's'} ${list(unexpected)} ${unexpected.length === 1 ? 'is' : 'are'} fully transparent; if that is not intended, draw ${unexpected.length === 1 ? 'it' : 'them'} (pixel_patch) or ${still ? 'remove' : 'take'} ${unexpected.length === 1 ? 'it' : 'them'}${still ? '' : ' out of the animation'}.`] : [];
+  const { motion, notes: moves } = still ? { notes: [] } : reviewMotion(project, names.slice(0, 16), boxes, drawn, recipe);
   notes.push(...moves);
-  const fields = gifs === undefined ? 'width, height, frames, colors, transparent, loop, sheet' : 'width, height, frames, colors, transparent, loop, gifScale, sheet';
+  // Stills have no loop or GIF to ask for, and a still tile set no loop.
+  const fields = `width, height, frames, colors, transparent, ${still ? '' : 'loop, '}${stills || gifs === undefined ? '' : 'gifScale, '}sheet`;
   if (!expect) return { ...(blank && { ok: false }), delivered, ...(motion && { motion }), ...(blank && { problems: [blank] }), ...(notes.length && { notes }), hint: `Pass expect with what the user asked for (${fields}) to check every file against it.` };
 
   const problems = [], named = recipe?.animations !== undefined;
@@ -491,7 +496,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
   }
   const sheetMiss = expect.sheet === undefined ? null : sheetProblem(project, expect, recipe, call);
   if (sheetMiss) problems.push(sheetMiss);
-  if (gifs !== undefined) {
+  if (stills && expect.gifScale !== undefined) problems.push({ file: 'gifs/', asked: { gifScale: expect.gifScale }, got: 'stills', fix: stillsHaveNoAnimation('make a GIF of') });
+  else if (gifs !== undefined) {
     // Only the GIFs of the animations being checked.
     const checked = new Set(names), scoped = gifs.filter(gif => checked.has(gif.animation));
     // A GIF should be the asked frame size, times gifScale when one was asked for.
@@ -522,7 +528,11 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
   const total = expect.frames === undefined ? 0 : Object.values(animations).reduce((sum, item) => sum + item.frames.length, 0);
   const playing = key => animations[key].frames.length;
   const framesProblem = (key, want) => ({ file: `animations/${key}.png`, asked: want, got: playing(key), fix: framesFix(key, want, named, recipe?.animations?.[key]?.direction, project, recipe, total) });
-  if (expect.frames !== null && typeof expect.frames === 'object') {
+  if (still && expect.frames !== undefined) {
+    // Stills and tiles are counted as frames; a count per animation asks for animations they don't have.
+    if (typeof expect.frames === 'object') problems.push({ file: 'animations/', asked: expect.frames, got: `${project.frames.length} ${stills ? 'stills' : 'tiles'}`, fix: noAnimation('count') });
+    else if (expect.frames !== project.frames.length) problems.push({ file: frameFiles, asked: expect.frames, got: project.frames.length, fix: `make it ${expect.frames} frames: pixel_patch insert or remove under frames, then render again` });
+  } else if (expect.frames !== null && typeof expect.frames === 'object') {
     // A count per animation name: each named animation in scope is checked, and a missing one is a miss.
     for (const [key, want] of Object.entries(expect.frames)) {
       if (animation !== undefined && key !== animation) continue;
@@ -537,10 +547,10 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
     // not a short animation, so it is left out, with a note.
     const want = expect.frames, moving = names.filter(key => playing(key) > 1), judged = moving.length ? moving : names;
     const misses = judged.filter(key => playing(key) !== want), matching = judged.filter(key => playing(key) === want);
-    const stills = names.filter(key => !judged.includes(key));
+    const oneFrame = names.filter(key => !judged.includes(key));
     const distinct = new Set(names.flatMap(key => animations[key].frames)).size, sum = names.reduce((all, key) => all + playing(key), 0);
     const inAll = names.length > 1 && !matching.length && (distinct === want || sum === want);
-    if (stills.length && !inAll) notes.push(`expect.frames counts the frames each animation plays; ${list(stills)} ${stills.length === 1 ? 'plays' : 'play'} one frame (a still beside the animations) and ${stills.length === 1 ? 'was' : 'were'} not counted. To check ${stills.length === 1 ? 'it' : 'them'}, give frames per animation, such as { ${JSON.stringify(stills[0])}: 1 }.`);
+    if (oneFrame.length && !inAll) notes.push(`expect.frames counts the frames each animation plays; ${list(oneFrame)} ${oneFrame.length === 1 ? 'plays' : 'play'} one frame (a still beside the animations) and ${oneFrame.length === 1 ? 'was' : 'were'} not counted. To check ${oneFrame.length === 1 ? 'it' : 'them'}, give frames per animation, such as { ${JSON.stringify(oneFrame[0])}: 1 }.`);
     // No animation plays the count, but the animations' frames add up to it: the request was most likely the sheet's
     // frames in all. Padding each animation to that count would spoil them, so say what the count means instead.
     if (inAll) {
@@ -562,7 +572,8 @@ export function checkDelivery(project, { recipe, gifs, expect, animation, call }
     const holes = frames.map(frame => frame.name).filter(frameName => !solid.includes(frameName));
     problems.push({ file: frameFiles, asked: 'an opaque background', got: `${holes.some(frameName => seeThrough.includes(frameName)) ? 'transparent or partly transparent' : 'transparent'} pixels in ${list(holes)}`, fix: opaqueFix(recipe, holes) });
   }
-  if (expect.loop !== undefined) for (const key of names) {
+  if (expect.loop !== undefined && still) problems.push({ file: 'animations/', asked: expect.loop ? 'a loop' : 'one play', got: stills ? 'stills' : 'tiles', fix: noAnimation(expect.loop ? 'loop' : 'play') });
+  else if (expect.loop !== undefined) for (const key of names) {
     if (animations[key].loop === expect.loop) continue;
     const fix = named
       ? `pixel_patch { "set": "animations.${key}.loop", "value": ${expect.loop} }, then render again`

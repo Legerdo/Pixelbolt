@@ -324,6 +324,34 @@ test('MCP pixel_render writes GIFs on request and leaves nothing behind when one
   assert.deepEqual(await readdir(path.join(dir, 'refused')).catch(() => []), []);
   await assert.rejects(access(path.join(dir, 'refused', 'gifs')));
 });
+test('stills have no GIF: gif refuses them and says how to get an animation, render --gif and pixel_render gif skip them with one note', async t => {
+  const tempRoot = path.resolve(os.tmpdir()), dir = await mkdtemp(path.join(tempRoot, 'pixelbolt-gif-stills-'));
+  t.after(async () => { assert.ok(dir.startsWith(tempRoot + path.sep)); await rm(dir, { recursive: true, force: true }); });
+  const stills = { version: 1, name: 'states', width: 3, height: 1, palette: { g: '#00ff00' }, frames: [0, 1, 2].map(n => ({ name: `hp${n}`, ops: n ? [{ op: 'rect', x: 0, y: 0, w: n, h: 1, color: 'g' }] : [] })), animations: {} };
+  const refusal = /^gif: the frames are stills \("animations": \{\} in the recipe\), so there is no animation to make a GIF of: list the frames to play under "animations".*or remove the field to play every frame in order$/;
+  assert.throws(() => animationGIF(renderProject(stills), undefined), error => error instanceof PixelError && refusal.test(error.message));
+  const file = path.join(dir, 'states.json');
+  await writeFile(file, JSON.stringify(stills));
+  const cli = (...args) => spawnSync(process.execPath, ['bin/pixelbolt.js', ...args], { cwd: root, encoding: 'utf8' });
+  const refused = cli('gif', file, '--out', path.join(dir, 'states.gif'));
+  assert.equal(refused.status, 1); assert.match(JSON.parse(refused.stderr).error, refusal);
+  await assert.rejects(access(path.join(dir, 'states.gif')));
+  const note = 'gif: none written, since the frames are stills ("animations": {}) and a GIF plays an animation';
+  const rendered = cli('render', file, '--out', path.join(dir, 'cli'), '--gif');
+  assert.equal(rendered.status, 0, rendered.stderr);
+  const reply = JSON.parse(rendered.stdout);
+  assert.deepEqual([reply.warnings, reply.gifs, reply.animations, reply.check.delivered.stills], [[note], undefined, undefined, 3]);
+  await assert.rejects(access(path.join(dir, 'cli', 'gifs')));
+  const messages = [{ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-11-25' } }, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'pixel_render', arguments: { project: stills, gif: {}, expect: { gifScale: 2 } } } }];
+  const result = spawnSync(process.execPath, ['bin/pixelbolt.js', 'mcp', '--out', path.join(dir, 'mcp')], { cwd: root, input: messages.map(message => JSON.stringify(message)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  assert.equal(result.status, 0, result.stderr);
+  const info = JSON.parse(JSON.parse(result.stdout.trim().split('\n')[1]).result.content[0].text);
+  // A GIF size asked of stills is a problem, with the stills text: there is no GIF to check.
+  assert.deepEqual([info.warnings, info.gifs, info.animations, info.check.ok, info.check.delivered.stills], [[note], undefined, undefined, false, 3]);
+  assert.deepEqual(info.check.problems.map(problem => [problem.file, problem.got]), [['gifs/', 'stills']]);
+  assert.match(info.check.problems[0].fix, /^the frames are stills \("animations": \{\} in the recipe\), so there is no animation to make a GIF of: /);
+  await assert.rejects(access(path.join(info.directory, 'gifs')));
+});
 test('framesGIF times frames on the frame-rate grid, counts plays and keeps every colour of every frame', () => {
   // Three frames per colour set, 40 colours each and 120 in all; nothing is transparent.
   const frame = (shift, size = 8) => ({ width: size, height: 5, data: rgba(...Array.from({ length: size * 5 }, (_, i) => [i % 40 + shift, 200 - i % 40, shift, 255])) });

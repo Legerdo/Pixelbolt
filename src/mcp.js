@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
-import { PixelError, MAX_REQUEST_BYTES, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison } from './core.js';
+import { PixelError, MAX_REQUEST_BYTES, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation } from './core.js';
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
@@ -11,7 +11,7 @@ import { encodePNG } from './png.js';
 import { createBundle, writeBundle, embedBundleRecipe, outputSummary, describeAnimations } from './export.js';
 import { spriteFrames, retexture } from './godot.js';
 import { shareLink } from './share.js';
-import { animationGIF } from './gif.js';
+import { animationGIF, STILLS_GIF_NOTE } from './gif.js';
 import { readExpect, checkDelivery, briefCheck } from './check.js';
 import { createSequence, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, frameGrid } from './sequence.js';
 import { compilePoses, draftViews } from './authoring.js';
@@ -201,12 +201,14 @@ export function createToolRunner({ directory, root, version }) {
     const plan = [], seen = new Set();
     for (const [key, target] of Object.entries(saveAs)) {
       const where = `saveAs.${key}`;
+      // Stills have no SpriteFrames, animated PNGs or GIFs, and their flipbook is no animation to name.
+      if (project.stills && (['godot', 'gif', 'apng'].includes(key) || /^(?:gifs|animations)\//.test(key))) throw new PixelError(where, `the frames are stills ("animations": {}), so this export has no SpriteFrames, animated PNGs or GIFs: save sheet, atlas or a still's own PNG, such as frames/${project.frames[0].name}.png`);
       if ((key === 'gif' || key === 'apng') && only === undefined) throw new PixelError(where, `the project has ${names.length} animations: pass animation, or name the file, such as ${key === 'gif' ? `gifs/${names[0]}.gif` : `animations/${names[0]}.png`}`);
       const file = Object.hasOwn(aliases, key) ? aliases[key] : key;
       const bytes = file.startsWith('gifs/') ? gifs.find(item => `gifs/${item.animation}.gif` === file)?.data : file.startsWith('sequence/') ? sequence?.files.get(file.slice(9)) : bundle.files.get(file);
       if (!bytes && (key === 'tileset' || key === 'tiled')) throw new PixelError(where, `this export has no ${key === 'tiled' ? 'Tiled tileset' : 'Godot TileSet'}: only a recipe whose frames are an autotile set (compiled from a pixelforge-autotile source) or whose frames have a tile field has one`);
       if (!bytes && (key === 'godot' || key === 'apng') && bundle.files.has(`${project.name}.tileset.tres`)) throw new PixelError(where, 'this export is a tile set with no animations of its own, so it has no SpriteFrames or animated PNGs: save tileset, the Godot TileSet, and sheet');
-      if (!bytes) throw new PixelError(where, `this export has no ${file}; use sheet, atlas, godot, tileset, tiled, recipe, gif, apng or a file it lists, such as frames/${project.frames[0].name}.png`);
+      if (!bytes) throw new PixelError(where, `this export has no ${file}; use ${project.stills ? 'sheet, atlas, tileset, tiled, recipe' : 'sheet, atlas, godot, tileset, tiled, recipe, gif, apng'} or a file it lists, such as frames/${project.frames[0].name}.png`);
       if (/\.(css|html)$/i.test(file)) throw new PixelError(where, `${file} loads other export files by relative path, so a copy elsewhere would show nothing: save the files it uses (sheet, atlas, animations) instead, and keep ${file} in the export folder`);
       const type = path.extname(file).toLowerCase();
       if (!SAVED_TYPES.includes(type)) throw new PixelError(where, `saveAs copies PNG, GIF and JSON files and the Godot .tres and Tiled .tsx (sheet, atlas, godot, tileset, tiled, recipe, GIFs, animations, frames, sequence frames): keep ${file} in the export folder`);
@@ -420,8 +422,6 @@ export function createToolRunner({ directory, root, version }) {
       } else if (name === 'pixel_render') {
         const { animation, listFiles, sequence, share, embedRecipe, saveAs, overwrite } = options, expect = readExpect(options.expect);
         for (const key of ['share', 'embedRecipe']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new PixelError(key, 'expected a boolean');
-        // A GIF named in saveAs needs GIFs: the frames' own size unless gif says otherwise.
-        const gif = options.gif === undefined && saveAs !== null && typeof saveAs === 'object' && Object.keys(saveAs).some(key => key === 'gif' || key.startsWith('gifs/')) ? {} : options.gif;
         if (options.scale !== undefined && (!Number.isInteger(options.scale) || options.scale < 1 || options.scale > 16)) throw new PixelError('scale', 'expected a whole number from 1 to 16: how many times to enlarge every exported pixel');
         // columns: sheet.columns for this export the same way (a one-row strip), from 1 to the frame count.
         if (options.columns !== undefined && (!Number.isInteger(options.columns) || options.columns < 1 || options.columns > 256)) throw new PixelError('columns', 'expected a whole number from 1 to the frame count: how many frames across the sheet');
@@ -440,11 +440,19 @@ export function createToolRunner({ directory, root, version }) {
           normal = given?.format === 'pixelforge-normals' ? COMPILERS['pixelforge-normals'](given).recipe : given;
           normalSources = [...relativeToRoot(files), ...(await Promise.all(referenced.map(sourcesOf))).flat()];
         }
-        const bundle = await createBundle(recipe, { normal }), view = inspectProject(bundle.project, { ...(animation !== undefined && { animation }), maxCells: 256 });
+        const bundle = await createBundle(recipe, { normal });
+        // Stills keep their flipbook for viewing, but it is no animation to choose.
+        if (animation !== undefined && bundle.project.stills) throw new PixelError('animation', stillsHaveNoAnimation('choose'));
+        const view = inspectProject(bundle.project, { ...(animation !== undefined && { animation }), maxCells: 256 });
         if (options.columns > bundle.project.frames.length) throw new PixelError('columns', `expected a whole number from 1 to the frame count, ${bundle.project.frames.length}: columns ${bundle.project.frames.length} is a one-row strip`);
+        // A GIF named in saveAs needs GIFs: the frames' own size unless gif says otherwise. Stills have none, and saveAs
+        // says so.
+        const gif = options.gif === undefined && !bundle.project.stills && saveAs !== null && typeof saveAs === 'object' && Object.keys(saveAs).some(key => key === 'gif' || key.startsWith('gifs/')) ? {} : options.gif;
         // GIFs are encoded before anything is written, so a refused GIF leaves no folder behind.
         if (gif !== undefined && (gif === null || typeof gif !== 'object' || Array.isArray(gif))) throw new PixelError('gif', 'expected an object such as {} or { "scale": 8 }');
-        const gifs = gif === undefined ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
+        // Stills have no animation to make a GIF of: none is written, with one note.
+        if (gif !== undefined && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
+        const gifs = gif === undefined || bundle.project.stills ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
         if (gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new PixelError('gif', 'all animations at this scale exceed 67,108,864 pixels; lower gif.scale');
         const frames = sequence === undefined ? null : checkSequenceSize(createSequence(bundle.project, { ...(animation !== undefined && { animation }), ...(sequence !== null && typeof sequence === 'object' ? sequence : { fps: undefined }) }));
         let shared;
@@ -474,7 +482,7 @@ export function createToolRunner({ directory, root, version }) {
           error.message += `. The export itself was written to ${out}: use its files, or send revision "${savedRevision}" with saveAs paths that can be written`;
           throw Object.assign(error, { made: { revision: savedRevision, directory: out } });
         }
-        const check = checkDelivery(bundle.project, { recipe, gifs, expect, animation, call: 'mcp' });
+        const check = checkDelivery(bundle.project, { recipe, gifs: bundle.project.stills ? undefined : gifs, expect, animation, call: 'mcp' });
         return { content: [textContent(withResolved({ ok: true, revision: savedRevision, directory: out, ...outputSummary(out, files, listFiles === true), frames: bundle.project.frames.length, ...describeAnimations(bundle.project, recipe), playback: path.join(out, 'preview.html'), ...(gifs.length && { gifs: { directory: 'gifs', count: gifs.length, scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(gifs.length <= 16 && { files: gifs.map(item => `gifs/${item.animation}.gif`) }), notes: gifs.flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16) } }), ...(frames && { sequence: sequenceSummary(frames.info) }), ...(saves.length && { saved: saves.map(item => ({ file: item.file, path: item.destination, ...(item.replaced && { replaced: true }) })) }), check: briefCheck(check), preview: viewSummary(view), warnings: bundle.project.warnings, ...(shared && { share: shared }) }, resolved)), imageContent(view.sheet)], ...(preview && preview(bundle.project, {
           animation, files: [...new Set([
             ...files.filter(file => path.dirname(file) === out && /\.(?:png|atlas\.json|pixel\.json|tres|tsx)$/.test(file)),

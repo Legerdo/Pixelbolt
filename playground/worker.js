@@ -111,7 +111,7 @@ export async function handleRequest(request, onSource = () => {}) {
   }
   const item = await render(text, version, override), { result, source, engine } = item;
   if (type !== 'export') {
-    const { project, ...preview } = result;
+    const { project, recipe, ...preview } = result;
     // Retain the worker's pixels for export; only the copies cross the boundary and are detached.
     return { ...preview, version, digest: item.digest, frames: result.frames.map(frame => ({ ...frame, data: frame.data.slice() })) };
   }
@@ -137,7 +137,9 @@ export async function handleRequest(request, onSource = () => {}) {
     if (request.export === 'atlas' && !result.project) throw new Error('Scenes are sampled images and have no sprite atlas metadata. Download the sheet instead.');
     const atlas = result.project ? engine.core.buildAtlas(result.project) : sceneSheet(result);
     files.push(await pngFile(atlas, `${name}.png`));
-    if (request.export === 'atlas') files.push(jsonFile(`${name}.atlas.json`, atlas.metadata));
+    // Stills and a still tile set list their frames alone, as a bundle's atlas does (core's exportAtlas; an engine
+    // from before stills has none, and no stills).
+    if (request.export === 'atlas') files.push(jsonFile(`${name}.atlas.json`, engine.core.exportAtlas ? engine.core.exportAtlas(result.recipe, result.project, atlas.metadata) : atlas.metadata));
   } else if (request.export === 'gif') {
     const project = result.project ?? { ...result, palette: {} };
     const gif = engine.gif.animationGIF(project, request.animation, { scale: request.scale, background: 'transparent' });

@@ -329,6 +329,28 @@ try {
     if (process.env.GITHUB_ACTIONS === 'true') console.log(`::warning title=Studio edit latency::R2 live edits took ${result.p95Ms.toFixed(1)} ms at the 95th percentile in ${version.product}, over the ${result.budgetMs} ms budget. This never fails CI.`);
     return `${timing}; over the ${result.budgetMs} ms budget, reported only`;
   });
+  await check('stills ("animations": {}) hide the animation picker and turn GIF, Frames and Motion off, each saying why; a recipe that plays gets them back', async () => {
+    // A pose source whose poses are stills: it has pose metadata (its contacts still show), so only the stills keep
+    // Motion off.
+    const { skinkRig } = await import('./figure-rigs.mjs'), rig = skinkRig(), controls = ['gif', 'frames', 'motion-view'];
+    const state = () => evaluate(`({ picker: [document.getElementById('animation').hidden, document.getElementById('animation-label').hidden], tools: document.getElementById('motion-tools').hidden, off: ${JSON.stringify(controls)}.map(id => document.getElementById(id).disabled), titles: ${JSON.stringify(controls)}.map(id => document.getElementById(id).title) })`);
+    await type(JSON.stringify({ ...rig, animations: {} }));
+    await until(`document.getElementById('animation').hidden`, 'the stills to hide the animation picker');
+    const stills = await state();
+    assert.deepEqual([stills.picker, stills.tools, stills.off], [[true, true], false, [true, true, true]]);
+    assert.deepEqual(stills.titles, ['make a GIF of', 'export as frames', 'review for motion'].map(what => `The frames are stills ("animations": {}), so there is no animation to ${what}.`));
+    // The stills can still be stepped through.
+    await click('#timeline .frame:nth-child(1)'); const first = await canvas();
+    await click('#timeline .frame:nth-child(2)'); assert.notEqual((await canvas()).hash, first.hash);
+    await studio.shot('stills');
+    await type(JSON.stringify(rig));
+    await until(`!document.getElementById('animation').hidden`, 'the animations to bring the picker back');
+    const playing = await state();
+    assert.deepEqual([playing.picker, playing.tools, playing.off], [[false, false], false, [false, false, false]]);
+    assert.deepEqual(playing.titles.slice(0, 2), ['Download this animation as a GIF at the current zoom', 'Export this animation as numbered PNG frames for a video editor']);
+    assert.doesNotMatch(playing.titles[2], /stills/);
+    return `${(await evaluate(`document.getElementById('timeline').children.length`))} frames playing again`;
+  });
 
   console.log('Preview controls');
   const spirit = samples.findIndex(sample => sample.file === 'forest-spirit') + 1;

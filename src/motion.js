@@ -1,5 +1,5 @@
 // Advisory motion measurements at displayed-frame onsets. Never changes the artwork.
-import { PixelError, parseColor } from './core.js';
+import { PixelError, parseColor, stillsHaveNoAnimation } from './core.js';
 import { angleDelta } from './pose-geometry.js';
 import { sinDeg, cosDeg, traceLine } from './craft.js';
 import { layoutText, FONT_CHARACTERS } from './font.js';
@@ -128,6 +128,8 @@ export function inspectMotion(project, options = {}) {
   const allowed = ['animation', 'metadata', 'speed', 'ground', 'scale', 'background'];
   if (!options || typeof options !== 'object' || Array.isArray(options)) fail('options', 'expected an object');
   for (const key of Object.keys(options)) if (!allowed.includes(key)) fail(key, 'unknown field for motion review');
+  // Stills keep their flipbook for viewing, but it is no animation to review.
+  if (project.stills) fail('animation', stillsHaveNoAnimation('review'));
   const animation = project.animations[options.animation];
   if (typeof options.animation !== 'string' || !animation) fail('animation', 'select a named animation');
   const metadata = options.metadata;

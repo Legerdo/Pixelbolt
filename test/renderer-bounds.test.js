@@ -107,7 +107,6 @@ test('pose compilation retains recipe validation without rasterizing frames', ()
     [s => { s.poses[0].parts[0].name = 'nul'; }, /layers\[0\].name/],
     [s => { s.poses[0].origin = [4096, 4096]; s.poses[0].parts[0].at = [4096, 4096]; }, /ops\[0\].x/],
     [s => { s.animations = { walk: { frames: ['missing'] } }; }, /animations.walk.frames/],
-    [s => { s.animations = {}; }, /at least one animation/],
     [s => { s.animations = { walk: { frames: ['pose-0'], loop: 1 } }; }, /animations.walk.loop/],
     [s => { s.sheet = { scale: 17 }; }, /sheet.scale/],
     [s => { s.sheet = { columns: 256, scale: 16 }; s.width = 256; s.height = 256; }, /atlas exceeds/]

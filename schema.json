@@ -91,9 +91,8 @@
     },
     "animations": {
       "type": "object",
-      "minProperties": 1,
       "maxProperties": 65524,
-      "description": "ZIP32 bundle budget: animation count + frame count + 10 support files must not exceed 65,535.",
+      "description": "Named animations; left out, one plays every frame in order. {} says the frames are stills (icons, UI states, tiles), exported with no animation. ZIP32 bundle budget: animation count + frame count + 10 support files must not exceed 65,535.",
       "propertyNames": {
         "type": "string",
         "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",

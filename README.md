@@ -275,16 +275,18 @@ Each text-grid character selects a palette color; `.` and space leave pixels unt
 | File | Use |
 | --- | --- |
 | `name.png` | RGBA PNG sprite sheet, with configurable columns, padding and integer scale, or packed by visible bounds with `sheet.trim` |
-| `name.atlas.json` | TexturePacker-style JSON hash: rectangles, trim offsets, source sizes, pivots/anchors, named points, frame durations, named animations and Aseprite-style frame tags |
-| `name.tres` | Godot 4 `SpriteFrames` for `AnimatedSprite2D`: one atlas texture per frame (trimmed frames keep their place on the canvas) and every animation with its loop and exact frame times; keep it next to `name.png` |
+| `name.atlas.json` | TexturePacker-style JSON hash: rectangles, trim offsets, source sizes, pivots/anchors, named points, frame durations, named animations and Aseprite-style frame tags. Stills and a still tile set (below) list their frames only, with no `animations` and no `meta.frameTags` |
+| `name.tres` | Godot 4 `SpriteFrames` for `AnimatedSprite2D`: one atlas texture per frame (trimmed frames keep their place on the canvas) and every animation with its loop and exact frame times; keep it next to `name.png`. Not for stills or a still tile set |
 | `name.tileset.tres` | Only for a tile set (an autotile set, or frames with `tile`): a Godot 4 `TileSet` for `TileMapLayer` with a terrain per set (blob, cardinal or corner, or a corner set of layered terrains whose transitions Godot paints), so Godot's terrain painter picks the tile Pixelbolt's tilemap would, plus each tile's probability and collision; keep it next to `name.png`. A tile set without animations of its own skips the SpriteFrames, APNGs, CSS and player |
 | `name.tsx` | Only for a tile set: a [Tiled](https://www.mapeditor.org) tileset over `name.png` with a Wang set per terrain for the Terrain Brush (mixed for blob, edge for cardinal, corner for corner and layered sets), each tile's probability, collision objects and animation; keep it next to `name.png` |
 | `frames/*.png` | Each frame as a transparent PNG |
-| `animations/*.png` | APNG for each animation, retaining transparency, frame timing and loop behavior |
-| `name.css` | CSS animation classes; supports multi-row sheets and unequal frame durations |
-| `player.js` | Small, dependency-free Canvas player with play, pause, resume and named animations, plus `loadSpriteSheet`, `frameAt` and `drawFrame` for games |
+| `animations/*.png` | APNG for each animation, retaining transparency, frame timing and loop behavior. Not for stills or a still tile set |
+| `name.css` | CSS animation classes; supports multi-row sheets and unequal frame durations. Not for stills or a still tile set |
+| `player.js` | Small, dependency-free Canvas player with play, pause, resume and named animations, plus `loadSpriteSheet`, `frameAt` and `drawFrame` for games. Not for stills or a still tile set |
 | `name.pixel.json` | Editable source recipe |
-| `preview.html` | Standalone preview you can open directly in a browser |
+| `preview.html` | Standalone preview you can open directly in a browser (the sheet, for stills and a still tile set) |
+
+Stills are a recipe whose `"animations"` is `{}`: icons, UI states, a 9-slice panel. A still tile set is a tile set whose recipe leaves `animations` out. Neither plays anything, so the export writes only `name.png`, `name.atlas.json` (frames only), `frames/`, `name.pixel.json`, `preview.html` and `README.txt` (plus `name.tileset.tres` and `name.tsx` for a tile set), and no GIFs.
 
 APNG files use the `.png` extension intentionally. Recipes can share a palette file (`"palette": { "$ref": "palette.json" }`), recolor keys per frame for palette cycling or per layer for a flash that leaves the rest of the frame alone, copy rectangles from template symbols or earlier frames (with exact colour swaps), outline layers (outside, inside or both, with direction masks for rim lights and drop shadows), dither between colours with canvas-anchored Bayer, custom, seeded non-periodic noise or clumping value-noise patterns, shade along palette ramps (`ramps` and the `shade` operation) without leaving the palette, draw whole character maps with the `tilemap` operation (variants, weights and neighbour rules), and grow detail such as moss or cracks with seeded rewrite rules. They compile 47-tile blob or 16-tile cardinal autotile sets with `pixelbolt autotile`, drawn from template rows or from a terrain description (a seamless fill and each side's edge, outline, rim light, shadow and tufts), optionally with shape variants, and review every tile over a test map with seam warnings; see the [authoring guide](docs/agent-guide.md) and [art workflow](docs/art-workflow.md#autotile-templates).
 

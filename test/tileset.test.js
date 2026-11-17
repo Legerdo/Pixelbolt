@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { renderProject, buildAtlas } from '../src/core.js';
-import { createBundle } from '../src/export.js';
+import { createBundle, describeAnimations } from '../src/export.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { compileAutotile } from '../src/authoring.js';
 import { checkDelivery } from '../src/check.js';
@@ -94,6 +94,14 @@ test('a tile set without animations of its own exports no flipbook of its tiles;
   assert.match(bundle.files.get('preview.html').toString(), /<img src="meadow\.png"/);
   // The flowers are a quarter as common as each plain fill.
   const atlas = JSON.parse(bundle.files.get('meadow.atlas.json')), { tiles } = readTileSet(bundle.files.get('meadow.tileset.tres').toString()).sources[0];
+  // Its atlas lists the tiles alone: no "default" flipbook of them and no frame tags.
+  assert.deepEqual([Object.keys(atlas), atlas.meta.frameTags], [['frames', 'meta'], undefined]);
+  assert.deepEqual(describeAnimations(bundle.project, recipe), {});
+  // "animations": {} says the same of a tile set: stills, with the same files.
+  const named = await createBundle({ ...recipe, animations: {} });
+  assert.deepEqual([...named.files.keys()].filter(file => !file.startsWith('frames/')), [...bundle.files.keys()].filter(file => !file.startsWith('frames/')));
+  assert.equal(named.files.get('meadow.tileset.tres').toString(), bundle.files.get('meadow.tileset.tres').toString());
+  assert.deepEqual(JSON.parse(named.files.get('meadow.atlas.json')), atlas);
   assert.equal(tiles[cellOf(atlas, bundle.project.sheet, 'meadow-255-flowers')]['0/probability'], '0.25');
   assert.equal(tiles[cellOf(atlas, bundle.project.sheet, 'meadow-255-b')]['0/probability'], undefined);
   // The ground set's collision is its README's too.

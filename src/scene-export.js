@@ -4,7 +4,7 @@ import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes } from '.
 import { framesGIF, gifBackground, asGIFShows } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
-import { buildAtlas, inspectProject } from './core.js';
+import { buildAtlas, inspectProject, namesAnimations } from './core.js';
 import { spriteFrames, canvasTexture, normalsYUp, tileSets, parallaxScene } from './godot.js';
 import { tileSource } from './export.js';
 import { tiledTileset, tiledMap } from './tiled.js';
@@ -80,7 +80,7 @@ export async function createSceneBundle(source) {
     if (set) tiles.push({ id, set });
     // And a Tiled tileset of its own beside its colour pass, since a Tiled tileset cuts one image: a tile set's with its
     // terrains, any other asset's with its frames as tiles (its looping animations animated), for scene.tmx.
-    const { sheet } = asset.recipe, frames = { atlas: spec?.animations === undefined ? { ...atlas.metadata, animations: {} } : atlas.metadata, tiles: [], layered: [], plain: asset.recipe.frames.map(frame => frame.name), colors: {}, name: id, margin: sheet.padding * sheet.scale, separation: sheet.padding * 2 * sheet.scale };
+    const { sheet } = asset.recipe, frames = { atlas: namesAnimations(spec) ? atlas.metadata : { ...atlas.metadata, animations: {} }, tiles: [], layered: [], plain: asset.recipe.frames.map(frame => frame.name), colors: {}, name: id, margin: sheet.padding * sheet.scale, separation: sheet.padding * 2 * sheet.scale };
     const tiled = tiledTileset({ ...(set ?? frames), image: 'color.png' }, { oneShots: Boolean(set) });
     tileWarnings.push(...tiled.warnings.map(warning => `${directory}/tileset.tsx: ${warning}`));
     files.set(`${directory}/tileset.tsx`, Buffer.from(tiled.text));

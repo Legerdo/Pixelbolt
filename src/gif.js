@@ -1,7 +1,7 @@
 // Browser-compatible GIF89a export for sharing an animation where APNG or CSS scaling is not an option. Colours are
 // exact: nothing is quantized or dithered, so a frame that needs more than 256 colours is refused rather than
 // approximated. GIF has no partial transparency and times frames in 10 ms steps; both conversions are reported.
-import { PixelError, parseColor } from './core.js';
+import { PixelError, parseColor, stillsHaveNoAnimation } from './core.js';
 
 const MAX_PIXELS = 67108864;
 // Integer arithmetic only, so table sizes never depend on an engine's logarithm.
@@ -269,11 +269,14 @@ export function framesGIF(frames, { fps, loops = 0, background = null } = {}) {
   return { data: gif.data, width, height, frames: count, fps: { label, numerator, denominator }, frameMs: round(frameMs), duration, delays: Object.fromEntries(used), loops, colors: gif.colors, colorsPerFrame: { fewest, most }, tables: gif.shared ? 'shared' : 'per frame', transparent: gif.transparent, partialAlpha, notes };
 }
 
+// What a render asked for GIFs says of stills, which it writes none of.
+export const STILLS_GIF_NOTE = 'gif: none written, since the frames are stills ("animations": {}) and a GIF plays an animation';
 // One animation of a rendered project as a GIF, at the frames' own size unless `scale` enlarges it by a whole number.
-// `notes` says, in words, what GIF could not keep.
+// `notes` says, in words, what GIF could not keep. Stills (a recipe whose "animations" is {}) have none and are refused.
 export function animationGIF(project, animation, options = {}) {
   const names = Object.keys(project.animations), name = animation ?? names[0];
   for (const key of Object.keys(options)) if (!['scale', 'background'].includes(key)) throw new PixelError(`gif.${key}`, 'unknown option; use scale or background');
+  if (project.stills) throw new PixelError('gif', stillsHaveNoAnimation('make a GIF of'));
   if (!Object.hasOwn(project.animations, name)) throw new PixelError('gif.animation', `no animation named "${name}"; choose one of: ${names.join(', ')}`);
   const sequence = project.animations[name], scale = options.scale ?? 1;
   const background = gifBackground(options.background, project.palette);

@@ -316,3 +316,14 @@ test('the render check does not note the empty frames that end a one-shot, only 
   const looped = structuredClone(recipe); looped.animations.puff.loop = true;
   assert.match(check(looped).notes[0], /Frames "gap" and "end" are fully transparent|"gap".*"end"/);
 });
+
+test('the render check delivers stills by count, judges no motion, and counts expect.frames as frames', () => {
+  const stills = { ...small, animations: {} }, plain = check(stills);
+  assert.deepEqual(plain.delivered, { size: [4, 2], stills: 3, colors: 2, transparent: 'some frames' });
+  assert.equal(plain.motion, undefined);
+  assert.deepEqual(plain.notes, ['Frame "c" is fully transparent; if that is not intended, draw it (pixel_patch) or remove it.']);
+  assert.equal(check(stills, { expect: { frames: 3 } }).ok, true);
+  const missed = check(stills, { expect: { frames: 4, loop: true } });
+  assert.deepEqual(missed.problems.map(problem => [problem.file, problem.asked, problem.got]), [['tile.png and frames/', 4, 3], ['animations/', 'a loop', 'stills']]);
+  assert.match(missed.problems[1].fix, /^the frames are stills \("animations": \{\} in the recipe\), so there is no animation to loop: /);
+});
