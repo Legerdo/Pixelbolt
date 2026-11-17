@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { renderProject } from '../src/core.js';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { inspectProject } from '../src/core.js';
 import { createBundle } from '../src/export.js';
+import { createSceneBundle } from '../src/scene-export.js';
 import { compileEffects } from '../src/fx.js';
 import { helpText } from '../src/help.js';
 import { compilePreset } from '../src/presets.js';
@@ -25,20 +29,79 @@ test('an overlay over a still backdrop in a scene gets one frame fewer: 71 of 32
 
 test('the fx canvas size says a source with more frames than fit compiles with frames, and it does', async () => {
   const width = JSON.parse(await read('fx.schema.json')).properties.width.description;
-  assert.match(width, /72 frames of 320×180; a source with more compiles with frames \(--frames\), which keeps that many evenly spaced\./);
+  assert.match(width, /\(72 of 320×180\); a source with more compiles with frames \(--frames\), and a count that divides a loop's frames keeps an even step\.$/);
+  // help fx and MCP pixel_help fx shorten a description past 220 characters, which hid the --frames route.
+  assert.ok(width.length <= 220, `${width.length} characters`);
+  assert.ok((await helpText('fx')).includes(width) && (await helpText('fx', undefined, 'cli')).includes(width));
   const rain = frames => ({ format: 'pixelforge-fx', version: 1, name: 'rain', width: 320, height: 180, palette: { d: '#9fb8d8' }, symbols: { drop: ['d'] },
     effects: { rain: { frames, duration: 60, loop: true, seed: 7, edges: ['top', 'left', 'right'], emitters: [{ at: [150, -8], area: [400, 1], rate: 2, angle: [100, 102], speed: [8, 9], life: [16, 21], shapes: ['drop'] }] } } });
   assert.throws(() => compileEffects(rain(96)), /72 frames of 320×180 fit/);
   const thinned = keepFrames(compilePreset(rain(96), { frames: 72 }).recipe, 72);
   assert.equal(renderProject(thinned.recipe).frames.length, 72);
+  // A count that divides the loop's 96 frames keeps an even step; 72 does not, and the compile says so.
+  const uneven = warnings => (warnings ?? []).filter(warning => /thins its 96-frame loop unevenly/.test(warning));
+  assert.match(uneven(compilePreset(rain(96), { frames: 72 }).warnings)[0], /frames 48, 32 or 24 keep an even step/);
+  for (const frames of [48, 32]) {
+    const even = compilePreset(rain(96), { frames });
+    assert.deepEqual(uneven(even.warnings), []);
+    assert.equal(new Set(even.recipe.frames.map(frame => frame.duration)).size, 1, `${frames} frames last alike`);
+  }
 });
 
-test('an overlay delivered for Godot is its own render\'s .tres, which plays every frame', async () => {
-  assert.match(await read('docs/agent-craft.md'), /bakes an animated placement in as its frame 0, so deliver the overlay's own `\.tres` from `render --out`/);
-  const bundle = await createBundle(recipe('rain', 320, 180, 12));
+test('every doc that says --frames thins a loop says when it is even: a count that divides its frames', async () => {
+  const said = { 'docs/art-workflow.md': /A loop keeps an even step only when the count divides its frames \(a 96-frame loop to 48 or 32, not 72\); otherwise the compile warns/,
+    'docs/agent-quick-start.md': /a loop at an even step if 8 divides its frames \(fx warns otherwise\)/, 'docs/agent-craft.md': /a loop at an even step when 8 divides its frames \(an fx source warns otherwise\)/,
+    'skills/pixel-art/SKILL.md': /`--frames 8` down to 8 frames \(an even step when 8 divides a loop's frames\)/ };
+  for (const [file, sentence] of Object.entries(said)) {
+    const text = await read(file);
+    assert.match(text, sentence, file);
+    assert.doesNotMatch(text, /keeps? (?:that many|8) evenly spaced frames|down to 8 evenly spaced/, file);
+  }
+  // The quick start an MCP client reads on connect stays within its cap.
+  assert.ok(Buffer.byteLength(await helpText()) < 12288);
+});
+
+test('an overlay delivered for Godot: the scene exported without it, and its own render\'s .tres, which plays every frame', async () => {
+  assert.match(await read('docs/agent-craft.md'), /bakes an animated placement in as its frame 0, so for Godot export the scene without the overlay \(left out, or `"hidden": true`\) and deliver the overlay's own `\.tres` from `render --out` to play over it; Tiled's `scene\.tmx` animates it\./);
+  const rain = { ...recipe('rain', 320, 180, 12), animations: { rain: { frames: Array.from({ length: 12 }, (_, i) => `rain-${i}`) } } };
+  const backdrop = { version: 1, name: 'bg', width: 320, height: 180, palette: { g: '#30402a' }, frames: [{ name: 'bg', ops: [{ op: 'rect', x: 0, y: 0, w: 320, h: 180, color: 'g', filled: true }] }] };
+  const scene = placed => ({ format: 'pixelforge-scene', version: 1, name: 's', width: 320, height: 180, assets: { bg: backdrop, ...(placed && { rain }) },
+    instances: [{ name: 'bg', asset: 'bg', at: [0, 0] }, ...(placed ? [{ name: 'rain', asset: 'rain', at: [0, 0], animation: 'rain', ...placed }] : [])] });
+  const exported = async placed => { const files = (await createSceneBundle(scene(placed))).files; return { files, planes: JSON.parse(files.get('alignment.json')).planes.map(plane => plane.placements) }; };
+  // As placed, the overlay's first frame is baked into the backdrop's plane, and Tiled's map animates it.
+  const shown = await exported({});
+  assert.deepEqual(shown.planes, [['bg', 'rain']]);
+  assert.match(shown.files.get('scene.tmx').toString(), /name="rain"/);
+  assert.match(shown.files.get('assets/1/tileset.tsx').toString(), /<animation>/);
+  // Hidden or left out, the plane is the backdrop alone, so the delivered .tres plays over clean ground.
+  const alone = await exported(null);
+  for (const without of [await exported({ hidden: true }), alone]) {
+    assert.deepEqual(without.planes, [['bg']]);
+    assert.equal(Buffer.compare(without.files.get('planes/0.png'), alone.files.get('planes/0.png')), 0);
+  }
+  const bundle = await createBundle(rain);
   const tres = bundle.files.get('rain.tres')?.toString();
   assert.ok(tres, 'render --out writes the overlay\'s SpriteFrames');
   assert.equal(tres.match(/"texture": /g)?.length, 12);
+});
+
+test('a region is enlarged by itself up to about 128 px a side, and --scale zooms a bigger one, as the docs say', async () => {
+  const said = /up to about 128 px a side[^.;]*`--scale 4`/;
+  assert.match(await read('skills/pixel-art/SKILL.md'), said);
+  assert.match(await read('docs/agent-quick-start.md'), said);
+  assert.match(await read('docs/agent-guide.md'), /A region up to about 128 pixels on its longer side is enlarged by itself; a bigger region of a big frame needs `scale` \(CLI `--scale`\)\./);
+  const frames = renderProject(recipe('rain', 320, 180, 4)), at = (w, h, scale) => inspectProject(frames, { region: { x: 0, y: 0, w, h }, scale }).sheet.scale;
+  assert.deepEqual([at(120, 80), at(128, 72), at(160, 80), at(160, 80, 4)], [2, 2, 1, 4]);
+});
+
+test('help on a command name says where its options are, and they are there', () => {
+  const run = args => spawnSync(process.execPath, [fileURLToPath(new URL('../bin/pixelbolt.js', import.meta.url)), ...args], { encoding: 'utf8' });
+  const asked = JSON.parse(run(['help', 'inspect']).stderr);
+  assert.match(asked.error, /^Unknown help topic "inspect"; topics: quickstart, .*; for a command's options run pixelbolt inspect --help$/);
+  const options = run(['inspect', '--help']);
+  assert.equal(options.status, 0);
+  assert.match(options.stdout, /pixelbolt inspect .*--region/s);
+  assert.doesNotMatch(JSON.parse(run(['help', 'nope']).stderr).error, /--help/);
 });
 
 test('the guide\'s sentence on text in a sorted layer reads right on its own', async () => {

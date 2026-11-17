@@ -212,7 +212,7 @@ const poses = {
 const recipeSchema = { ...schema }; delete recipeSchema.$schema; delete recipeSchema.$defs; delete recipeSchema.title;
 // Scene assets keep to an animation frame's side and area: a larger still renders on its own.
 // An effect's canvas is an animation frame (fx.js): a full screen of 320×180 or 640×360 is one effect.
-const fxSide = int(1, 1024, '1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180; a source with more compiles with frames (--frames), which keeps that many evenly spaced.');
+const fxSide = int(1, 1024, '1–1024 pixels, at most 262,144 a frame. The frames hold at most 4,194,304 pixels in all (72 of 320×180); a source with more compiles with frames (--frames), and a count that divides a loop\'s frames keeps an even step.');
 const assetSide = int(1, 1024, 'A scene asset is at most 1024 pixels a side and 262,144 pixels in all (320×180, 640×360 and 512×512 fit), a still one too.');
 const sceneRecipe = { ...recipeSchema, properties: { ...recipeSchema.properties, width: assetSide, height: assetSide } }; delete sceneRecipe.if; delete sceneRecipe.then;
 const themePalette = description => ({ oneOf: [{ type: 'string', description: 'Palette file, resolved by the CLI relative to the scene or inside the MCP root.' }, { type: 'object', additionalProperties: { type: 'string', pattern: hex } }], description });

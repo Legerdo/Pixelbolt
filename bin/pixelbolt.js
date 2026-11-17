@@ -466,13 +466,13 @@ async function presetsText(name, full, find, out, force) {
 // `help <topic> [section]`: what MCP pixel_help returns for the topic, so a shell reads one section of a long guide
 // instead of the whole file. A section name may be quoted or not.
 async function helpTopic([asked, ...words]) {
-  const { TOPICS, SECTIONED, isSchema, helpText, resolveTopic } = await import('../src/help.js');
+  const { TOPICS, SECTIONED, isSchema, helpText, resolveTopic, unknownTopic } = await import('../src/help.js');
   const [topic, name] = resolveTopic(asked, words.length ? words.join(' ') : undefined);
   if (['quickstart', 'quick-start', 'start'].includes(topic)) {
     if (name !== undefined) throw new Error('the quick start has no sections; run pixelbolt help quickstart');
     return helpText(undefined, undefined, 'cli');
   }
-  if (!TOPICS.includes(topic)) throw new Error(`Unknown help topic "${topic}"; topics: quickstart, ${TOPICS.join(', ')}`);
+  if (!TOPICS.includes(topic)) throw new Error(unknownTopic(topic, Object.keys(OPTIONS)));
   if (topic === 'presets' || topic === 'preset') {
     // `help preset --full` is `help presets --full`, as `help preset` alone is `help presets`.
     const full = name === '--full';
