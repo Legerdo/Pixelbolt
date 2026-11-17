@@ -235,7 +235,7 @@ export function patchRecipe(recipe, changes) {
         pixels.set(`${pixel.x},${pixel.y}`, structuredClone(pixel));
       });
       // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
-      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with the frame's operations (a set or insert at frames[${frame.name}].ops), or change a smaller region`);
+      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame's corrections together hold at most ${FRAME_LIST}: recolour or redraw an area this large with the frame's operations (a set of frames[${frame.name}].ops or an insert at frames[${frame.name}].ops[-]), or change a smaller region`);
       if (pixels.size) frame.pixels = [...pixels.values()];
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);
