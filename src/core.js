@@ -1381,15 +1381,19 @@ const readRegion = (data, width, region, namer) => Array.from({ length: region.h
 // wins, then fewer rows, then less area. Checker squares span whole source pixels so transparency never reads as dithering.
 // A sheet holds at most 4096 pixels of cells a side; their 2-pixel gutters may take it past that, so a still 4096
 // pixels wide shows whole. Wider gutters (above scale 2) count against the limit. In all it is one PNG, at most
-// 16,777,216 pixels (png.js), which 64 cells of 512x512 with their gutters would pass.
-const SHEET_SIDE = 4096;
-const withinSheet = layout => layout.width <= SHEET_SIDE + 2 * (layout.columns + 1) && layout.height <= SHEET_SIDE + 2 * (layout.rows + 1) && layout.width * layout.height <= 16777216;
+// 16,777,216 pixels (png.js), which 64 cells of 512x512 with their gutters would pass. `room` is what the image adds
+// round the cells, which the same PNG must hold: a parts legend to the right (`width`, and at least `minHeight` tall),
+// a label band over each sheet stacked beside others (`height`), and the share of the PNG one stacked sheet may take
+// (`pixels`).
+const SHEET_SIDE = 4096, NO_ROOM = { pixels: PNG_PIXELS, width: 0, height: 0, minHeight: 0 };
+const withinSheet = (layout, room = NO_ROOM) => layout.width <= SHEET_SIDE + 2 * (layout.columns + 1) && layout.height <= SHEET_SIDE + 2 * (layout.rows + 1)
+  && (layout.width + room.width) * Math.max(layout.height + room.height, room.minHeight) <= room.pixels;
 // The most of `count` cells of w×h one sheet holds at `scale` in some number of columns (fewer cells always fit).
-function cellsThatFit(count, w, h, scale) {
+function cellsThatFit(count, w, h, scale, room = NO_ROOM) {
   const gap = Math.max(2, scale), fits = n => {
     for (let c = 1; c <= n; c++) {
       const rows = Math.ceil(n / c);
-      if (withinSheet({ columns: c, rows, width: c * w * scale + (c + 1) * gap, height: rows * h * scale + (rows + 1) * gap })) return true;
+      if (withinSheet({ columns: c, rows, width: c * w * scale + (c + 1) * gap, height: rows * h * scale + (rows + 1) * gap }, room)) return true;
     }
     return false;
   };
@@ -1397,7 +1401,7 @@ function cellsThatFit(count, w, h, scale) {
   while (low < high) { const mid = Math.ceil((low + high) / 2); if (fits(mid)) low = mid; else high = mid - 1; }
   return low;
 }
-function drawSheet(sources, width, region, { scale, background = null, columns, where = 'inspect' } = {}) {
+function drawSheet(sources, width, region, { scale, background = null, columns, where = 'inspect', room = NO_ROOM } = {}) {
   const measure = (c, s) => {
     const rows = Math.ceil(sources.length / c), gap = Math.max(2, s);
     return { columns: c, rows, scale: s, gap, width: c * region.w * s + (c + 1) * gap, height: rows * region.h * s + (rows + 1) * gap };
@@ -1412,10 +1416,10 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
   }
   // Otherwise the squarest layout within the limit, if any is.
   if (!layout) for (const c of choices) {
-    const m = measure(c, scale ?? 1), better = !layout || (withinSheet(m) === withinSheet(layout) ? Math.max(m.width, m.height) < Math.max(layout.width, layout.height) : withinSheet(m));
+    const m = measure(c, scale ?? 1), better = !layout || (withinSheet(m, room) === withinSheet(layout, room) ? Math.max(m.width, m.height) < Math.max(layout.width, layout.height) : withinSheet(m, room));
     if (better) layout = m;
   }
-  if (!withinSheet(layout)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters, 16,777,216 pixels in all); select fewer frames, a smaller region or a lower scale`);
+  if (!withinSheet(layout, room)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters, 16,777,216 pixels in all); select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(layout.width * layout.height * 4), square = Math.max(2, Math.ceil(8 / layout.scale)), composed = new Map();
   // The gutter colour is written once and doubled with copyWithin; each cell pixel's source colour is read into one
   // reused buffer for blend, rather than a new view of the frame a pixel.
@@ -1524,13 +1528,23 @@ export function partColors(project, indices, region = { x: 0, y: 0, w: project.w
 }
 // A legend to the right of a contact sheet: a swatch and the part's name in the built-in font, in columns of at most
 // as many rows as the sheet is tall (twelve at least). The cells keep their places.
+function legendColumns(names, t, perColumn) {
+  const texts = names.map(name => layoutText(name)), columns = [];
+  for (let i = 0; i < names.length; i += perColumn) columns.push(Math.max(...texts.slice(i, i + perColumn).map(text => text.width)) * t + 10 * t + 3 * t);
+  return { texts, columns, width: 3 * t + columns.reduce((sum, w) => sum + w, 0), height: perColumn * (FONT_HEIGHT + 4) * t + 6 * t };
+}
+// The most a legend of any of these parts adds at scale 1, reserved when the cells are fitted: every name, in columns of
+// twelve (a real legend has no more names, and no fewer rows a column).
+function legendRoom(names) {
+  const { width, height } = legendColumns(names, 1, Math.max(1, Math.min(names.length, 12)));
+  return { width, minHeight: height };
+}
 function drawPartLegend(sheet, legend) {
   const t = Math.max(1, Math.min(2, Math.floor(sheet.scale / 2))), pad = 3 * t, row = (FONT_HEIGHT + 4) * t, swatch = 7 * t;
   const perColumn = Math.max(1, Math.min(legend.length, Math.max(12, Math.floor((sheet.height - 2 * pad) / row))));
-  const texts = legend.map(entry => layoutText(entry.name)), columns = [];
-  for (let i = 0; i < legend.length; i += perColumn) columns.push(Math.max(...texts.slice(i, i + perColumn).map(text => text.width)) * t + swatch + 3 * t + pad);
-  const width = sheet.width + pad + columns.reduce((sum, w) => sum + w, 0), height = Math.max(sheet.height, perColumn * row + 2 * pad);
-  if (width > SHEET_SIDE * 2 || height > SHEET_SIDE * 2) fail('inspect.view', `the parts legend would make the sheet ${width}×${height} pixels; select fewer frames or a smaller region`);
+  const { texts, columns, width: added, height: tall } = legendColumns(legend.map(entry => entry.name), t, perColumn);
+  const width = sheet.width + added, height = Math.max(sheet.height, tall);
+  if (width > SHEET_SIDE * 2 || height > SHEET_SIDE * 2 || width * height > PNG_PIXELS) fail('inspect.view', `the parts legend would make the sheet ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(width * height * 4);
   data.set(gutterColor, 0);
   for (let filled = 4; filled < data.length; filled *= 2) data.copyWithin(filled, 0, Math.min(filled, data.length - filled));
@@ -1643,11 +1657,14 @@ export function paletteUse(project) {
 // The same view of several recipes as one image, each sheet under the one before and left-aligned, with its name
 // written above it: a hero in three team colours, or a sprite before and after, compared with one look. `views` are
 // inspectProject results with a `name` each. Returns the first view with the taller sheet and `stack`: where each
-// recipe's sheet starts, under its label.
+// recipe's sheet starts, under its label. Each view fits its share of the one PNG when inspected with `sheets`, the
+// number stacked; the stacked image is still checked, since views of other sizes or scales may pass it.
 export function stackViews(views) {
   const sheets = views.map(view => view.sheet), t = Math.max(1, Math.min(2, Math.floor(sheets[0].scale / 2))), pad = 3 * t, band = (FONT_HEIGHT + 4) * t;
   const labels = views.map(view => layoutText(String(view.name).replace(/[^\x20-\x7e]/g, '?'))), width = Math.max(...sheets.map(sheet => sheet.width), ...labels.map(text => text.width * t + 2 * pad));
-  const height = sheets.reduce((sum, sheet) => sum + band + sheet.height, 0), data = new Uint8ClampedArray(width * height * 4), stack = [];
+  const height = sheets.reduce((sum, sheet) => sum + band + sheet.height, 0), stack = [];
+  if (width * height > PNG_PIXELS) fail('beside', `the ${views.length} sheets stacked would be ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; compare fewer recipes, or show fewer cells (maxCells), a smaller region or a lower scale`);
+  const data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < data.length; i += 4) data.set(gutterColor, i);
   let y = 0;
   sheets.forEach((sheet, index) => {
@@ -1682,7 +1699,7 @@ function laidOver(bottom, top) {
 // cells as frames. under: { width, height, data } (RGBA), a picture from elsewhere (a ground tile of another recipe)
 // repeated from the top left under every cell, so a sprite is seen on what it will lie on.
 export function inspectProject(project, options = {}) {
-  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under']);
+  object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under', 'sheets']);
   const { width, height } = project;
   if (options.stack !== undefined) {
     if (options.frames !== undefined || options.animation !== undefined) fail('inspect.stack', 'stack names the frames of each cell itself; omit frames and animation');
@@ -1772,17 +1789,33 @@ export function inspectProject(project, options = {}) {
     methods.push(step === 1 ? `every position from ${offset}` : `every ${step}${suffix} position from ${offset}`);
   }
   const spread = (chosen, count) => Array.from({ length: count }, (_, i) => chosen[count === 1 ? 0 : Math.floor(i * (chosen.length - 1) / (count - 1))]);
+  // Cells by time read as playback only while every one is shown: fewer cells than `every` makes is refused with the
+  // `every` that fits, as more than 256 is.
+  const thinEvery = (count, why) => {
+    const { duration } = project.animations[options.animation];
+    fail('inspect.every', `${duration} ms at one cell per ${every} ms is ${positions.length} cells, and ${why} ${count}; choose every ${Math.ceil(duration / count)} or more`);
+  };
+  // `sheets`: how many sheets beside draws in one image (1 to 9); each is fitted to its share of the PNG.
+  const sheets = options.sheets === undefined ? 1 : integer(options.sheets, 'inspect.sheets', 1, 9);
+  const box = mode === 'tile' ? { w: width * 3, h: height * 3 } : region;
   if (options.maxCells !== undefined) {
     const requested = integer(options.maxCells, 'inspect.maxCells', 1, 256);
-    const side = mode === 'tile' ? Math.max(width, height) * 3 : Math.max(region.w, region.h);
-    const count = Math.min(positions.length, requested, Math.max(1, Math.floor(4094 / (side + 2)) ** 2));
+    const count = Math.min(positions.length, requested, Math.max(1, Math.floor(4094 / (box.w + 2)) * Math.floor(4094 / (box.h + 2))));
+    if (count < positions.length && every !== undefined) thinEvery(count, count === requested ? 'maxCells allows' : `one 4096-pixel sheet of ${box.w}×${box.h} cells holds`);
     if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced, including endpoints'); }
   }
   // Big frames (an animation's are up to 1024 a side) or a long play order may not fit one sheet at scale 1; with no
   // scale asked for, the sheet shows as many evenly spaced cells as it holds rather than refusing. A scale asked for
-  // that does not fit is still refused, with what to lower.
+  // that does not fit is still refused, with what to lower. The room is what the image adds round the cells: the parts
+  // legend, and a label band and a share of the PNG for each sheet stacked beside others.
+  let room = NO_ROOM;
+  if (options.scale === undefined && (mode === 'parts' || sheets > 1)) {
+    const legend = mode === 'parts' ? legendRoom(project.ownerNames) : { width: 0, minHeight: 0 };
+    room = { pixels: Math.floor(PNG_PIXELS / sheets), width: legend.width, height: sheets > 1 ? FONT_HEIGHT + 4 : 0, minHeight: legend.minHeight };
+  }
   if (options.scale === undefined) {
-    const box = mode === 'tile' ? { w: width * 3, h: height * 3 } : region, count = Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1));
+    const count = Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1, room));
+    if (count < positions.length && every !== undefined) thinEvery(count, `one 4096-pixel sheet${sheets > 1 ? ` (one of ${sheets} in the image)` : ''} of ${box.w}×${box.h} cells holds`);
     if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced to fit the 4096-pixel sheet, including endpoints'); }
   }
   cells = positions.map(i => cells[i]);
@@ -1792,13 +1825,13 @@ export function inspectProject(project, options = {}) {
   if (mode === 'tile') {
     const repeats = new Map(unique.map(i => [i, tileRepeat(frames[i].data, width, height)]));
     const tiled = { x: 0, y: 0, w: width * 3, h: height * 3 };
-    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale, background }), mode };
+    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale, background, room }), mode };
     view.tiles = unique.map(i => ({ frame: frames[i].name, ...tileReport(frames[i].data, width, height) }));
     if (native) view.nativeSheet = drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale: 1, background });
   } else {
     const parts = mode === 'parts' ? partColors(project, unique, region) : null;
     const sources = cells.map((i, n) => mode === 'onion' ? onionPixels(project, project.animations[options.animation], positions[n]) : parts ? parts.pixels.get(i) : reviewPixels(frames[i].data, mode));
-    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(sources, width, region, { scale, background }) };
+    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(sources, width, region, { scale, background, room }) };
     if (guides) {
       // Over every cell of the enlarged sheet; the native sheet keeps its exact pixels.
       const { sheet } = view, w = region.w * sheet.scale, h = region.h * sheet.scale;

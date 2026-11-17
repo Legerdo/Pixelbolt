@@ -331,12 +331,32 @@ function drawArcs(put, [ox, oy], { entries, tracks, landings, key, magnification
   return skipped;
 }
 
+const STRIP_PIXELS = 4194304;
+// The timing cells: at most 32 evenly spaced samples, endpoints included, in 4 columns; for frames too big for that
+// within the image, as many samples as fit in the columns that hold the most (the squarer grid on a tie). A frame up to
+// 1024 a side and 262,144 pixels always fits once.
+function timingGrid(entries, w, h) {
+  const area = (n, c) => (c * (w + 4) + 4) * (Math.ceil(n / c) * (h + 4) + 4);
+  for (let count = Math.min(32, entries.length); count > 1; count--) {
+    if (area(count, Math.min(4, count)) <= STRIP_PIXELS) return { count, columns: Math.min(4, count) };
+    let best = null;
+    for (let c = 1; c <= count; c++) {
+      if (area(count, c) > STRIP_PIXELS) continue;
+      const side = Math.max(c * (w + 4), Math.ceil(count / c) * (h + 4));
+      if (!best || side < best.side) best = { count, columns: c, side };
+    }
+    if (best) return { count, columns: best.columns };
+  }
+  return { count: 1, columns: 1 };
+}
+
 function motionStrip(project, entries, motion, requestedScale, background, metadata) {
-  // The image is bounded independently of the report: at most 32 samples, explicit positions and omissions.
-  const count = Math.min(32, entries.length), positions = Array.from({ length: count }, (_, i) => count === 1 ? 0 : Math.round(i * (entries.length - 1) / (count - 1)));
-  const selected = positions.map(i => entries[i]), { width: w, height: h } = project;
+  // The image is bounded independently of the report: the samples that fit it, with their positions, and what was left out.
+  const { width: w, height: h } = project, { count, columns } = timingGrid(entries, w, h);
+  const positions = Array.from({ length: count }, (_, i) => count === 1 ? 0 : Math.round(i * (entries.length - 1) / (count - 1)));
+  const selected = positions.map(i => entries[i]);
   const travel = selected.map(e => Math.round((motion.speed ?? 0) * e.start / 1000)), left = Math.min(...travel), span = Math.max(...travel) - left;
-  const columns = Math.min(4, count), lanes = Math.min(8, count), timingWidth = columns * (w + 4) + 4, timingHeight = Math.ceil(count / columns) * (h + 4) + 4;
+  const lanes = Math.min(8, count), timingWidth = columns * (w + 4) + 4, timingHeight = Math.ceil(count / columns) * (h + 4) + 4;
   // The arcs go under the timing cells, magnified to about their width, and trace every displayed frame.
   const tracks = metadata ? arcTracks(entries, metadata) : [], magnification = Math.max(3, Math.min(8, Math.floor((timingWidth - 4) / (w + 2))));
   const partOf = (marker, position) => entries[position].markers.find(m => m.name === marker)?.part;
@@ -350,11 +370,11 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
     return { panel, width: panel + Math.max(timingWidth, arcs ? Math.max(arcsWidth, key.width) + 4 : 0), height: Math.max(timingHeight + (arcs ? arcsHeight : 0), trajectory ? lanes * (h + 4) + 4 : 0) };
   };
   let layout = measure();
-  if (layout.width * layout.height > 4194304 && trajectory) { trajectory = false; layout = measure(); }
-  if (layout.width * layout.height > 4194304 && arcs) { arcs = false; layout = measure(); }
+  if (layout.width * layout.height > STRIP_PIXELS && trajectory) { trajectory = false; layout = measure(); }
+  if (layout.width * layout.height > STRIP_PIXELS && arcs) { arcs = false; layout = measure(); }
   const { panel: panelWidth, width, height } = layout;
-  const actualScale = Math.max(1, Math.min(requestedScale, Math.floor(Math.sqrt(4194304 / (width * height)))));
-  if (width * height > 4194304) fail('image', 'motion strip exceeds 4,194,304 pixels');
+  const actualScale = Math.max(1, Math.min(requestedScale, Math.floor(Math.sqrt(STRIP_PIXELS / (width * height)))));
+  if (width * height > STRIP_PIXELS) fail('image', 'motion strip exceeds 4,194,304 pixels');
   const data = new Uint8ClampedArray(width * height * 4), bg = parseColor(background ?? '#18212b', project.palette, 'motion.background');
   for (let i = 0; i < data.length; i += 4) data.set(bg, i);
   const pixel = (x, y, color) => { if (x >= 0 && y >= 0 && x < width && y < height) data.set(color, (y * width + x) * 4); };
@@ -386,7 +406,10 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
       tracks: tracks.map(t => ({ kind: t.kind, part: t.part, side: t.side, color: hex(t.color), ...(t.side === 'far' && { dashed: true }) })),
       landings: landings.map(({ part, ...l }) => ({ ...l, ring: hex(LANDS[l.side]) })), ...(skipped && { skipped }) };
   } else arcsReport = { shown: false, reason: tracks.length ? 'The arcs would take the image past 4,194,304 pixels.' : 'Arcs need pose metadata with a rig (legs, arms, head) or markers.' };
-  return { cells, omitted: entries.length - count, trajectory: { shown: trajectory, ...(trajectory ? { origin: -left, width: panelWidth, lanes } : { reason: motion.speed === null ? 'Specify speed to draw the trajectory.' : 'Travel exceeds the 4096-pixel width or 4,194,304-pixel image limit.' }) },
+  // Sampling is said as a contact sheet says it: only when cells were left out.
+  const sampling = count < entries.length ? { total: entries.length, shown: count, omitted: entries.length - count,
+    method: `evenly spaced, including endpoints: ${count < Math.min(32, entries.length) ? `as many ${w}×${h} frames as fit the 4,194,304-pixel image` : 'at most 32'}` } : undefined;
+  return { cells, ...(sampling && { sampling }), trajectory: { shown: trajectory, ...(trajectory ? { origin: -left, width: panelWidth, lanes } : { reason: motion.speed === null ? 'Specify speed to draw the trajectory.' : 'Travel exceeds the 4096-pixel width or 4,194,304-pixel image limit.' }) },
     arcs: arcsReport,
     nativeSheet: { width, height, scale: 1, data },
     sheet: { width: width * actualScale, height: height * actualScale, scale: actualScale, data: enlarge(data, width, height, actualScale) } };

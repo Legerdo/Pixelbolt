@@ -385,7 +385,9 @@ export function createToolRunner({ directory, root, version }) {
           view = inspectMotion(project, { ...motionOptions, metadata, ...(speed !== undefined && { speed }), ...(ground !== undefined && { ground }) });
         } else {
           if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined) throw new PixelError('arguments', 'speed, ground and metadata require view: motion');
-          view = inspectProject(project, inspection);
+          // beside: each sheet is fitted to its share of the one image.
+          const share = Array.isArray(beside) && beside.length ? { sheets: Math.min(9, beside.length + 1) } : {};
+          view = inspectProject(project, { ...inspection, ...share });
           if (view.diagnostics) view.diagnostics = briefDiagnostics(view.diagnostics);
           // beside: the same view of more revisions under this one, in the one image.
           if (beside !== undefined) {
@@ -393,7 +395,7 @@ export function createToolRunner({ directory, root, version }) {
             const others = [];
             for (const id of beside) {
               const other = renderProject(await read(id), layers === undefined ? {} : { layers });
-              try { others.push({ ...inspectProject(other, inspection), name: `${other.name} ${id}` }); } catch (error) { throw new PixelError(error.path ?? 'beside', `revision ${id} (${other.name}): ${error.message}`); }
+              try { others.push({ ...inspectProject(other, { ...inspection, ...share }), name: `${other.name} ${id}` }); } catch (error) { throw new PixelError(error.path ?? 'beside', `revision ${id} (${other.name}): ${error.message}`); }
             }
             view = stackViews([{ ...view, name: project.name }, ...others]);
           }
