@@ -19,13 +19,13 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 1024,
-      "description": "1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180."
+      "description": "1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180; a source with more compiles with frames (--frames), which keeps that many evenly spaced."
     },
     "height": {
       "type": "integer",
       "minimum": 1,
       "maximum": 1024,
-      "description": "1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180."
+      "description": "1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180; a source with more compiles with frames (--frames), which keeps that many evenly spaced."
     },
     "palette": {
       "type": "object",

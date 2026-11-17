@@ -68,6 +68,7 @@
     "assets": {
       "type": "object",
       "maxProperties": 64,
+      "description": "Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.",
       "additionalProperties": {
         "oneOf": [
           {

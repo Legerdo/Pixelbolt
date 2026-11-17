@@ -212,7 +212,7 @@ const poses = {
 const recipeSchema = { ...schema }; delete recipeSchema.$schema; delete recipeSchema.$defs; delete recipeSchema.title;
 // Scene assets keep to an animation frame's side and area: a larger still renders on its own.
 // An effect's canvas is an animation frame (fx.js): a full screen of 320×180 or 640×360 is one effect.
-const fxSide = int(1, 1024, '1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180.');
+const fxSide = int(1, 1024, '1–1024 pixels, and at most 262,144 pixels a frame (320×180, 640×360 and 512×512 fit). The frames the effects make hold at most 4,194,304 pixels in all: 72 frames of 320×180; a source with more compiles with frames (--frames), which keeps that many evenly spaced.');
 const assetSide = int(1, 1024, 'A scene asset is at most 1024 pixels a side and 262,144 pixels in all (320×180, 640×360 and 512×512 fit), a still one too.');
 const sceneRecipe = { ...recipeSchema, properties: { ...recipeSchema.properties, width: assetSide, height: assetSide } }; delete sceneRecipe.if; delete sceneRecipe.then;
 const themePalette = description => ({ oneOf: [{ type: 'string', description: 'Palette file, resolved by the CLI relative to the scene or inside the MCP root.' }, { type: 'object', additionalProperties: { type: 'string', pattern: hex } }], description });
@@ -223,7 +223,7 @@ const scene = {
   ...object({ format: { const: 'pixelforge-scene' }, version: { const: 1 }, name: id, width: { ...int(1, 1024), description: 'The view, up to 1024 a side and 262,144 pixels in all.' }, height: int(1, 1024), background: color, duration: int(1, 60000),
     palette: themePalette('A theme for every asset: colours for palette keys the recipes share (keys a recipe lacks are ignored), or a palette file resolved by the CLI and MCP.'),
     cues: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: int(0, 60000), description: 'Named times in milliseconds; sequence and trajectory times may say "name", "name+90" or "name-20".' },
-    assets: { type: 'object', maxProperties: 64, additionalProperties: { oneOf: [assetRef, object({ recipe: assetRef, normal: assetRef, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
+    assets: { type: 'object', maxProperties: 64, description: 'Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.', additionalProperties: { oneOf: [assetRef, object({ recipe: assetRef, normal: assetRef, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
     instances: array(object({ name: { type: 'string' }, asset: { type: 'string' }, at: point,
       anchor: { oneOf: [point, { const: 'frame' }], description: '[x, y] in asset pixels placed at `at` (default [0, 0]), or "frame" to place every drawn frame by its own atlas anchor, so animated placements follow per-frame anchors. Tilemaps take [x, y] only.' }, scale: int(1, 16), frame: id, animation: id,
       hidden: { type: 'boolean', description: 'Start hidden; a later frame or animation cue shows the placement.' },
