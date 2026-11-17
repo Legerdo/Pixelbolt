@@ -52,7 +52,8 @@ const coin = { version: 1, name: 'coin', width: 24, height: 24, palette: { edge:
 
 // Seeded particle effects: every frame compiles to stamps, grids and lines on these symbols. The compiled recipe,
 // examples/effects.json, is in the frozen pre-M0 baseline (test/fixtures/figures-baseline.json), so these stay exactly as
-// they are: the one-shots among them still draw a few pixels on their last frame.
+// they are: the one-shots among them still draw a few pixels on their last frame, which `residue: true` accepts. Only
+// the shards are meant to (they lie where they land); the sparks, dust and leaves would get another frame if they could.
 const emit = (at, extra) => ({ at, ...extra });
 const effects = { format: 'pixelforge-fx', version: 1, name: 'effects', width: 48, height: 40,
   palette: { W: '#fff4d6', y: '#ffd166', o: '#f4843c', r: '#c2413a', s: '#d8c7a8', S: '#a38d74', u: '#6f5d52', l: '#b8dc7a', g: '#79b15a', G: '#3f7a4a', q: '#a9a6c4', Q: '#6b6888' },
@@ -61,18 +62,18 @@ const effects = { format: 'pixelforge-fx', version: 1, name: 'effects', width: 4
     'leaf-a': ['lg.', '.gG'], 'leaf-b': ['.l', 'gG'], 'leaf-c': ['gl', 'G.'], 'chip-a': ['qQ', 'Q.'], 'chip-b': ['q', 'Q'], 'chip-c': ['.q', 'qQ'], 'chip-d': ['q'] },
   anchor: [24, 36],
   effects: {
-    sparks: { frames: 9, duration: 55, seed: 11, emitters: [
+    sparks: { frames: 9, duration: 55, seed: 11, residue: true, emitters: [
       emit([24, 30], { name: 'flash', burst: 1, life: 2, shapes: ['flash-0', 'flash-1'], play: 'once' }),
       emit([24, 30], { name: 'burst', area: [3, 2], burst: 12, angle: [205, 335], speed: [1.8, 3.4], gravity: [0, 0.32], drag: 0.04, life: [6, 9], floor: 36, bounce: 0.35, shapes: ['hot', 'warm', 'cool', 'ash'], trail: { color: 'r', length: 1 } })] },
     embers: { frames: 16, duration: 70, loop: true, seed: 4, emitters: [
       emit([24, 35], { area: [12, 2], rate: 0.5, angle: [255, 285], speed: [0.6, 1.1], life: [12, 18], sway: { amplitude: [1, 0], period: 7 }, shapes: ['ember-big', 'ember', 'ember-dim', 'ember-end'], dissolve: 0.25 })] },
     // Round puffs, lit from the upper left, that swell and then shrink away rather than dithering out.
-    dust: { frames: 11, duration: 70, seed: 6, emitters: [[22, [178, 196], 'left'], [26, [344, 362], 'right']].map(([x, angle, name]) =>
+    dust: { frames: 11, duration: 70, seed: 6, residue: true, emitters: [[22, [178, 196], 'left'], [26, [344, 362], 'right']].map(([x, angle, name]) =>
       emit([x, 35], { name, area: [4, 1], burst: 6, angle, speed: [0.8, 3.2], drag: 0.13, gravity: [0, -0.04], life: [9, 12], shapes: ['puff', 'puff-big', 'puff-big', 'puff', 'puff-small', 'puff-end'] })) },
-    leaves: { frames: 12, duration: 70, seed: 9, emitters: [
+    leaves: { frames: 12, duration: 70, seed: 9, residue: true, emitters: [
       emit([24, 18], { area: [10, 4], burst: 8, angle: [200, 340], speed: [1, 2.2], gravity: [0, 0.18], drag: 0.14, life: [10, 12], sway: { amplitude: [1.4, 0], period: 6 },
         shapes: [['leaf-a', 'leaf-b'], ['leaf-b', 'leaf-c'], ['leaf-c', 'leaf-a']], play: 'loop', remaps: [{}, { g: 'l' }, { G: 'g', g: 'l' }], dissolve: 0.25 })] },
-    shatter: { frames: 12, duration: 60, seed: 3, emitters: [
+    shatter: { frames: 12, duration: 60, seed: 3, residue: true, emitters: [
       emit([24, 26], { area: [6, 4], burst: 9, angle: [205, 335], speed: [2, 3.2], gravity: [0, 0.45], drag: 0.08, life: 12, floor: 35, bounce: 0.3, shapes: [['chip-a'], ['chip-b'], ['chip-c'], ['chip-d']] })] }
   } };
 
@@ -124,7 +125,8 @@ const swingTrail = { format: 'pixelforge-fx', version: 1, name: 'swing-trail', w
   palette: { B: '#2f4fb3', c: '#4fa3f7', p: '#aee6ff', W: '#ffffff', Y: '#ffe066', O: '#ff9a3c' },
   symbols: { sword: { recipe: 'swing.poses.json', animation: 'swing' }, spark: ['W'], 'spark-y': ['Y'], 'spark-o': ['O'] },
   effects: {
-    swing: { frames: 7, duration: [180, 50, 50, 90, 160, 70, 70], seed: 2,
+    // The smear ends with the swing it follows, frame for frame, so its last frame is meant to be drawn (residue).
+    swing: { frames: 7, duration: [180, 50, 50, 90, 160, 70, 70], seed: 2, residue: true,
       looks: { steel: { colors: ['B', 'c', 'p', 'W'], thresholds: [0.15, 0.4, 0.65, 0.88] }, flash: { colors: ['O', 'Y', 'W'], thresholds: [0.2, 0.5, 0.8] } },
       cleanup: { corners: true, strays: true },
       layers: [

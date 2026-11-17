@@ -3006,6 +3006,10 @@
             "uniqueItems": true,
             "description": "Canvas sides the effect is meant to touch: top for a bolt from the sky, bottom for a figure standing on the bottom row. Drawing on any other side's outermost row or column is warned about, since whatever reaches past it is cut off. Turned copies turn the sides with them."
           },
+          "residue": {
+            "type": "boolean",
+            "description": "True when a one-shot is meant to end with its last frame still drawn (debris at rest, a mark on the ground, a smear that ends with the swing it follows). Without it the compile warns when the last frame still draws anything besides the sprites the effect draws, since that is cut off where a game ends the effect. Not for a loop."
+          },
           "light": {
             "type": "boolean",
             "description": "Write the light track into the frames as a point named light, where the effect's bright pixels are; frames with nothing bright have none. A scene light that follows { instance, point: \"light\" } then moves with the effect's light and goes dark when it does; atlases export the point for game code."

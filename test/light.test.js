@@ -177,8 +177,9 @@ const spell = (shine = {}, effect = {}) => ({
   format: 'pixelforge-fx', version: 1, name: 'lit', width: 48, height: 32,
   palette: { W: '#ffffff', s: '#667788', p: '#445566', g: '#8899aa', q: '#123456', D: '#00000080', u: '#00000040', H: '#ffffff40', a: '#ffaa0020', b: '#ffaa0050', c: '#ff550020', d: '#ff550050' },
   symbols: { lamp: Array(5).fill('WWWWW'), block: Array(16).fill('ssssss'), plate: Array(3).fill('pppppppppppp'), puff: ['gg', 'gg'], chip: Array(5).fill('ggggg') },
+  // A lamp that stays lit: as a one-shot, the scene's last frame is meant to be drawn (residue).
   effects: { glow: {
-    frames: 4, edges: ['left', 'right', 'top', 'bottom'],
+    frames: 4, edges: ['left', 'right', 'top', 'bottom'], residue: !effect.loop,
     emitters: [
       { name: 'lamp', at: [12, 14], sprite: { symbol: 'lamp', draw: true } },
       { name: 'block', at: [30, 8], sprite: { symbol: 'block', draw: true } },
