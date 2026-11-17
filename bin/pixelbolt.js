@@ -411,6 +411,9 @@ function rowsJSON(value, indent = '', key) {
   return [open, lines.map(line => inner + line).join(',\n'), indent + close].join('\n');
 }
 const print = value => console.log(rowsJSON(value));
+// What a contact sheet that was evenly sampled shows, for a reply that names the sheet (a GIF's --sheet, render's
+// look.png): {[key]: "12 of the 64 frames, ..."}, or nothing when it shows every frame.
+const sheetShows = (key, view) => view?.sampling ? { [key]: `${view.sampling.shown} of the ${view.sampling.total} frames, ${view.sampling.method}` } : {};
 // A path as a reply names it: from the working directory when it is inside it, as the caller wrote it, with forward
 // slashes; anywhere else, in full.
 const shown = file => { const from = path.relative(process.cwd(), file); return from && !from.startsWith('..') && !path.isAbsolute(from) ? from.split(path.sep).join('/') : file; };
@@ -662,20 +665,20 @@ try {
       const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || options.palette) && { owners: true }) });
       const comparison = options.reference ? compareProjects(renderProject((await readResolved(options.reference, '--reference')).document, layerOptions), project) : undefined;
       const { image: referenceImage, ...comparisonReport } = comparison ?? {};
+      const besideFiles = options.beside === undefined ? [] : options.beside.split(',').filter(Boolean), share = besideFiles.length ? { sheets: Math.min(9, besideFiles.length + 1) } : {};
       const view = options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
-        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) });
+        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...share, ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) });
       // --beside: the same view of more recipes under this one, in one image.
-      let drawn = view, besideFiles = [];
+      let drawn = view;
       if (options.beside !== undefined) {
         if (options.native || options.grid) throw new Error('--beside draws several recipes in one sheet; --native and --grid read one recipe at a time');
-        besideFiles = options.beside.split(',').filter(Boolean);
         if (!besideFiles.length || besideFiles.length > 8) throw new Error('--beside takes one to eight recipe files, separated by commas');
         const others = [];
         for (const file of besideFiles) {
           const { document } = await readResolved(file, '--beside'), other = renderProject(Object.hasOwn(COMPILERS, document?.format ?? '') ? COMPILERS[document.format](document).recipe : document, layerOptions);
           let view;
-          try { view = inspectProject(other, inspectOptions(options)); } catch (error) { throw Object.assign(new Error(`--beside ${file}: ${error.message}`), { path: error.path }); }
+          try { view = inspectProject(other, { ...inspectOptions(options), ...share }); } catch (error) { throw Object.assign(new Error(`--beside ${file}: ${error.message}`), { path: error.path }); }
           others.push({ ...view, name: path.basename(file) });
         }
         drawn = stackViews([{ ...view, name: positional[0] === '-' ? project.name : path.basename(positional[0]) }, ...others]);
@@ -728,7 +731,7 @@ try {
       const input = await readResolved(positional[0]), { data, sheet: view, ...gif } = sceneGIF(prepareScene(input.document), { ...(options.fps !== undefined && { fps: options.fps }), ...(options.scale !== undefined && { scale: Number(options.scale) }), ...(options.background !== undefined && { background: options.background }), sheet: options.sheet !== undefined });
       // --sheet: the frames as the GIF holds them, as a recipe's gif --sheet draws them; a long scene's evenly sampled.
       const written = await writeOutputs({ file: [options.out, data, '--out'], ...(view && { sheet: [options.sheet, encodePNG(view.sheet.data, view.sheet.width, view.sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
-      print({ ok: true, name: input.document.name, width: gif.width, height: gif.height, frames: gif.frames, fps: gif.fps.label, duration: gif.duration, colors: gif.colors, bytes: data.length, ...written, ...(view?.sampling && { sheetShows: `${view.sampling.shown} of the ${view.sampling.total} frames, ${view.sampling.method}` }), ...(gif.notes.length && { notes: gif.notes }), ...referenced(input) });
+      print({ ok: true, name: input.document.name, width: gif.width, height: gif.height, frames: gif.frames, fps: gif.fps.label, duration: gif.duration, colors: gif.colors, bytes: data.length, ...written, ...sheetShows('sheetShows', view), ...(gif.notes.length && { notes: gif.notes }), ...referenced(input) });
     } else if (command === 'gif') {
       if (options.fps !== undefined) throw new Error('--fps goes with a scene\'s GIF; a recipe\'s frames carry their own durations');
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
@@ -756,7 +759,7 @@ try {
       const written = await writeOutputs({ file: [options.out, data, '--out'], ...(sheet && { sheet: [options.sheet, encodePNG(sheet.data, sheet.width, sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
       // The cut is already said once: the clipping it causes is not a second problem.
       const margins = resized && resizeMargins(resized, [project.width, project.height]);
-      print({ ok: true, name: project.name, ...gif, ...(names.length > 1 && { animations: names }), ...(margins && { margins }), ...(kept && { kept }), ...written, ...(view?.sampling && { sheetShows: `${view.sampling.shown} of the ${view.sampling.total} frames, ${view.sampling.method}` }), warnings: [...warnings, ...project.warnings.filter(text => !(resized?.cut && text.startsWith('Some drawing falls outside the canvas')))], ...(options.preset === undefined && referenced(input)) });
+      print({ ok: true, name: project.name, ...gif, ...(names.length > 1 && { animations: names }), ...(margins && { margins }), ...(kept && { kept }), ...written, ...sheetShows('sheetShows', view), warnings: [...warnings, ...project.warnings.filter(text => !(resized?.cut && text.startsWith('Some drawing falls outside the canvas')))], ...(options.preset === undefined && referenced(input)) });
     } else if (command === 'gif-frames') {
       if (!positional[0] || positional[0] === '-') throw new Error('gif-frames requires a folder of numbered PNG frames');
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif-frames requires --out <new.gif>');
@@ -808,7 +811,7 @@ try {
         const expectFile = options.expect !== undefined && !String(options.expect).trimStart().startsWith('{') ? filesRead(options.expect) : [];
         const files = await writeBundle(bundle, options.out, { force: options.force, inputs: [...inputsOf(input), ...expectFile, ...(lit ? inputsOf(lit) : [])] });
         const notes = (gifs ?? []).flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16);
-        print({ ok: true, ...summary(bundle.project, input.document), ...bundleFiles(path.resolve(options.out), files, options), ...(gifs?.length && { gifs: { scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(notes.length && { notes }) } }), ...(look && { look: shown(path.join(path.resolve(options.out), 'look.png')), ...(look.sampling && { lookShows: `${look.sampling.shown} of the ${look.sampling.total} frames, ${look.sampling.method}` }) }), check: briefCheck(check), ...referenced(input) });
+        print({ ok: true, ...summary(bundle.project, input.document), ...bundleFiles(path.resolve(options.out), files, options), ...(gifs?.length && { gifs: { scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(notes.length && { notes }) } }), ...(look && { look: shown(path.join(path.resolve(options.out), 'look.png')), ...sheetShows('lookShows', look) }), check: briefCheck(check), ...referenced(input) });
       }
     }
   }

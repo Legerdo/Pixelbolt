@@ -74,7 +74,7 @@ test('motion reports missing information instead of claiming contacts or angles 
   assert.equal(unknown.nativeSheet.scale, 1); assert.equal(unknown.sheet.scale, 4);
   assert.deepEqual(unknown.sheet.data, scalePixels(unknown.nativeSheet.data, unknown.nativeSheet.width, unknown.nativeSheet.height, 4));
   const many = fixture(Array.from({ length: 40 }, () => [4, 12]), { durations: Array(40).fill(60000) }).review({ speed: 4096, scale: 16 });
-  assert.equal(many.cells.length, 32); assert.equal(many.omitted, 8); assert.equal(many.trajectory.shown, false);
+  assert.equal(many.cells.length, 32); assert.deepEqual(many.sampling, { total: 40, shown: 32, omitted: 8, method: 'evenly spaced, including endpoints: at most 32' }); assert.equal(many.trajectory.shown, false);
   assert.ok(many.sheet.width * many.sheet.height <= 4194304);
   for (const options of [{ speed: Infinity }, { speed: '48' }, { ground: 16 }, { scale: 0 }, { animation: 'absent' }, { metadata: {} }, { frames: ['f0'] }]) assert.throws(() => f.review(options), /motion\./);
   f.metadata.poses.f0.contacts = ['absent']; assert.throws(() => f.review(), /invalid contacts/);
