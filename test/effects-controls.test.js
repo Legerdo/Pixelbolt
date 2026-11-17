@@ -9,31 +9,38 @@ import { compileEffects } from '../src/fx.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const load = async file => JSON.parse(await readFile(path.join(root, 'examples', `${file}.fx.json`), 'utf8'));
 const extreme = (key, end) => EFFECT_SLIDERS.find(slider => slider.key === key)[end];
+// A one-shot ends on an empty frame: whatever it still drew there would cut off when it ends. The particle examples are
+// the exception: their compiled recipe is in the frozen pre-M0 baseline, so they stay as they are, a few pixels and all.
+const endsEmpty = (file, effect) => !effect.loop && file !== 'effects';
 
 test('every Effects lab preset compiles on its own and comes back unchanged with the controls at rest', async () => {
   for (const { file } of EFFECT_PRESETS) {
     const source = await load(file), { metadata } = compileEffects(source);
     for (const name of Object.keys(source.effects)) {
       assert.deepEqual(editedEffects(source, name, { strength: 1, speed: 1 }, source.effects[name].seed ?? 1), source, `${file} ${name}`);
+      if (endsEmpty(file, source.effects[name])) assert.equal(metadata.effects[name].residue, 0, `${file} ${name} still draws on its last frame`);
       // Every animation maps back to an effect of the source, turned copies included.
       for (const animation of Object.keys(metadata.effects).filter(a => effectOf(metadata, a) === name)) assert.ok(source.effects[effectOf(metadata, animation)], animation);
     }
   }
 });
 
-test('every Effects lab preset still compiles with the controls at their extremes', async () => {
+test('every Effects lab preset still compiles with the controls at their extremes, and its one-shots still end empty', async () => {
   for (const { file } of EFFECT_PRESETS) {
     const source = await load(file);
     for (const name of Object.keys(source.effects)) for (const end of ['min', 'max']) {
       const values = { strength: extreme('strength', end), speed: extreme('speed', end) };
-      assert.doesNotThrow(() => compileEffects(editedEffects(source, name, values, 7)), `${file} ${name} at ${end}`);
+      const { metadata } = compileEffects(editedEffects(source, name, values, 7));
+      // Another seed and more particles must not leave one on the last frame: an emitter's last spawn and longest life,
+      // and every layer's window, end before it.
+      if (endsEmpty(file, source.effects[name])) assert.equal(metadata.effects[name].residue, 0, `${file} ${name} at ${end} still draws on its last frame`);
     }
   }
 });
 
-test('the finished one-shots end on an empty frame at any seed and at full strength', async () => {
-  // A sparkle that outlives its effect pops off on the last frame. In these three every emitter's last spawn and longest
-  // life end before it, and no layer is still drawn in it, so neither the lab's Seed nor its Strength can leave one.
+test('the finished one-shots end on an empty frame at more seeds, with no warning', async () => {
+  // The two tests above hold every one-shot at its own seed and at one other; these three are swept further, since
+  // their late sparkles are what first showed the flaw.
   const most = extreme('strength', 'max');
   for (const file of ['frost-nova', 'teleport-in', 'coin-sparkle']) {
     const source = await load(file);

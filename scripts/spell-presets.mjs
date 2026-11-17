@@ -74,7 +74,7 @@ export const spellPresets = {
             "speed": [1.5, 2.9],
             "gravity": [0, 0.25],
             "drag": 0.05,
-            "life": [4, 7],
+            "life": [4, 6],
             "shapes": ["spark", "spark-y", "spark-o"],
             "trail": { "color": "o", "length": 1 }
           }
@@ -110,7 +110,7 @@ export const spellPresets = {
     },
     "effects": {
       "fire-explosion": {
-        "frames": 16,
+        "frames": 19,
         "duration": { "from": 45, "to": 100, "ease": "in" },
         "seed": 7,
         "looks": {
@@ -173,7 +173,7 @@ export const spellPresets = {
             "gravity": [0, -0.05],
             "drag": 0.1,
             "life": [10, 14],
-            "blob": { "look": "smoke", "radius": [4, 8, 7, 2.5] }
+            "blob": { "look": "smoke", "radius": [4, 6, 8, 7.5, 7, 4.75, 1.6] }
           },
           {
             "at": [48, 56],
@@ -264,7 +264,7 @@ export const spellPresets = {
     "symbols": { "spark": ["W"], "spark-c": ["c"], "spark-b": ["b"] },
     "effects": {
       "lightning-strike": {
-        "frames": 12,
+        "frames": 13,
         "edges": ["top"],
         "duration": { "from": 40, "to": 90, "ease": "in" },
         "seed": 5,
@@ -283,8 +283,9 @@ export const spellPresets = {
             "width": 3,
             "fill": 1,
             "squash": [1, 0.35],
-            "noise": 0.3,
-            "power": [1, 1, 0.6]
+            "noise": [0.3, 0.3, 0.8],
+            "power": [1, 1, 1, 0.55, 0.2],
+            "ease": "linear"
           },
           {
             "kind": "bolt",
@@ -371,7 +372,7 @@ export const spellPresets = {
     },
     "effects": {
       "healing-circle": {
-        "frames": 18,
+        "frames": 21,
         "duration": 70,
         "seed": 2,
         "looks": {
@@ -384,7 +385,7 @@ export const spellPresets = {
             "kind": "glyph",
             "look": "rune",
             "at": [48, 52],
-            "frames": [0, 18],
+            "frames": [0, 20],
             "radius": 36,
             "inner": 0.64,
             "squash": [1, 0.42],
@@ -392,11 +393,11 @@ export const spellPresets = {
             "double": true,
             "points": 4,
             "step": 1,
-            "spin": [0, 24],
-            "reveal": 0.35,
+            "spin": [0, 26.67],
+            "reveal": 0.315,
             "glow": 0,
-            "power": [1, 1, 0.9, 0],
-            "fill": [0, 0.06, 0.06, 0],
+            "power": [1, 1, 1, 0.957, 0.91, 0.557, 0.14, 0],
+            "fill": [0, 0.029, 0.057, 0.06, 0.06, 0.037, 0.009, 0],
             "ease": "linear"
           },
           {
@@ -433,7 +434,7 @@ export const spellPresets = {
             "area": [56, 7],
             "rate": 0.6,
             "start": 4,
-            "end": 16,
+            "end": 11,
             "angle": [265, 275],
             "speed": [0.8, 1.4],
             "life": [6, 10],
@@ -445,7 +446,7 @@ export const spellPresets = {
             "area": [56, 7],
             "rate": 0.6,
             "start": 4,
-            "end": 16,
+            "end": 11,
             "angle": [265, 275],
             "speed": [0.8, 1.4],
             "life": [6, 10],
@@ -464,7 +465,7 @@ export const spellPresets = {
     "palette": { "o": "#123c40", "d": "#2a7f86", "m": "#4fb3b5", "b": "#9fe3e0", "h": "#e8fffb" },
     "effects": {
       "geyser": {
-        "frames": 16,
+        "frames": 18,
         "duration": 83,
         "seed": 6,
         "looks": {
@@ -537,7 +538,7 @@ export const spellPresets = {
         ]
       },
       "whip": {
-        "frames": 14,
+        "frames": 15,
         "duration": 83,
         "seed": 4,
         "looks": {
@@ -586,7 +587,7 @@ export const spellPresets = {
         ]
       },
       "ring": {
-        "frames": 14,
+        "frames": 15,
         "duration": 83,
         "seed": 2,
         "looks": {
@@ -629,7 +630,7 @@ export const spellPresets = {
         ]
       },
       "dome": {
-        "frames": 16,
+        "frames": 18,
         "duration": 83,
         "seed": 8,
         "looks": {
@@ -696,7 +697,7 @@ export const spellPresets = {
         ]
       },
       "curl": {
-        "frames": 14,
+        "frames": 15,
         "duration": 83,
         "seed": 3,
         "looks": {
@@ -1025,7 +1026,7 @@ export const spellPresets = {
     },
     "effects": {
       "meteor": {
-        "frames": 22,
+        "frames": 23,
         "edges": ["top"],
         "duration": 60,
         "seed": 3,
@@ -1393,7 +1394,7 @@ export const spellPresets = {
               0
             ],
             "start": 10,
-            "end": 16,
+            "end": 14,
             "angle": [
               255,
               285
