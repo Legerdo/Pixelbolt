@@ -309,8 +309,8 @@ test('diagnostics past eight frames still name the empty frames, and add off-pal
   assert.deepEqual(one.frames.map(row => row.frame), ['walk-0', 'walk-1', 'walk-2']);
   assert.deepEqual(one.findings.find(finding => finding.code === 'empty'), { code: 'empty', frame: 'walk-7', note: 'An empty effect/transition frame may be intentional.' });
   // Each colour once, with the frames it is in among the others: not "7 colours in 7 frames", which counted a colour
-  // again in every frame it is in. Strays in eight frames or fewer name them.
-  assert.deepEqual(one.findingTotals, { isolated: '8 pixels in walk-3 … walk-6, walk-8 … walk-11', palette: '#123456 in 6 frames, #abcdef in 1 frame' });
+  // again in every frame it is in. Strays in eight frames or fewer name them, and so do off-palette colours.
+  assert.deepEqual(one.findingTotals, { isolated: '8 pixels in walk-3 … walk-6, walk-8 … walk-11', palette: '#123456 in 6 frames, #abcdef in 1 frame; in walk-3 … walk-6, walk-8, walk-9, walk-11' });
   assert.equal(brief(walk(13, [])).findingTotals.isolated, '10 pixels in 10 frames');
   // Several empty frames are one finding naming them, runs as their ends.
   const four = brief(walk(20, [5, 6, 7, 12]));
@@ -318,7 +318,10 @@ test('diagnostics past eight frames still name the empty frames, and add off-pal
   // Forty colours a frame: eight are named, and the rest counted, with "or more" since a frame lists its first 32.
   const many = { version: 1, name: 'many', width: 40, height: 4, palette: { a: '#203040' },
     frames: Array.from({ length: 10 }, (_, i) => ({ name: `m-${i}`, ops: Array.from({ length: 40 }, (_, x) => ({ op: 'rect', x, y: 0, w: 1, h: 4, color: `#0000${(x + 16).toString(16)}` })) })) };
-  assert.equal(brief(many).findingTotals.palette, '#000010 in 10 frames, #000011 in 10 frames, #000012 in 10 frames, #000013 in 10 frames, #000014 in 10 frames, #000015 in 10 frames, #000016 in 10 frames, #000017 in 10 frames, 24 or more other colours');
+  // The three frames kept list theirs, so the other seven are counted and named.
+  assert.equal(brief(many).findingTotals.palette, '#000010 in 7 frames, #000011 in 7 frames, #000012 in 7 frames, #000013 in 7 frames, #000014 in 7 frames, #000015 in 7 frames, #000016 in 7 frames, #000017 in 7 frames, 24 or more other colours; in m-3 … m-9');
+  // Past eight frames they are counted, not named.
+  assert.match(brief({ ...many, frames: [...many.frames, ...many.frames.map(frame => ({ ...frame, name: `n-${frame.name}` }))] }).findingTotals.palette, /in 17 frames, .* other colours$/);
   // The CLI reply is the same.
   const dir = await folder(t, 'sheets-empty'), cli = cliIn(dir);
   await writeFile(path.join(dir, 'walk.json'), JSON.stringify(walk(12, [7])));
@@ -394,7 +397,7 @@ test('every beside other recipes is refused once, with the every that holds the 
   let advised;
   assert.throws(() => stackViews(nine(10)), error => {
     assert.equal(error.path, 'inspect.every');
-    assert.match(error.message, /^inspect\.every: a\.json: 1280 ms at one cell per 10 ms is 128 cells, and the height left to it in an image of 9 sheets stacked \([^)]*\) holds \d+; choose every (\d+) or more$/);
+    assert.match(error.message, /^inspect\.every: a\.json: 1280 ms at one cell per 10 ms is 128 cells, and the height left to it in an image of 9 sheets stacked \([^)]*\) holds \d+; choose every (\d+)$/);
     advised = Number(/choose every (\d+)/.exec(error.message)[1]);
     return true;
   });
@@ -403,8 +406,65 @@ test('every beside other recipes is refused once, with the every that holds the 
   assert.deepEqual([followed.stack.length, followed.cells.length, followed.sampling.every], [9, Math.ceil(1280 / advised), advised]);
   assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
   encodes(followed.sheet);
-  // An every between the two is refused with the same advice, not one a sheet further down refuses.
-  assert.throws(() => stackViews(nine(100)), { message: new RegExp(`choose every ${advised} or more$`) });
+  // It is the smallest that holds: one less is refused. An every between the two is refused with the same advice, not
+  // one a sheet further down refuses.
+  assert.throws(() => stackViews(nine(advised - 1)), { path: 'inspect.every' });
+  assert.throws(() => stackViews(nine(100)), { message: new RegExp(`choose every ${advised}$`) });
+});
+
+test('every beside other recipes past 256 cells a sheet is refused once, with the every the whole stack holds', async t => {
+  // A 64x64 loop of 48 frames beside a 256x256 one of 64, at one cell per 10 ms: each sheet's 256-cell cap was refused
+  // on its own before the stack was looked at (choose every 15, then at 15 every 20), and then the stack (27).
+  const recipes = [screen(64, 64, 48), screen(256, 256, 64)];
+  const views = every => recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { animation: 'run', every, sheets: 2 }), name: `v${i}` }));
+  const refusal = 'inspect.every: v1: 5120 ms at one cell per 10 ms is 512 cells, and the height left to it in an image of 2 sheets stacked (4,332 pixels tall at most at 3872 wide, 16,777,216 in all) holds 205; choose every 25';
+  assert.throws(() => stackViews(views(10)), { path: 'inspect.every', message: refusal });
+  // The values the old chain named get the same advice, and following it shows every cell of both.
+  for (const every of [15, 20]) assert.throws(() => stackViews(views(every)), { message: /choose every 25$/ });
+  const advised = views(25), followed = stackViews(advised);
+  assert.deepEqual(followed.stack.map(entry => entry.name), ['v0', 'v1']);
+  assert.deepEqual(advised.map(view => view.cells.length), [154, 205]);
+  encodes(followed.sheet);
+  assert.throws(() => stackViews(views(24)), { path: 'inspect.every' });
+  // The CLI's beside: one refusal, and its advice works.
+  const dir = await folder(t, 'sheets-every-cap'), cli = cliIn(dir);
+  await writeFile(path.join(dir, 'a.json'), JSON.stringify(recipes[0]));
+  await writeFile(path.join(dir, 'b.json'), JSON.stringify(recipes[1]));
+  const refused = cli('inspect', 'a.json', '--beside', 'b.json', '--animation', 'run', '--every', '10', '--out', 'x.png');
+  assert.equal(JSON.parse(refused.stderr).error, refusal.replace('v1', 'b.json'));
+  const made = cli('inspect', 'a.json', '--beside', 'b.json', '--animation', 'run', '--every', '25', '--out', 'x.png');
+  assert.equal(made.status, 0, made.stdout + made.stderr);
+});
+
+test('every beside other recipes names the smallest every the stack holds, and what the sheet holds there', () => {
+  // Nine mixed loops at one cell per 15 ms. The refusal named the first every that held (640), and "holds 1" from the
+  // try that failed, though every value from 256 holds and the 256x1024 sheet shows 3 cells there.
+  const sizes = [[64, 64, 48], [320, 180, 40], [1024, 128, 32], [640, 360, 16], [512, 512, 12], [320, 180, 40], [64, 64, 48], [1024, 256, 8], [256, 1024, 8]];
+  const projects = sizes.map(([w, h, n]) => renderProject(screen(w, h, n)));
+  const views = every => projects.map((project, i) => ({ ...inspectProject(project, { animation: 'run', every, sheets: 9 }), name: `v${i}` }));
+  assert.throws(() => stackViews(views(15)), { path: 'inspect.every',
+    message: 'inspect.every: v8: 640 ms at one cell per 15 ms is 43 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 3; choose every 256' });
+  const advised = views(256), followed = stackViews(advised);
+  assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
+  assert.equal(advised[8].cells.length, 3);
+  encodes(followed.sheet);
+  assert.throws(() => stackViews(views(255)), { path: 'inspect.every' });
+});
+
+test('diagnostics of a long recipe whose only findings are off-palette colours name the frames they are in', () => {
+  // The cannon-smoke preset: 44 frames, off-palette colours in cannon-smoke-0 … cannon-smoke-5 alone. The three rows
+  // kept were frames with none, and the colours were totalled with no frame named.
+  const source = JSON.parse(readFileSync(path.join(root, 'examples', 'cannon-smoke.fluid.json'), 'utf8'));
+  const { diagnostics } = inspectProject(renderProject(COMPILERS[source.format](source).recipe), { diagnostics: true });
+  const flagged = diagnostics.findings.filter(finding => finding.code === 'palette').map(finding => finding.frame);
+  assert.deepEqual(flagged, Array.from({ length: 6 }, (_, i) => `cannon-smoke-${i}`));
+  const brief = briefDiagnostics(diagnostics), kept = brief.frames.map(row => row.frame);
+  assert.ok(kept.every(frame => flagged.includes(frame)), kept.join());
+  assert.deepEqual(brief.findings.map(finding => finding.frame).sort(), [...kept].sort());
+  const named = /; in (.*)$/.exec(brief.findingTotals.palette)[1];
+  // What is listed and what is named are the six frames, each once.
+  assert.equal(named, 'cannon-smoke-0 … cannon-smoke-2');
+  assert.deepEqual([...kept, 'cannon-smoke-0', 'cannon-smoke-1', 'cannon-smoke-2'].sort(), [...flagged].sort());
 });
 
 test('a beside row too tall for its share counts the other recipes by the least each takes', () => {
