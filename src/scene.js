@@ -168,7 +168,19 @@ export function prepareScene(source) {
   if (!source.assets || Array.isArray(source.assets) || typeof source.assets !== 'object' || Object.keys(source.assets).length > 64) fail('scene.assets', 'expected at most 64 inlined assets');
   // Ramp shifters per asset (kept apart from the passes, which exports iterate as images).
   // used: the pixels each asset's passes render (every frame of each), which together stay within 4,194,304.
-  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(), counts = new Map(); let sourceArea = 0;
+  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(); let sourceArea = 0;
+  // Every asset's pixels a frame (over all its passes) and in all, counted before any renders, so a refusal names a
+  // frame count that fits beside the whole scene, not only the passes before it.
+  const whole = new Map(); let sceneArea = 0;
+  for (const [id, value] of Object.entries(source.assets)) {
+    const entry = value?.recipe ? value : { recipe: value };
+    let frame = 0, all = 0;
+    for (const key of ['recipe', 'normal', 'emissive']) {
+      const area = entry[key]?.width * entry[key]?.height, frames = entry[key]?.frames?.length;
+      if (Number.isFinite(area * frames)) { frame += area; all += area * frames; }
+    }
+    whole.set(id, { frame, all, count: entry.recipe?.frames?.length }); sceneArea += all;
+  }
   for (const [id, value] of Object.entries(source.assets)) {
     if (typeof value === 'string' || typeof value?.recipe === 'string' || typeof value?.normal === 'string' || typeof value?.emissive === 'string' || value?.revision !== undefined) fail(`scene.assets.${id}`, 'file and revision references are resolved by the CLI and MCP; inline the recipe to render here');
     const entry = value?.recipe ? value : { recipe: value };
@@ -184,16 +196,15 @@ export function prepareScene(source) {
       if (sourceArea + area > 4194304) {
         // What the assets before it use, the largest by name, and the asset to give fewer frames: the largest of all.
         const n = value => value.toLocaleString('en-US'), before = [...used].sort((a, b) => b[1] - a[1]);
-        const largest = before.length && before[0][1] >= (used.get(id) ?? 0) + area ? before[0][0] : id;
+        const largest = [...whole].reduce((top, entry) => entry[1].all > top[1].all ? entry : top)[0];
         const uses = !before.length ? '' : before.length === 1 ? `${before[0][0]} uses ${n(before[0][1])}, and ` : `the assets before it use ${n(sourceArea)} (${before.slice(0, 3).map(([name, pixels]) => `${name} ${n(pixels)}`).join(', ')}${before.length > 3 ? ', …' : ''}), and `;
-        // How many of its frames fit beside the rest (every pass of it counted per frame). Its own frames are set where
-        // it is made: dropping some of them to that count plays unevenly.
-        const count = largest === id ? spec.frames.length : counts.get(largest), mine = (used.get(largest) ?? 0) + (largest === id ? area : 0);
-        const fit = Math.floor((4194304 - (sourceArea + area - mine)) / (mine / count));
+        // How many of its frames fit beside the whole rest of the scene (every pass of it counted per frame). Its own
+        // frames are set where it is made: dropping some of them to that count plays unevenly.
+        const { frame, all, count } = whole.get(largest), fit = Math.floor((4194304 - (sceneArea - all)) / frame);
         const fewer = fit >= 1 ? `${largest} fits with ${fit} frame${fit === 1 ? '' : 's'}, so make it with ${fit} (in its source, rather than thinning its ${count} frames unevenly) or give it a smaller canvas` : `give ${largest} a smaller canvas`;
         fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${id}${key === 'recipe' ? '' : `'s ${key} pass`} needs ${n(area)}: ${fewer}`);
       }
-      sourceArea += area; used.set(id, (used.get(id) ?? 0) + area); counts.set(id, spec.frames.length);
+      sourceArea += area; used.set(id, (used.get(id) ?? 0) + area);
       passes[key] = renderProject(spec);
       warnings.push(...passes[key].warnings.map(message => `${id}.${key}: ${message}`));
     }

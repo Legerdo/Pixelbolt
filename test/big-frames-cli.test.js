@@ -61,7 +61,7 @@ test('a frame-total refusal for several animations names the --frames that fits,
   const kept = pixelbolt(['compile', '--preset', 'fire-spells', '--size', '320x180', '--frames', '6', '--out', 'six.json'], dir);
   assert.deepEqual([kept.ok, kept.frames, kept.width], [true, 66, 320]);
   assert.equal(pixelbolt(['compile', '--preset', 'fire-spells', '--size', '320x180', '--animation', 'impact', '--out', 'one.json'], dir).ok, true);
-  // A GIF plays one animation, so --animation keeps only it before the canvas moves.
+  // A GIF plays one animation, so when all the frames are too many --animation keeps only it before the canvas moves.
   const gif = pixelbolt(['gif', '--preset', 'fire-spells', '--size', '320x180', '--animation', 'impact', '--out', 'impact.gif'], dir);
   assert.deepEqual([gif.ok, gif.width, gif.frames], [true, 320, 12]);
   // MCP names its own options.
@@ -118,13 +118,32 @@ test('help says how the largest render scale and a --beside stack are bounded', 
   assert.match(help, /at the automatic scale the stack is kept within 8,000 px tall/);
 });
 
+test('compile --help and pixel_compile say a --frames count dividing a loop\'s frames keeps its step even, and it does', async t => {
+  const dir = await folder(t);
+  const help = spawnSync(process.execPath, [path.join(root, 'bin', 'pixelbolt.js'), 'compile', '--help'], { encoding: 'utf8' }).stdout.replace(/\s+/g, ' ');
+  assert.match(help, /playing as long as before \(a count dividing a loop's frames keeps its step even\)/);
+  const tools = JSON.parse(await readFile(path.join(root, 'evals', 'mocks', 'pixelbolt', '_tools.json'), 'utf8'));
+  const listed = (tools.tools ?? tools).find(tool => tool.name === 'pixel_compile').inputSchema.properties.frames.description;
+  assert.match(listed, /a count dividing a loop's frames keeps its step even/);
+  // A 32-frame loop: 16 divides it and keeps every kept frame 120 ms; 12 does not and draws the stutter warning.
+  const source = { format: 'pixelforge-fx', version: 1, name: 'rain', width: 160, height: 90, palette: { d: '#9fb8d8' }, symbols: { drop: ['d'] },
+    effects: { rain: { frames: 32, duration: 60, loop: true, seed: 7, edges: ['top', 'left', 'right', 'bottom'], emitters: [{ at: [70, -8], area: [240, 1], rate: 3, angle: [100, 102], speed: [8, 9], life: [12, 16], shapes: ['drop'] }] } } };
+  await writeFile(path.join(dir, 'rain.fx.json'), JSON.stringify(source));
+  const even = pixelbolt(['compile', 'rain.fx.json', '--frames', '16', '--out', 'even.json'], dir);
+  assert.deepEqual([even.ok, even.frames, even.warnings ?? []], [true, 16, []]);
+  const kept = JSON.parse(await readFile(path.join(dir, 'even.json'), 'utf8'));
+  assert.deepEqual(new Set(kept.frames.map(frame => frame.duration)), new Set([120]));
+  const uneven = pixelbolt(['compile', 'rain.fx.json', '--frames', '12', '--out', 'uneven.json'], dir);
+  assert.match(uneven.warnings.join('\n'), /frames 12 thins its 32-frame loop unevenly/);
+});
+
 test('gif --size --animation default plays a recipe that names no animations, and the reply lists every animation', async t => {
   const dir = await folder(t);
   await writeFile(path.join(dir, 'plain.json'), JSON.stringify(screen(64, 64, 4)));
   // Before: "--animation: no animation "default"", though gif without --size and render name it.
   const plain = pixelbolt(['gif', 'plain.json', '--size', '80x80', '--animation', 'default', '--out', 'plain.gif'], dir);
   assert.deepEqual([plain.ok, plain.animation, plain.width, plain.frames], [true, 'default', 80, 4]);
-  // A recipe that names its animations keeps the one played before the resize, and the reply still names them all.
+  // A recipe that names its animations plays the one asked for, and the reply still names them all.
   await writeFile(path.join(dir, 'named.json'), JSON.stringify(screen(64, 64, 4, { animations: { idle: { frames: ['f0', 'f1'] }, run: { frames: ['f2', 'f3'] } } })));
   const named = pixelbolt(['gif', 'named.json', '--size', '80x80', '--animation', 'run', '--out', 'run.gif'], dir);
   assert.deepEqual([named.ok, named.animation, named.frames, named.animations], [true, 'run', 2, ['idle', 'run']]);
@@ -136,6 +155,16 @@ test('gif --size --animation default plays a recipe that names no animations, an
   await writeFile(path.join(dir, 'listed.json'), JSON.stringify(screen(64, 64, 4, { animations: { loop: { frames: ['f0', 'f1', 'f2', 'f3'] } } })));
   const listed = pixelbolt(['gif', 'listed.json', '--size', '80x80', '--out', 'listed.gif'], dir);
   assert.deepEqual([listed.ok, listed.width, listed.frames], [true, 80, 4]);
+  // The window is placed by every frame's drawing, so the GIF is the played animation of the whole recipe resized,
+  // byte for byte: walk touches the left edge, which stays the edge although blink alone does not reach it.
+  const box = (name, x0, x1) => ({ name, ops: [{ op: 'rect', x: x0, y: 10, w: x1 - x0 + 1, h: 31, color: 'k' }] });
+  const edge = { ...screen(64, 64, 0), frames: [box('f0', 0, 20), box('f1', 4, 16), box('f2', 5, 16), box('f3', 0, 18)], animations: { walk: { frames: ['f0', 'f1', 'f2', 'f3'] }, blink: { frames: ['f1', 'f2'] } } };
+  await writeFile(path.join(dir, 'edge.json'), JSON.stringify(edge));
+  const blink = pixelbolt(['gif', 'edge.json', '--size', '80x80', '--animation', 'blink', '--out', 'blink.gif'], dir);
+  assert.deepEqual([blink.ok, blink.frames, blink.margins], [true, 2, { right: 16, top: 8, bottom: 8 }]);
+  const { resizeRecipe } = await import('../src/resize.js'), { animationGIF } = await import('../src/gif.js');
+  const whole = animationGIF(renderProject(resizeRecipe(edge, '80x80').recipe), 'blink').data;
+  assert.ok(Buffer.from(await readFile(path.join(dir, 'blink.gif'))).equals(Buffer.from(whole)));
 });
 
 test('a check whose scale came from the call says to drop or change --scale (scale), and following it passes', async t => {
@@ -333,4 +362,19 @@ test('a scene GIF at the default rate names the even rate when its frames would 
   const run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
   const viewed = JSON.parse((await run('pixel_scene', { scene: source, gif: { scale: 1 } })).content[0].text);
   assert.ok(JSON.stringify(viewed).includes(note), JSON.stringify(viewed).slice(0, 400));
+  // A placement hidden at first and shown by a cue that plays snow stutters the same way, and fps 20 holds it evenly.
+  const cued = { ...source, duration: 1200, instances: [source.instances[0], { asset: 'snow', at: [0, 0], hidden: true, sequence: [{ time: 200, animation: 'default' }] }] };
+  assert.deepEqual(sceneGIF(prepareScene(cued)).notes, [note]);
+  const followed = sceneGIF(prepareScene(cued), { fps: 20 });
+  assert.deepEqual([followed.frames, followed.delays, followed.notes], [24, { 50: 24 }, []]);
+  // No note where no even rate from 8 to 25 fps exists: frames sharing only 10 or 20 ms (stride's 90 and 80) would
+  // need more than 25 fps, and frames of 130 and 260 ms less than 8.
+  const timed = durations => ({ ...source, duration: 2600, instances: [source.instances[0], { asset: 'snow', at: [0, 0], animation: 'default' }],
+    assets: { ...source.assets, snow: { ...snow, frames: snow.frames.slice(0, durations.length).map((frame, i) => ({ ...frame, duration: durations[i] })), animations: { default: { frames: durations.map((_, i) => `f${i}`), loop: true } } } } });
+  for (const durations of [[90, 80, 80, 90, 80, 80], [60, 100], [130, 260]]) assert.deepEqual(sceneGIF(prepareScene(timed(durations))).notes.filter(text => text.includes('holds each')), [], String(durations));
+  // Frames of 110 and 330 ms (iso-glade's coin) name fps 100/11, and that rate holds them in 110 ms GIF frames.
+  const coin = sceneGIF(prepareScene({ ...timed([110, 330, 110]), duration: 1100 }));
+  assert.ok(coin.notes.some(text => text.endsWith('fps 100/11 (110 ms a frame) holds each for a whole number.')), coin.notes.join('\n'));
+  const coinEven = sceneGIF(prepareScene({ ...timed([110, 330, 110]), duration: 1100 }), { fps: '100/11' });
+  assert.deepEqual([coinEven.frames, coinEven.delays], [10, { 110: 10 }]);
 });
