@@ -25,7 +25,7 @@ test('inspection keeps frame order, crops regions and rejects bad options with p
   assert.deepEqual(view.cells, [{ frame: 'b', duration: 100 }, { frame: 'a', duration: 80 }]);
   assert.deepEqual(view.grids.map(g => g.rows), [['..', '..'], ['..', '.k']]);
   for (const [options, message] of [
-    [{ frames: ['a'], animation: 'default' }, /not both/], [{ frames: ['missing'] }, /inspect\.frames\[0\]: unknown frame/],
+    [{ frames: ['a'], animation: 'default' }, /inspect: choose frames or animation, not both: frames picks the named frames in the order named, animation one animation's frames in play order$/], [{ frames: ['missing'] }, /inspect\.frames\[0\]: unknown frame/],
     [{ animation: 'missing' }, /inspect\.animation/], [{ region: { x: 3, y: 0, w: 2, h: 1 } }, /inspect\.region\.w/],
     [{ region: { x: 0, y: 0, w: 1 } }, /inspect\.region\.h/], [{ scale: 17 }, /inspect\.scale/],
     [{ zoom: 2 }, /inspect\.zoom: unknown field/], [{ grid: null }, /null is not supported/], [{ background: 'nope' }, /inspect\.background/]
@@ -116,4 +116,7 @@ test('CLI inspect takes --step and --offset', () => {
   assert.deepEqual([view.cells.flatMap(line => line.split(':')[0].split(', ')), view.sampling.positions], [['rise', 'blink', 'fall'], [1, 3, 5]]);
   assert.match(JSON.parse(run('--step', '2x').stderr).error, /--step expects a whole number/);
   assert.match(JSON.parse(run('--offset', '1.5').stderr).error, /--offset expects a whole number/);
+  // --frames and --animation pick cells two ways: the help says so, and the refusal says what each does.
+  assert.match(run('--help').stdout, /--frames a,b or --animation name \(one or the other\) picks cells/);
+  assert.match(JSON.parse(run('--frames', 'rest', '--animation', 'idle').stderr).error, /not both: frames picks the named frames in the order named, animation one animation's frames in play order/);
 });

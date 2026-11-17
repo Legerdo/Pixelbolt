@@ -15,8 +15,15 @@ export const TOPICS = [...Object.keys(HELP_TOPICS), 'presets', 'preset'];
 // are taken wherever a topic is and are not listed among the topics, so the listing stays short. (Agents drawing
 // ground tiles from another project read terrain.js for the fills, where `help terrain` answered "unknown topic".)
 export const TOPIC_ALIASES = { terrain: ['autotile', 'terrain'], tiles: ['autotile'], tileset: ['autotile'], tilesets: ['autotile'] };
-// The topic and part a request means: an alias gives its topic, and its part unless the request names one.
-export const resolveTopic = (topic, name) => { const to = Object.hasOwn(TOPIC_ALIASES, topic ?? '') ? TOPIC_ALIASES[topic] : null; return to ? [to[0], name ?? to[1]] : [topic, name]; };
+// The topic and part a request means: an alias gives its topic, and its part unless the request names one. A word
+// that is neither, in the other number of one (scene, body, tile, examples), is that one: `help scene` cost a call.
+const isTopic = topic => TOPICS.includes(topic) || Object.hasOwn(TOPIC_ALIASES, topic);
+const otherNumber = topic => [topic.endsWith('ies') && `${topic.slice(0, -3)}y`, topic.endsWith('y') && `${topic.slice(0, -1)}ies`, topic.endsWith('s') ? topic.slice(0, -1) : `${topic}s`].find(form => form && isTopic(form));
+export const resolveTopic = (topic, name) => {
+  if (typeof topic === 'string' && !isTopic(topic)) topic = otherNumber(topic) ?? topic;
+  const to = Object.hasOwn(TOPIC_ALIASES, topic ?? '') ? TOPIC_ALIASES[topic] : null;
+  return to ? [to[0], name ?? to[1]] : [topic, name];
+};
 // Topics whose file is JSON (the schemas and the example), which MCP returns parsed.
 export const jsonTopic = topic => HELP_TOPICS[topic]?.endsWith('.json') ?? false;
 // The guide and the workflow are long (the workflow passes 200 KB, and its fluid section 60), so a reply is never a
@@ -128,7 +135,13 @@ export function helpSchema(topic, text, name, via = 'mcp', presets = []) {
   let node = schema, path = '';
   for (const segment of asked ? asked.split('.').filter(Boolean) : []) {
     const properties = inside(node);
-    if (!properties || !Object.hasOwn(properties, segment)) throw new PixelError('name', `the ${topic === 'schema' ? 'recipe' : topic} schema has no ${JSON.stringify(path ? `${path}.${segment}` : segment)}; ${path || 'it'} holds ${properties ? Object.keys(properties).join(', ') : 'no named properties'}`);
+    if (!properties || !Object.hasOwn(properties, segment)) {
+      const missing = `the ${topic === 'schema' ? 'recipe' : topic} schema has no ${JSON.stringify(path ? `${path}.${segment}` : segment)}`;
+      // A topic asked as a part (`help schema scenes`, where a source format's schema is its own topic) is sent there.
+      const own = path ? undefined : resolveTopic(segment)[0], word = Object.hasOwn(TOPIC_ALIASES, segment) ? segment : own;
+      if (TOPICS.includes(own) && own !== topic) throw new PixelError('name', `${missing}: ${word} is a help topic of its own, so ${via === 'mcp' ? `call pixel_help with topic "${word}"` : `run pixelbolt help ${word}`}`);
+      throw new PixelError('name', `${missing}; ${path || 'it'} holds ${properties ? Object.keys(properties).join(', ') : 'no named properties'}`);
+    }
     node = properties[segment]; path = path ? `${path}.${segment}` : segment;
   }
   const properties = inside(node);

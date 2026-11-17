@@ -110,7 +110,7 @@ render and scene reply with their folder once and the files in it to deliver, le
 each animation, and what the preview page runs on (its scripts, README.txt); --list-files lists every file. compile, autotile and import save their metadata only with --metadata <new.json>.
 Palette references ({"$ref": "palette.json"}), scene asset files and a normals source's recipe resolve from the
 input file's folder.
-Inspect: --frames a,b or --animation name picks cells (* and ? in a name match frames: --frames 'flash-*');
+Inspect: --frames a,b or --animation name (one or the other) picks cells (* and ? in a name match frames: --frames 'flash-*');
 --layers body,head draws only those named layers; --reference earlier.json compares with another recipe (a
 before/after image beside --out, and the pixels that changed);
 --step n [--offset k] keeps every nth cell from position k (0 is the first); --region x,y,w,h crops;
@@ -609,7 +609,7 @@ try {
       }
       if (options.metadata && !/\.json$/i.test(options.metadata)) throw new Error('--metadata must name a .json file');
       if (options.preview !== undefined && !/\.png$/i.test(options.preview)) throw new Error('--preview must name a new .png file');
-      if (options.preview !== undefined && !preview) throw new Error('--preview draws an autotile set over a test map; this source is not an autotile set');
+      if (options.preview !== undefined && !preview) throw new Error(`--preview draws an autotile set over a test map; this source is not an autotile set. Compile without it, then look at the frames with pixelbolt inspect ${options.out ? shown(path.resolve(options.out)) : '<recipe.json>'} --out <sheet.png>`);
       // The test map: every tile of an autotile set in one image, as MCP pixel_compile returns it.
       const testMap = options.preview !== undefined ? inspectProject(renderProject(preview), { scale: testMapScale(preview) }).sheet : null;
       // Generated files use compact formatting: one line per frame, operation or short grid when it fits.

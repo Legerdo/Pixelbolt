@@ -111,6 +111,10 @@ test('MCP keeps what an agent reads small: brief tool schemas, a quick start, an
     assert.match(await section('fx', 'effects'), /^# [^\n]*: effects\n\n> A schema of \d+ KB, outlined/);
     const lost = await mcp.call('pixel_help', { topic: 'bodies', name: 'effects.body' });
     assert.equal(lost.result.isError, true); assert.match(lost.info.error, /the bodies schema has no "effects\.body"; effects holds frames, duration, .*\bbodies\b/);
+    // A topic asked as a schema's part is sent to its own topic, and a topic in the other number is that topic.
+    const elsewhere = await mcp.call('pixel_help', { topic: 'schema', name: 'scenes' });
+    assert.equal(elsewhere.result.isError, true); assert.match(elsewhere.info.error, /the recipe schema has no "scenes": scenes is a help topic of its own, so call pixel_help with topic "scenes"$/);
+    assert.equal((await help('scene'))[0], (await help('scenes'))[0]);
     // The quick start's recipe and the example topic are valid recipes that draw without warnings.
     const recipe = JSON.parse(quick.match(/```json\n([\s\S]*?)\n```/)[1]), example = JSON.parse((await help('example'))[0]);
     for (const project of [recipe, example]) {

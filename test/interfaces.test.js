@@ -157,6 +157,13 @@ test('CLI help topics print what pixel_help returns, and one section of a long g
   assert.equal(help('tiles').stdout, help('autotile').stdout);
   assert.equal(help('tileset').stdout, help('autotile').stdout);
   assert.doesNotMatch(JSON.parse(help('nope').stderr).error, /terrain|tileset/);
+  // A topic in the other number is that topic (help scene cost a cold agent a call), aliases included.
+  for (const [asked, topic] of [['scene', 'scenes'], ['pose', 'poses'], ['body', 'bodies'], ['examples', 'example'], ['guides', 'guide'], ['tile', 'autotile']]) assert.equal(help(asked).stdout, help(topic).stdout, asked);
+  assert.equal(help('scene', 'instances').stdout, help('scenes', 'instances').stdout);
+  // A topic asked as a part of another schema says to ask for that topic instead.
+  assert.match(JSON.parse(help('schema', 'scenes').stderr).error, /the recipe schema has no "scenes": scenes is a help topic of its own, so run pixelbolt help scenes$/);
+  assert.match(JSON.parse(help('schema', 'scene').stderr).error, /run pixelbolt help scenes$/);
+  assert.match(JSON.parse(help('fx', 'fluid').stderr).error, /the fx schema has no "fluid": fluid is a help topic of its own/);
   for (const [args, message] of [[['nope'], /Unknown help topic "nope"; topics: quickstart, guide, workflow/], [['workflow', 'no such part'], /has no section "no such part" and no paragraph that mentions it; its sections are /], [['example', 'x'], /help example has no sections; guide, workflow and craft do, and a schema takes a path/], [['schema', 'x'], /the recipe schema has no "x"; it holds \$schema, version, name, width/], [['preset'], /needs a preset name/]]) {
     const out = help(...args);
     assert.deepEqual([out.status, out.stdout], [1, ''], args.join(' '));
@@ -228,7 +235,7 @@ test('MCP handshake, discovery, help, errors and render work over stdio', async 
   assert.equal(render.content[1].mimeType, 'image/png');
   const written = JSON.parse(render.content[0].text); assert.ok(written.directory.startsWith(dir + path.sep));
   assert.ok((await readFile(path.join(written.directory, written.files[0]))).length > 0);
-  assert.equal(written.folders.frames, 1); assert.ok(!written.files.some(file => file.startsWith('frames/')));
+  assert.deepEqual([written.folders, written.files.filter(file => file.startsWith('frames/'))], [undefined, ['frames/<frame name>.png']]);
   assert.equal(results[4].result.isError, true); assert.match(results[5].result.content[0].text, /Pixelbolt/);
   assert.equal(results[6].error.code, -32601); assert.equal(results[7].error.code, -32700);
 });
@@ -460,7 +467,10 @@ test('CLI replies stay small: render names its folder once, compile keeps metada
   const short = JSON.parse(cli('render', coin, '--out', 'short').stdout), every = JSON.parse(cli('render', coin, '--out', 'every', '--list-files').stdout);
   // A folder inside the working directory is named from it, as it was asked for.
   assert.equal(short.directory, 'short');
-  assert.ok(!short.files.some(file => file.startsWith('frames/') || path.isAbsolute(file)) && short.files.includes('coin.png'));
+  assert.ok(!short.files.some(file => path.isAbsolute(file)) && short.files.includes('coin.png'));
+  // The frames are one entry, said once: two agents found frames/ only by listing the folder.
+  assert.deepEqual(short.files.filter(file => file.startsWith('frames/')), ['frames/<frame name>.png']);
+  assert.equal(every.files.includes('frames/<frame name>.png'), false);
   assert.equal(every.files.filter(file => file.startsWith('frames/')).length, short.frames);
   for (const file of every.files) await access(path.join(dir, every.directory, file));
   // A rig's metadata runs to a hundred kilobytes: it goes to --metadata or nowhere.

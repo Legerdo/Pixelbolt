@@ -100,7 +100,7 @@ test('MCP validate, inspect and render replies carry fps beside the animations',
     assert.deepEqual([validated.frames, validated.animations], [24, burn]);
     assert.deepEqual((await call('pixel_inspect', { revision: validated.revision })).animations, burn);
     const rendered = await call('pixel_render', { revision: validated.revision });
-    assert.deepEqual([rendered.frames, rendered.animations, rendered.folders], [24, burn, { frames: 24, animations: 1 }]);
+    assert.deepEqual([rendered.frames, rendered.animations, rendered.files.filter(file => /^(?:frames|animations)\//.test(file))], [24, burn, ['frames/<frame name>.png', 'animations/burn.png']]);
     assert.match(await readFile(path.join(rendered.directory, 'README.txt'), 'utf8'), /burn: 24 frames of 70 ms \(14\.29 fps\)/);
     assert.equal('fps' in (await call('pixel_validate', { project: { ...mixed, animations: { idle: mixed.animations.idle } } })).animations.idle, false);
   } finally { input.end(); await running; }

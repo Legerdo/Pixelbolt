@@ -55,6 +55,18 @@ test('the two-layer tile set the craft notes give to start from compiles: both p
   assert.deepEqual(describeAnimations(bundle.project, recipe), {});
 });
 
+test('the Phaser line in the craft notes names files a render writes, and the atlas is the JSON hash Phaser reads', async () => {
+  const notes = await readFile(new URL('../docs/agent-craft.md', import.meta.url), 'utf8');
+  const [, sheet, atlasFile] = /- Phaser 3: `this\.load\.atlas\(key, '<name>(\.png)', '<name>(\.atlas\.json)'\)`/.exec(notes);
+  const recipe = await example('forest-spirit.json'), bundle = await createBundle(recipe), atlas = JSON.parse(bundle.files.get(`${recipe.name}${atlasFile}`));
+  assert.ok(bundle.files.has(`${recipe.name}${sheet}`));
+  assert.equal(atlas.meta.image, `${recipe.name}${sheet}`);
+  // Frames keyed by their recipe names, each with its rectangle; the animations list those names.
+  assert.deepEqual(Object.keys(atlas.frames), recipe.frames.map(frame => frame.name));
+  for (const { frame } of Object.values(atlas.frames)) assert.deepEqual(Object.keys(frame), ['x', 'y', 'w', 'h']);
+  for (const animation of Object.values(atlas.animations)) assert.ok(animation.frames.every(name => Object.hasOwn(atlas.frames, name)));
+});
+
 test('the scene the craft notes give to start from draws: a floor from the tile set, a fire, a lit character', async () => {
   const notes = await readFile(new URL('../docs/agent-craft.md', import.meta.url), 'utf8');
   const scene = JSON.parse(/To start from: `(\{"format": "pixelforge-scene".*?\})`\. Assets are/s.exec(notes)[1]);

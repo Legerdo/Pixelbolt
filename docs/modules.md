@@ -90,7 +90,8 @@ When you add a module, give it one line in the map and its notes here.
 - `src/help.js`: Node-side help topics shared by MCP `pixel_help` and `pixelbolt help <topic> [section]`: the quick start, the guides and the craft notes (`docs/agent-craft.md`, the checklists the pixel art skill points to instead of holding) the schemas and the example.
   A long document is never returned whole unasked: without a name its opening and its `## ` sections, by name one section (a section over 12 KB with `### ` parts lists those, and a part is read the same way), and for a word that starts no heading the paragraphs that mention it.
   A new long section in the workflow gets `### ` parts.
-  A schema topic is its outline, or one part by a path of property names (`helpSchema`), and whole only for `all`.
+  A schema topic is its outline, or one part by a path of property names (`helpSchema`), and whole only for `all`; a part named as a topic (`help schema scenes`) is sent to that topic.
+  `resolveTopic` reads an alias (`TOPIC_ALIASES`) or a topic's other number (`scene`, `body`) as the topic, and is not listed among the topics.
   Keep `skills/pixel-art/SKILL.md` a short router: a checklist for one kind of job goes in a craft section.
 - `src/check.js`: the `check` in `pixel_render` and `render` replies: what an export delivered (frame size, frames, loops, colours, transparency, GIF size, the sheet's size or grid) against the user's `expect`, each mismatch with the call that fixes it, and each animation's silhouette boxes with advisory notes on named loops whose solid body lifts off its ground row, steps unevenly or jumps at the loop, or that repeat a frame; the notes never fail the check.
   Read-only.

@@ -218,7 +218,8 @@ function readProject(spec, { stills = true } = {}) {
   if (own(palette, '$ref')) fail('project.palette.$ref', 'palette files are resolved by the CLI, MCP or resolveRecipe(); inline the palette to render here');
   if (Object.keys(palette).length > 256) fail('project.palette', 'at most 256 colors are allowed');
   for (const [key, value] of Object.entries(palette)) {
-    if (!key || key.length > 64 || key === '.' || key === ' ' || key === 'transparent') fail(`project.palette.${key}`, 'invalid or reserved palette name');
+    if (key === '.' || key === ' ') fail(`project.palette.${key}`, '"." and space are reserved: in grid rows they leave the pixel alone and need no palette entry (a transparent colour is "transparent" under another key)');
+    if (!key || key.length > 64 || key === 'transparent') fail(`project.palette.${key}`, 'invalid or reserved palette name');
     parseColor(value, {}, `project.palette.${key}`);
   }
   // Ramps list palette keys from dark to light. `shade` and scene ramp lighting move a colour along its ramp instead of
@@ -1593,7 +1594,7 @@ export function inspectProject(project, options = {}) {
     project = { ...project, frames: project.frames.map(frame => ({ ...frame, data: laidOver(ground, frame.data) })), ownerNames: undefined };
   }
   const { frames } = project;
-  if (options.frames !== undefined && options.animation !== undefined) fail('inspect', 'choose frames or animation, not both');
+  if (options.frames !== undefined && options.animation !== undefined) fail('inspect', 'choose frames or animation, not both: frames picks the named frames in the order named, animation one animation\'s frames in play order');
   let cells = frames.map((_, i) => i);
   if (options.animation !== undefined) {
     if (typeof options.animation !== 'string' || !own(project.animations, options.animation)) fail('inspect.animation', `unknown animation ${JSON.stringify(options.animation)}`);

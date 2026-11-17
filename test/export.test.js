@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import { encodePNG, encodeAPNG } from '../src/png.js';
-import { createBundle, writeBundle, createZip, formatJSON } from '../src/export.js';
+import { createBundle, writeBundle, createZip, formatJSON, outputSummary } from '../src/export.js';
 import { renderProject } from '../src/core.js';
 import { createSequence } from '../src/sequence.js';
 import { compileAutotile } from '../src/authoring.js';
@@ -347,4 +347,14 @@ test('formatJSON keeps short records on one line and grids one row per line, and
 `);
   assert.equal(formatJSON({ a: [], b: {}, c: undefined }), '{ "a": [], "b": {} }\n');
   assert.ok(formatJSON({ frames: Array.from({ length: 40 }, (_, i) => `frame-${i}`) }).split('\n').every(line => line.length <= 120));
+});
+
+test('a reply names the frames folder once, by one entry, and more than 16 animations the same way', () => {
+  const out = path.resolve('bundle'), at = files => files.map(file => path.join(out, file));
+  const few = outputSummary(out, at(['hero.png', 'hero.atlas.json', 'frames/a.png', 'frames/b.png', 'animations/idle.png', 'player.js', 'README.txt', 'preview.html']), false);
+  assert.deepEqual(few, { sheet: 'hero.png', atlas: 'hero.atlas.json', files: ['hero.png', 'hero.atlas.json', 'frames/<frame name>.png', 'animations/idle.png', 'preview.html'] });
+  const many = outputSummary(out, at(['hero.png', 'frames/a.png', ...Array.from({ length: 17 }, (_, i) => `animations/a${i}.png`)]), false);
+  assert.deepEqual(many.files, ['hero.png', 'frames/<frame name>.png', 'animations/<animation name>.png']);
+  // Asked for every file, each is listed and no entry stands for them.
+  assert.equal(outputSummary(out, at(['hero.png', 'frames/a.png', 'frames/b.png']), true).files.length, 3);
 });
