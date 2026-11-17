@@ -31,6 +31,20 @@ test('every Effects lab preset still compiles with the controls at their extreme
   }
 });
 
+test('the finished one-shots end on an empty frame at any seed and at full strength', async () => {
+  // A sparkle that outlives its effect pops off on the last frame. In these three every emitter's last spawn and longest
+  // life end before it, and no layer is still drawn in it, so neither the lab's Seed nor its Strength can leave one.
+  const most = extreme('strength', 'max');
+  for (const file of ['frost-nova', 'teleport-in', 'coin-sparkle']) {
+    const source = await load(file);
+    for (const strength of [1, most]) for (let seed = 1; seed <= 6; seed++) {
+      const { metadata, warnings } = compileEffects(editedEffects(source, file, { strength }, seed));
+      assert.equal(metadata.effects[file].residue, 0, `${file} at strength ${strength}, seed ${seed}`);
+      assert.deepEqual(warnings ?? [], [], `${file} at strength ${strength}, seed ${seed}`);
+    }
+  }
+});
+
 test('Strength scales an effect\'s rates and bursts, Speed its timing, and only that effect changes', async () => {
   const source = await load('effects'), edited = editedEffects(source, 'sparks', { strength: 2, speed: 2 }, 9);
   const before = source.effects.sparks, after = edited.effects.sparks;

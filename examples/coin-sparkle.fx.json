@@ -44,7 +44,7 @@
   },
   "effects": {
     "coin-sparkle": {
-      "frames": 15,
+      "frames": 14,
       "duration": { "from": 40, "to": 75, "ease": "in" },
       "seed": 2,
       "looks": { "flash": { "colors": ["o", "g", "y", "W"], "thresholds": [0.22, 0.4, 0.62, 0.86] } },
@@ -128,7 +128,7 @@
           "ring": { "radius": [8, 22], "fill": true },
           "rate": [0, 1.2, 1, 0],
           "start": 5,
-          "end": 12,
+          "end": 9,
           "speed": [0, 0.2],
           "life": [3, 5],
           "play": "life",
