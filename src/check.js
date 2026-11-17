@@ -144,10 +144,13 @@ function largeSizeFix(expect, project, recipe, reason = FRAME_LIMIT, given = nul
     if (w > STILL_SIDE || h > STILL_SIDE || w * h > FRAME_AREA || exportBudget(project, w, h, 1, recipe)) return null;
     const own = given ? given.own : sheet.scale;
     const changes = [...(w !== width ? [{ set: 'width', value: w }] : []), ...(h !== height ? [{ set: 'height', value: h }] : []), ...(own !== 1 ? [{ set: 'sheet.scale', value: 1 }] : [])];
-    return given && sheet.scale !== 1 ? `a ${w}x${h} still at one screen pixel per art pixel: pixel_patch ${JSON.stringify(changes)} and ${given.again} without ${given.option}` : `a ${w}x${h} still at sheet.scale 1, one screen pixel per art pixel: pixel_patch ${JSON.stringify(changes)}`;
+    return `a ${w}x${h} still at ${given ? '' : 'sheet.scale 1, '}one screen pixel per art pixel: pixel_patch ${JSON.stringify(changes)}`;
   })();
+  // Each route ends with the render that delivers it: a scale the call set is dropped for the still and named for each
+  // enlargement, so no ending stands for another route's.
+  const stillAgain = given ? `${given.again} without ${given.option}` : 'render again', withScale = k => given.option === 'scale' ? `scale: ${k}` : `--scale ${k}`;
   const tooLarge = `${asked} is more than a still holds at one screen pixel per art pixel (${STILL_SIDE} px a side, 4,194,304 pixels)`;
-  const stillOnly = `no whole sheet.scale makes ${asked} from this canvas, but a still may be up to ${STILL_SIDE} px a side, so make it ${still}, fit the drawing to the new canvas, pixel_inspect, then render again`;
+  const stillOnly = `no whole ${scaleName} makes ${asked} from this canvas, but a still may be up to ${STILL_SIDE} px a side, so make it ${still}, fit the drawing to the new canvas, pixel_inspect, then ${stillAgain}`;
   const candidates = [];
   for (let k = 2; k <= SCALE; k++) {
     const w = expect.width === undefined ? width : expect.width / k, h = expect.height === undefined ? height : expect.height / k;
@@ -176,8 +179,8 @@ function largeSizeFix(expect, project, recipe, reason = FRAME_LIMIT, given = nul
   // A scale the call set is the call's to change: the patch leaves sheet.scale alone.
   const changes = fit => JSON.stringify([...(expect.width !== undefined ? [{ set: 'width', value: fit.w }] : []), ...(expect.height !== undefined ? [{ set: 'height', value: fit.h }] : []), ...(given ? [] : [recipe !== undefined && recipe.sheet === undefined ? { set: 'sheet', value: { scale: fit.k } } : { set: 'sheet.scale', value: fit.k }])]);
   const alternative = nearest === detailed ? '' : ` (or ${changes(detailed)}, a ${detailed.w}x${detailed.h} canvas at ${scaleName} ${detailed.k}, for the most detail)`;
-  const again = given ? `${given.again} with that ${given.option}` : 'render again';
-  if (still) return `${asked} is a ${nearest.w}x${nearest.h} canvas at ${scaleName} ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}; or, since this is a still, ${still}. Either way, fit the drawing to the new canvas, pixel_inspect, then ${again}`;
+  const again = given ? `${given.again} with ${withScale(nearest.k)}${nearest === detailed ? '' : ` (${withScale(detailed.k)} for the ${detailed.w}x${detailed.h} canvas)`}` : 'render again';
+  if (still) return `${asked} is a ${nearest.w}x${nearest.h} canvas at ${scaleName} ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}; or, since this is a still, ${still}. Either way, fit the drawing to the new canvas, pixel_inspect, then ${given ? `${again}, or without ${given.option} for the still` : again}`;
   return `${one ? tooLarge : reason}, so ${asked} is a ${nearest.w}x${nearest.h} canvas at ${scaleName} ${nearest.k}, the nearest to the current ${width}x${height}: pixel_patch ${changes(nearest)}${alternative}, fit the drawing to the new canvas, pixel_inspect, then ${again}`;
 }
 // The project as the budgets count it once it has the frames expect asks for (each animation playing its asked count,

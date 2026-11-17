@@ -104,7 +104,12 @@ test('a scene past its assets\' pixels says what each uses and which to give few
   const recipe = (width, height, frames) => ({ version: 1, name: 'a', width, height, palette: { d: '#123456' }, frames: Array.from({ length: frames }, (_, i) => ({ name: `f${i}`, ops: [{ op: 'pixel', x: 0, y: 0, color: 'd' }] })) });
   const scene = assets => ({ format: 'pixelforge-scene', version: 1, name: 's', width: 512, height: 512, assets, instances: [] });
   // Before: "combined scene source passes exceed 4,194,304 pixels or have invalid dimensions".
-  assert.throws(() => prepareScene(scene({ big: recipe(512, 512, 16), small: recipe(64, 64, 8) })), { message: 'scene.assets.small: a scene\'s assets render at most 4,194,304 pixels in all, every frame of every pass; big uses 4,194,304, and small needs 32,768: give big fewer frames or a smaller canvas' });
+  assert.throws(() => prepareScene(scene({ big: recipe(512, 512, 16), small: recipe(64, 64, 8) })), { message: 'scene.assets.small: a scene\'s assets render at most 4,194,304 pixels in all, every frame of every pass; big uses 4,194,304, and small needs 32,768: big fits with 15 frames, so make it with 15 (in its source, rather than thinning its 16 frames unevenly) or give it a smaller canvas' });
   assert.ok(prepareScene(scene({ big: recipe(512, 512, 15), small: recipe(64, 64, 8) })));
-  assert.throws(() => prepareScene(scene({ a: recipe(320, 180, 30), b: recipe(320, 180, 30), c: recipe(320, 180, 20) })), { message: 'scene.assets.c: a scene\'s assets render at most 4,194,304 pixels in all, every frame of every pass; the assets before it use 3,456,000 (a 1,728,000, b 1,728,000), and c needs 1,152,000: give a fewer frames or a smaller canvas' });
+  assert.throws(() => prepareScene(scene({ a: recipe(320, 180, 30), b: recipe(320, 180, 30), c: recipe(320, 180, 20) })), { message: 'scene.assets.c: a scene\'s assets render at most 4,194,304 pixels in all, every frame of every pass; the assets before it use 3,456,000 (a 1,728,000, b 1,728,000), and c needs 1,152,000: a fits with 22 frames, so make it with 22 (in its source, rather than thinning its 30 frames unevenly) or give it a smaller canvas' });
+  assert.ok(prepareScene(scene({ a: recipe(320, 180, 22), b: recipe(320, 180, 30), c: recipe(320, 180, 20) })));
+  // The overlay itself is the largest: a 480x270 backdrop and a 32-frame snow loop. Before, nothing said 31 fit.
+  const winter = frames => ({ ...scene({ backdrop: recipe(480, 270, 1), snow: recipe(480, 270, frames) }), width: 480, height: 270 });
+  assert.throws(() => prepareScene(winter(32)), { message: "scene.assets.snow: a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; backdrop uses 129,600, and snow needs 4,147,200: snow fits with 31 frames, so make it with 31 (in its source, rather than thinning its 32 frames unevenly) or give it a smaller canvas" });
+  assert.ok(prepareScene(winter(31)));
 });

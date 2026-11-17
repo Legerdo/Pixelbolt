@@ -244,9 +244,9 @@ export function importPNG(bytes, { name = 'imported', atlas, frame, padding, fra
       if (!pixel.color.endsWith('00')) rows[pixel.y][pixel.x] = colors.get(pixel.color);
       else if (pixel.color !== '#00000000') hidden.push(pixel); // Preserve meaningful RGB even under alpha zero.
     }
-    // A still past what one grid holds is tiles of it, each at most CANVAS_SIDE wide and FRAME_PIXELS cells, the empty
-    // ones left out.
-    const across = Math.min(width, CANVAS_SIDE), down = Math.min(height, Math.floor(FRAME_PIXELS / across)), ops = [];
+    // A still past what one grid holds is tiles of it, each at most CANVAS_SIDE rows of CANVAS_SIDE cells and
+    // FRAME_PIXELS cells in all, the empty ones left out.
+    const across = Math.min(width, CANVAS_SIDE), down = Math.min(height, CANVAS_SIDE, Math.floor(FRAME_PIXELS / across)), ops = [];
     if (!still) ops.push({ op: 'grid', rows: rows.map(row => row.join('')) });
     else for (let y = 0; y < height; y += down) for (let x = 0; x < width; x += across) {
       const tile = rows.slice(y, y + down).map(row => row.slice(x, x + across).join(''));

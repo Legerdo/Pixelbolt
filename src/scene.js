@@ -168,7 +168,7 @@ export function prepareScene(source) {
   if (!source.assets || Array.isArray(source.assets) || typeof source.assets !== 'object' || Object.keys(source.assets).length > 64) fail('scene.assets', 'expected at most 64 inlined assets');
   // Ramp shifters per asset (kept apart from the passes, which exports iterate as images).
   // used: the pixels each asset's passes render (every frame of each), which together stay within 4,194,304.
-  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(); let sourceArea = 0;
+  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(), counts = new Map(); let sourceArea = 0;
   for (const [id, value] of Object.entries(source.assets)) {
     if (typeof value === 'string' || typeof value?.recipe === 'string' || typeof value?.normal === 'string' || typeof value?.emissive === 'string' || value?.revision !== undefined) fail(`scene.assets.${id}`, 'file and revision references are resolved by the CLI and MCP; inline the recipe to render here');
     const entry = value?.recipe ? value : { recipe: value };
@@ -186,9 +186,14 @@ export function prepareScene(source) {
         const n = value => value.toLocaleString('en-US'), before = [...used].sort((a, b) => b[1] - a[1]);
         const largest = before.length && before[0][1] >= (used.get(id) ?? 0) + area ? before[0][0] : id;
         const uses = !before.length ? '' : before.length === 1 ? `${before[0][0]} uses ${n(before[0][1])}, and ` : `the assets before it use ${n(sourceArea)} (${before.slice(0, 3).map(([name, pixels]) => `${name} ${n(pixels)}`).join(', ')}${before.length > 3 ? ', …' : ''}), and `;
-        fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${id}${key === 'recipe' ? '' : `'s ${key} pass`} needs ${n(area)}: give ${largest} fewer frames or a smaller canvas`);
+        // How many of its frames fit beside the rest (every pass of it counted per frame). Its own frames are set where
+        // it is made: dropping some of them to that count plays unevenly.
+        const count = largest === id ? spec.frames.length : counts.get(largest), mine = (used.get(largest) ?? 0) + (largest === id ? area : 0);
+        const fit = Math.floor((4194304 - (sourceArea + area - mine)) / (mine / count));
+        const fewer = fit >= 1 ? `${largest} fits with ${fit} frame${fit === 1 ? '' : 's'}, so make it with ${fit} (in its source, rather than thinning its ${count} frames unevenly) or give it a smaller canvas` : `give ${largest} a smaller canvas`;
+        fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${id}${key === 'recipe' ? '' : `'s ${key} pass`} needs ${n(area)}: ${fewer}`);
       }
-      sourceArea += area; used.set(id, (used.get(id) ?? 0) + area);
+      sourceArea += area; used.set(id, (used.get(id) ?? 0) + area); counts.set(id, spec.frames.length);
       passes[key] = renderProject(spec);
       warnings.push(...passes[key].warnings.map(message => `${id}.${key}: ${message}`));
     }

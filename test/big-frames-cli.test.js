@@ -128,6 +128,14 @@ test('gif --size --animation default plays a recipe that names no animations, an
   await writeFile(path.join(dir, 'named.json'), JSON.stringify(screen(64, 64, 4, { animations: { idle: { frames: ['f0', 'f1'] }, run: { frames: ['f2', 'f3'] } } })));
   const named = pixelbolt(['gif', 'named.json', '--size', '80x80', '--animation', 'run', '--out', 'run.gif'], dir);
   assert.deepEqual([named.ok, named.animation, named.frames, named.animations], [true, 'run', 2, ['idle', 'run']]);
+  // Stills ("animations": {}) get the stills refusal with --size as without it, and listing the frames it names plays.
+  await writeFile(path.join(dir, 'stills.json'), JSON.stringify(screen(64, 64, 4, { animations: {} })));
+  const stills = pixelbolt(['gif', 'stills.json', '--size', '80x80', '--animation', 'default', '--out', 'stills.gif'], dir);
+  assert.equal(stills.error, pixelbolt(['gif', 'stills.json', '--animation', 'default', '--out', 'stills.gif'], dir).error);
+  assert.match(stills.error, /^gif: the frames are stills \("animations": \{\} in the recipe\)/);
+  await writeFile(path.join(dir, 'listed.json'), JSON.stringify(screen(64, 64, 4, { animations: { loop: { frames: ['f0', 'f1', 'f2', 'f3'] } } })));
+  const listed = pixelbolt(['gif', 'listed.json', '--size', '80x80', '--out', 'listed.gif'], dir);
+  assert.deepEqual([listed.ok, listed.width, listed.frames], [true, 80, 4]);
 });
 
 test('a check whose scale came from the call says to drop or change --scale (scale), and following it passes', async t => {
@@ -154,12 +162,30 @@ test('a check whose scale came from the call says to drop or change --scale (sca
   assert.equal(pixelbolt(['render', 'three.json', '--out', 'g2', '--expect', '{"width":72,"height":72}'], dir).check.ok, true);
   // A size past a frame: the canvases are offered at --scale k, and the patch leaves sheet.scale alone.
   const large = fix(pixelbolt(['render', 'plain.json', '--out', 'h', '--scale', '2', '--expect', '{"width":1920,"height":1080}'], dir));
-  assert.match(large, /1920x1080 is a 128x72 canvas at --scale 15, .*: pixel_patch \[\{"set":"width","value":128\},\{"set":"height","value":72\}\] \(or .*, a 640x360 canvas at --scale 3, for the most detail\), .* then render again with that --scale$/);
+  assert.match(large, /1920x1080 is a 128x72 canvas at --scale 15, .*: pixel_patch \[\{"set":"width","value":128\},\{"set":"height","value":72\}\] \(or .*, a 640x360 canvas at --scale 3, for the most detail\), .* then render again with --scale 15 \(--scale 3 for the 640x360 canvas\)$/);
   const wide = JSON.parse(/pixel_patch (\[.*?\]) \(or/.exec(large)[1]);
   await writeFile(path.join(dir, 'wide.json'), JSON.stringify(patchRecipe(recipe, wide).recipe));
   assert.equal(pixelbolt(['render', 'wide.json', '--out', 'i', '--scale', '15', '--expect', '{"width":1920,"height":1080}'], dir).check.ok, true);
+  // A still: each route ends with its own render, the still's without --scale. Before, the still's clause said "render
+  // again without --scale" and the shared ending "render again with that --scale", naming none.
+  const still = screen(24, 24, 1), patched = (patch, name) => writeFile(path.join(dir, name), JSON.stringify(patchRecipe(still, patch).recipe));
+  await writeFile(path.join(dir, 'still.json'), JSON.stringify(still));
+  const routes = fix(pixelbolt(['render', 'still.json', '--out', 'j', '--scale', '2', '--expect', '{"width":1920,"height":1080}'], dir));
+  assert.match(routes, /; or, since this is a still, a 1920x1080 still at one screen pixel per art pixel: pixel_patch \[.*?\]\. Either way, fit the drawing to the new canvas, pixel_inspect, then render again with --scale 15 \(--scale 2 for the 960x540 canvas\), or without --scale for the still$/);
+  const [near, detail, whole] = [...routes.matchAll(/(\[\{"set".*?\])/g)].map(match => JSON.parse(match[1]));
+  for (const [patch, name, args] of [[near, 'near.json', ['--scale', '15']], [detail, 'detail.json', ['--scale', '2']], [whole, 'whole.json', []]]) {
+    await patched(patch, name);
+    assert.equal(pixelbolt(['render', name, '--out', name.replace('.json', ''), ...args, '--expect', '{"width":1920,"height":1080}'], dir).check.ok, true, name);
+  }
+  // No whole scale makes 1921x1080: the still alone, rendered without --scale.
+  const odd = fix(pixelbolt(['render', 'still.json', '--out', 'k', '--scale', '2', '--expect', '{"width":1921,"height":1080}'], dir));
+  assert.equal(odd, 'no whole --scale makes 1921x1080 from this canvas, but a still may be up to 4096 px a side, so make it a 1921x1080 still at one screen pixel per art pixel: pixel_patch [{"set":"width","value":1921},{"set":"height","value":1080}], fit the drawing to the new canvas, pixel_inspect, then render again without --scale');
+  await patched(JSON.parse(/pixel_patch (\[.*?\])/.exec(odd)[1]), 'odd.json');
+  assert.equal(pixelbolt(['render', 'odd.json', '--out', 'l', '--expect', '{"width":1921,"height":1080}'], dir).check.ok, true);
   // MCP names its own option.
   const run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
+  const stillMCP = JSON.parse((await run('pixel_render', { project: still, scale: 2, expect: { width: 1920, height: 1080 } })).content[0].text);
+  assert.match(stillMCP.check.problems[0].fix, /then pixel_render again with scale: 15 \(scale: 2 for the 960x540 canvas\), or without scale for the still$/);
   const mcp = JSON.parse((await run('pixel_render', { project: recipe, scale: 2, expect: { width: 24, height: 24 } })).content[0].text);
   assert.equal(mcp.check.problems[0].fix, 'scale 2 enlarges every export: pixel_render again without scale');
   // Without a call's scale, the recipe's own sheet.scale is still patched.
@@ -222,14 +248,17 @@ test('inspect, render and validate say a source compiles first and a scene goes 
   // Before: "project.format: unknown field; fields here: ...".
   for (const command of ['inspect', 'render', 'validate']) {
     const reply = pixelbolt([command, 'meteor.fx.json', ...(command === 'validate' ? [] : ['--out', command === 'render' ? 'r' : 'i.png'])], dir);
-    assert.equal(reply.error, `this is a pixelforge-fx source: compile it first (pixelbolt compile meteor.fx.json --out <new.json>), then ${command} the recipe it writes`);
+    assert.equal(reply.path, 'project.format');
+    assert.equal(reply.error, `project.format: this is a pixelforge-fx source: compile it first (pixelbolt compile meteor.fx.json --out <new.json>), then ${command} the recipe it writes`);
   }
   assert.equal(pixelbolt(['compile', 'meteor.fx.json', '--out', 'meteor.json'], dir).ok, true);
   assert.equal(pixelbolt(['inspect', 'meteor.json', '--out', 'm.png'], dir).ok, true);
   const scene = { format: 'pixelforge-scene', version: 1, name: 'sc', width: 32, height: 32, assets: { a: screen(32, 32, 2) }, instances: [{ asset: 'a', at: [0, 0] }] };
   await writeFile(path.join(dir, 'sc.scene.json'), JSON.stringify(scene));
-  for (const command of ['inspect', 'validate']) assert.equal(pixelbolt([command, 'sc.scene.json', ...(command === 'inspect' ? ['--out', 's.png'] : [])], dir).error, 'this is a scene, not a recipe: use pixelbolt scene on it (--out <folder>, or --image <view.png> for one view) or pixelbolt gif (--out <new.gif>)');
+  for (const command of ['inspect', 'validate']) assert.equal(pixelbolt([command, 'sc.scene.json', ...(command === 'inspect' ? ['--out', 's.png'] : [])], dir).error, 'project.format: this is a scene, not a recipe: use pixelbolt scene on it (--out <folder>, or --image <view.png> for one view) or pixelbolt gif (--out <new.gif>)');
+  assert.equal(pixelbolt(['render', 'sc.scene.json', '--out', 'sr'], dir).path, 'project.format');
   assert.equal(pixelbolt(['scene', 'sc.scene.json', '--image', 'view.png'], dir).ok, true);
+  assert.equal(pixelbolt(['gif', 'sc.scene.json', '--out', 'sc.gif'], dir).ok, true);
   // Pose and wave sources are still inspected as they compile.
   assert.equal(pixelbolt(['inspect', path.join(root, 'examples', 'hero.poses.json'), '--out', 'h.png'], dir).ok, true);
 });
@@ -253,4 +282,55 @@ test('a PNG imported whole within a still\'s limits is a still, its grid in tile
   assert.equal(pixelbolt(['import', 'strip.png', '--out', 'strip.json'], dir).error, 'import: a 4100×8 image is past a still\'s 4096 pixels a side and 4,194,304 in all; give frame, the size of one frame in a sheet, to split it into an animation');
   assert.equal(pixelbolt(['import', 'strip.png', '--frame', '820x8', '--out', 'strip.json'], dir).ok, true);
   assert.equal(JSON.parse(await readFile(path.join(dir, 'strip.json'), 'utf8')).frames.length, 5);
+});
+
+test('a still narrower than 256 and taller than 1024 imports in tiles of at most 1024 rows', async t => {
+  const dir = await folder(t);
+  // Before: "project.frames[0].ops[0].rows: expected an array with at most 1024 items", core's own validation.
+  for (const [width, height] of [[100, 4000], [1, 4096], [255, 1100]]) {
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if ((x + y) % 3) data.set([(x % 5) * 50, (y % 7) * 30, 90, 255], (y * width + x) * 4);
+    const bytes = encodePNG(data, width, height), name = `tall-${width}.png`;
+    await writeFile(path.join(dir, name), bytes);
+    const reply = pixelbolt(['import', name, '--out', `tall-${width}.json`], dir);
+    assert.equal(reply.ok, true, reply.error);
+    const recipe = JSON.parse(await readFile(path.join(dir, `tall-${width}.json`), 'utf8'));
+    assert.ok(recipe.frames[0].ops.every(op => op.rows.length <= 1024 && op.rows[0].length <= 1024 && op.rows.length * op.rows[0].length <= 262144));
+    const project = renderProject(recipe);
+    assert.ok(Buffer.from(project.frames[0].data).equals(Buffer.from(data)), `${width}×${height}: every pixel as the PNG holds it`);
+  }
+});
+
+test('a scene GIF at the default rate names the even rate when its frames would be split unevenly, and that rate holds them evenly', async t => {
+  const dir = await folder(t);
+  // A backdrop and a 30-frame snow loop of 100 ms frames over 3000 ms. Before: 25 fps and no word, while each snow
+  // frame was held 120 ms, then 80, in turn.
+  const snow = { ...screen(32, 18, 30), frames: screen(32, 18, 30).frames.map(frame => ({ ...frame, duration: 100, ops: frame.ops.slice(1) })) };
+  const source = { format: 'pixelforge-scene', version: 1, name: 'winter', width: 32, height: 18, duration: 3000, assets: { backdrop: screen(32, 18, 1, { animations: {} }), snow },
+    instances: [{ asset: 'backdrop', at: [0, 0], frame: 'f0' }, { asset: 'snow', at: [0, 0], animation: 'default' }] };
+  await writeFile(path.join(dir, 'winter.scene.json'), JSON.stringify(source));
+  const note = 'At 25 fps (40 ms a GIF frame) frames of 100 ms are held for uneven numbers of GIF frames, so their animation stutters; fps 20 holds each for a whole number.';
+  const plain = pixelbolt(['gif', 'winter.scene.json', '--out', 'plain.gif'], dir);
+  assert.deepEqual([plain.fps, plain.frames, plain.notes], ['25', 75, [note]]);
+  const even = pixelbolt(['gif', 'winter.scene.json', '--out', 'even.gif', '--fps', '20'], dir);
+  assert.deepEqual([even.ok, even.fps, even.frames, even.notes], [true, '20', 60, undefined]);
+  // How long each snow frame stays on screen, in GIF frames: alternating 3 and 2 at 25 fps, 2 apiece at 20.
+  const scene = prepareScene(source), { renderScene } = await import('../src/scene.js');
+  const holds = (frameMs, count) => {
+    const runs = []; let last = null;
+    for (let k = 0; k < count; k++) {
+      const image = Buffer.from(renderScene(scene, { time: k * frameMs }).data).toString('base64');
+      if (image === last) runs[runs.length - 1]++; else runs.push(1);
+      last = image;
+    }
+    return new Set(runs);
+  };
+  assert.deepEqual(holds(40, 75), new Set([3, 2]));
+  assert.deepEqual(holds(50, 60), new Set([2]));
+  assert.deepEqual(sceneGIF(scene, { fps: 20 }).delays, { 50: 60 });
+  // Given a rate, the call chose it: no note. MCP, given none, says the same as the CLI.
+  assert.equal(sceneGIF(scene, { fps: 25 }).notes.length, 0);
+  const run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
+  const viewed = JSON.parse((await run('pixel_scene', { scene: source, gif: { scale: 1 } })).content[0].text);
+  assert.ok(JSON.stringify(viewed).includes(note), JSON.stringify(viewed).slice(0, 400));
 });
