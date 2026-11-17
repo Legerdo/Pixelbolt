@@ -300,3 +300,37 @@ test('a still narrower than 256 and taller than 1024 imports in tiles of at most
     assert.ok(Buffer.from(project.frames[0].data).equals(Buffer.from(data)), `${width}×${height}: every pixel as the PNG holds it`);
   }
 });
+
+test('a scene GIF at the default rate names the even rate when its frames would be split unevenly, and that rate holds them evenly', async t => {
+  const dir = await folder(t);
+  // A backdrop and a 30-frame snow loop of 100 ms frames over 3000 ms. Before: 25 fps and no word, while each snow
+  // frame was held 120 ms, then 80, in turn.
+  const snow = { ...screen(32, 18, 30), frames: screen(32, 18, 30).frames.map(frame => ({ ...frame, duration: 100, ops: frame.ops.slice(1) })) };
+  const source = { format: 'pixelforge-scene', version: 1, name: 'winter', width: 32, height: 18, duration: 3000, assets: { backdrop: screen(32, 18, 1, { animations: {} }), snow },
+    instances: [{ asset: 'backdrop', at: [0, 0], frame: 'f0' }, { asset: 'snow', at: [0, 0], animation: 'default' }] };
+  await writeFile(path.join(dir, 'winter.scene.json'), JSON.stringify(source));
+  const note = 'At 25 fps (40 ms a GIF frame) frames of 100 ms are held for uneven numbers of GIF frames, so their animation stutters; fps 20 holds each for a whole number.';
+  const plain = pixelbolt(['gif', 'winter.scene.json', '--out', 'plain.gif'], dir);
+  assert.deepEqual([plain.fps, plain.frames, plain.notes], ['25', 75, [note]]);
+  const even = pixelbolt(['gif', 'winter.scene.json', '--out', 'even.gif', '--fps', '20'], dir);
+  assert.deepEqual([even.ok, even.fps, even.frames, even.notes], [true, '20', 60, undefined]);
+  // How long each snow frame stays on screen, in GIF frames: alternating 3 and 2 at 25 fps, 2 apiece at 20.
+  const scene = prepareScene(source), { renderScene } = await import('../src/scene.js');
+  const holds = (frameMs, count) => {
+    const runs = []; let last = null;
+    for (let k = 0; k < count; k++) {
+      const image = Buffer.from(renderScene(scene, { time: k * frameMs }).data).toString('base64');
+      if (image === last) runs[runs.length - 1]++; else runs.push(1);
+      last = image;
+    }
+    return new Set(runs);
+  };
+  assert.deepEqual(holds(40, 75), new Set([3, 2]));
+  assert.deepEqual(holds(50, 60), new Set([2]));
+  assert.deepEqual(sceneGIF(scene, { fps: 20 }).delays, { 50: 60 });
+  // Given a rate, the call chose it: no note. MCP, given none, says the same as the CLI.
+  assert.equal(sceneGIF(scene, { fps: 25 }).notes.length, 0);
+  const run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
+  const viewed = JSON.parse((await run('pixel_scene', { scene: source, gif: { scale: 1 } })).content[0].text);
+  assert.ok(JSON.stringify(viewed).includes(note), JSON.stringify(viewed).slice(0, 400));
+});
