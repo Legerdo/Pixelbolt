@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 import os from 'node:os';
-import { PixelError, MAX_REQUEST_BYTES, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation } from './core.js';
+import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, renderProject, inspectProject, stackViews, paletteUse, compareProjects, briefDiagnostics, briefCells, briefComparison, stillsHaveNoAnimation } from './core.js';
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
@@ -38,10 +38,11 @@ const imageContent = ({ data, width, height }) => ({ type: 'image', mimeType: 'i
 function viewSummary({ sheet: { data, ...sheet }, nativeSheet, grids, legend, cells, ...view }) {
   return { cells: briefCells(cells), ...view, sheet, ...(nativeSheet && { nativeSheet: { ...nativeSheet, data: undefined } }) };
 }
-// Rulers let an agent read grid coordinates without counting characters.
+// Rulers let an agent read grid coordinates without counting characters: a row per digit of the largest x, so a
+// frame up to CANVAS_SIDE wide reads x 1000 apart from x 0.
 function gridText({ region, legend, grids }) {
   const label = String(region.y + region.h - 1).length, xs = Array.from({ length: region.w }, (_, i) => region.x + i);
-  const rulers = [100, 10, 1].filter(p => p === 1 || xs.at(-1) >= p).map(p => ' '.repeat(label + 2) + xs.map(x => (x >= p || p === 1 ? Math.floor(x / p) % 10 : ' ')).join(''));
+  const rulers = [1000, 100, 10, 1].filter(p => p === 1 || xs.at(-1) >= p).map(p => ' '.repeat(label + 2) + xs.map(x => (x >= p || p === 1 ? Math.floor(x / p) % 10 : ' ')).join(''));
   const parts = Object.values(legend).some(entry => entry.part !== undefined);
   const lines = [`${parts ? 'Part' : 'Palette'}-key grids for x ${region.x}–${region.x + region.w - 1}, y ${region.y}–${region.y + region.h - 1}. "." is ${parts ? 'empty' : 'transparent'}.`];
   for (const [symbol, entry] of Object.entries(legend)) lines.push(entry.part !== undefined ? `${symbol} = ${entry.part} ${entry.color}` : symbol === '?' ? `? = ${entry.colors} more colors without a symbol` : `${symbol} = ${entry.palette ? `palette "${entry.palette}" ${entry.color}` : `${entry.color}, not in the palette`}`);
@@ -648,7 +649,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
     source: { type: 'object', description: 'A pixelforge-poses source instead of project/revision, for motion review with its contacts.' },
     metadata: { type: 'object', description: 'Pose metadata from pixel_compile (metadata: true), for motion review of a compiled revision.' },
     speed: { type: 'number', minimum: -4096, maximum: 4096, description: 'Motion view: pixels per second.' },
-    ground: { type: 'integer', minimum: 0, maximum: 255, description: 'Motion view: ground row.' },
+    ground: { type: 'integer', minimum: 0, maximum: CANVAS_SIDE - 1, description: 'Motion view: ground row.' },
     layers: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64, description: 'Show only these named layers.' },
     reference: { type: 'string', description: 'Revision to compare against: adds a before/after image and the changed pixels.' }, beside: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8, description: 'Revisions drawn under this one in the same view and image, to compare variants.' },
     frames: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 1024, description: 'Frame names to show, in order; * and ? match, as in "flash-*". Default: every frame.' },
@@ -656,7 +657,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
     stack: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'Cells of frames laid over one another, bottom first, instead of frames: [["body", "plate"]].' },
     region: { type: 'object', properties: { x: coordinate(0, 4095), y: coordinate(0, 4095), w: coordinate(1, 4096), h: coordinate(1, 4096) }, required: ['x', 'y', 'w', 'h'], additionalProperties: false, description: 'Crop every frame to this canvas rectangle.' },
     grid: { type: 'boolean', description: 'Also return palette-key text grids with x/y rulers (at most 16,384 pixels).' },
-    scale: { type: 'integer', minimum: 1, maximum: 16, description: 'Contact sheet scale. Default: the largest that fits about 1024 px.' },
+    scale: { type: 'integer', minimum: 1, maximum: 16, description: 'Contact sheet scale. Default: the largest that fits about 1024 px, at least 1.' },
     background: { type: 'string', description: 'checker (default), transparent, a palette name or a hex color.' },
     view: { enum: ['color', 'silhouette', 'grayscale', 'onion', 'tile', 'parts', 'motion'], description: 'onion and motion need animation; motion reports foot slide, ground error and loop joins and traces limb arcs (source or metadata adds contacts); parts colours each pixel by the layer or pose part that drew it; tile repeats each frame 3x3.' },
     native: { type: 'boolean', description: 'Also return a 1x contact sheet.' },
