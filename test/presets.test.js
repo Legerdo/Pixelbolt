@@ -84,6 +84,8 @@ test('the presets listing covers every source and looping recipe in examples/, m
   const { guide, presets } = reply(await mcp.call('pixel_help', { topic: 'presets', full: true }));
   // What an agent reads by default, on every effect request: a line per preset, from the measurements just kept.
   const brief = reply(await mcp.call('pixel_help', { topic: 'presets' }));
+  // preset without a name is the listing, not an error asking for one.
+  assert.deepEqual(reply(await mcp.call('pixel_help', { topic: 'preset' })), brief);
   const help = (await mcp.tools()).find(tool => tool.name === 'pixel_help');
   for (const [args, message] of [[{ topic: 'guide', full: true }, /full goes with topic "presets"/], [{ topic: 'presets', full: 'true' }, /expected a boolean/]]) {
     const refused = await mcp.call('pixel_help', args);
@@ -271,7 +273,6 @@ test('pixel_help returns one preset\'s source with its files inlined, says what 
   }
   const error = async args => { const result = await mcp.call(args.tool ?? 'pixel_help', { ...args, tool: undefined }); assert.equal(result.isError, true, JSON.stringify(args)); return reply(result); };
   if (entries.some(entry => entry.name === 'smoke-puff')) assert.match((await error({ topic: 'preset', name: 'smoke-puf' })).error, /no preset named "smoke-puf"; did you mean "smoke-puff"/);
-  assert.equal((await error({ topic: 'preset' })).path, 'name');
   assert.equal((await error({ topic: 'guide', name: 'no-such-heading' })).path, 'name');
   assert.match((await error({ tool: 'pixel_compile', preset: 'smoke-puff', source: { format: 'pixelforge-fluid' } })).error, /either source or preset/);
   assert.match((await error({ tool: 'pixel_compile' })).error, /either source or preset/);

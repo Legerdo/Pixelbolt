@@ -96,8 +96,8 @@ test('CLI render embeds source in every PNG only on request, preserving every ot
     const bundle = await createBundle(recipe), plain = path.join(dir, recipe.name), embedded = path.join(dir, recipe.name + '-embedded');
     const input = source === '-' ? JSON.stringify(recipe) : undefined;
     const old = cli(['render', source, '--out', plain], { input });
-    // The folder once, and its files relative to it without each frame, which the summary already names.
-    assert.deepEqual(JSON.parse(old.stdout), JSON.parse(JSON.stringify({ ok: true, ...summary(bundle.project, recipe), directory: plain, sheet: `${recipe.name}.png`, atlas: `${recipe.name}.atlas.json`, files: [...bundle.files.keys()].filter(name => !name.startsWith('frames/') && !name.startsWith('player/') && !(!name.includes('/') && (name.endsWith('.js') || name === 'README.txt'))), check: briefCheck(checkDelivery(bundle.project, { recipe })) })));
+    // The folder once, and its files relative to it, the frames as one entry: the summary already names each frame.
+    assert.deepEqual(JSON.parse(old.stdout), JSON.parse(JSON.stringify({ ok: true, ...summary(bundle.project, recipe), directory: plain, sheet: `${recipe.name}.png`, atlas: `${recipe.name}.atlas.json`, files: [...new Set([...bundle.files.keys()].filter(name => !name.startsWith('player/') && !(!name.includes('/') && (name.endsWith('.js') || name === 'README.txt'))).map(name => (name.startsWith('frames/') ? 'frames/<frame name>.png' : name)))], check: briefCheck(checkDelivery(bundle.project, { recipe })) })));
     await checkBundle(plain, bundle);
     const carried = cli(['render', source, '--out', embedded, '--embed-recipe'], { input });
     assert.equal(carried.stdout.replaceAll(JSON.stringify(embedded).slice(1, -1), JSON.stringify(plain).slice(1, -1)), old.stdout);

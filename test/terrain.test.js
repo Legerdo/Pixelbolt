@@ -200,7 +200,7 @@ test('CLI autotile writes the test map with --preview and suggests it otherwise'
   assert.match(plain.hint, /--preview <new\.png> to see every tile in a test map/);
   const refused = cli('compile', path.join(root, 'examples/swing.poses.json'), '--out', path.join(dir, 'p.json'), '--preview', path.join(dir, 'p.png'));
   assert.equal(refused.status, 1);
-  assert.match(refused.stdout + refused.stderr, /--preview draws an autotile set over a test map; this source is not an autotile set/);
+  assert.match(refused.stdout + refused.stderr, /--preview draws an autotile set over a test map; this source is not an autotile set\. Compile without it, then look at the frames with pixelbolt inspect \S*p\.json --out <sheet\.png>/);
 });
 
 test('MCP pixel_compile returns an autotile set with its test map', async t => {

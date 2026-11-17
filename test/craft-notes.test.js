@@ -55,6 +55,26 @@ test('the two-layer tile set the craft notes give to start from compiles: both p
   assert.deepEqual(describeAnimations(bundle.project, recipe), {});
 });
 
+test('the Phaser line in the craft notes names files a render writes, and the atlas is the JSON hash Phaser reads', async () => {
+  const notes = await readFile(new URL('../docs/agent-craft.md', import.meta.url), 'utf8');
+  const [, sheet, atlasFile] = /- Phaser 3: `this\.load\.atlas\(key, '<name>(\.png)', '<name>(\.atlas\.json)'\)`/.exec(notes);
+  const recipe = await example('forest-spirit.json'), bundle = await createBundle(recipe), atlas = JSON.parse(bundle.files.get(`${recipe.name}${atlasFile}`));
+  assert.ok(bundle.files.has(`${recipe.name}${sheet}`));
+  assert.equal(atlas.meta.image, `${recipe.name}${sheet}`);
+  // Frames keyed by their recipe names, each with its rectangle; the animations list those names.
+  assert.deepEqual(Object.keys(atlas.frames), recipe.frames.map(frame => frame.name));
+  for (const { frame } of Object.values(atlas.frames)) assert.deepEqual(Object.keys(frame), ['x', 'y', 'w', 'h']);
+  for (const animation of Object.values(atlas.animations)) assert.ok(animation.frames.every(name => Object.hasOwn(atlas.frames, name)));
+  // The snippet keeps each frame's time and the animation's loop, read from what the atlas carries: Phaser's JSON hash
+  // loader copies each frame's entry into its customData and the atlas's other keys into the texture's.
+  assert.ok(notes.includes('const {animations} = this.textures.get(key).customData'));
+  assert.ok(notes.includes('duration: this.textures.getFrame(key, frame).customData.duration'));
+  assert.ok(notes.includes('repeat: animations.idle.loop ? -1 : 0'));
+  assert.ok(Object.hasOwn(atlas.animations, 'idle'));
+  for (const name of Object.keys(atlas.frames)) assert.equal(atlas.frames[name].duration, recipe.frames.find(frame => frame.name === name).duration ?? 100, name);
+  for (const animation of Object.values(atlas.animations)) assert.equal(typeof animation.loop, 'boolean');
+});
+
 test('the scene the craft notes give to start from draws: a floor from the tile set, a fire, a lit character', async () => {
   const notes = await readFile(new URL('../docs/agent-craft.md', import.meta.url), 'utf8');
   const scene = JSON.parse(/To start from: `(\{"format": "pixelforge-scene".*?\})`\. Assets are/s.exec(notes)[1]);

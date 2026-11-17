@@ -49,6 +49,8 @@ test('pixelbolt presets lists every preset and measures each however long that t
   // By default a line each (help presets is the same listing): every fact is measured in a shell, so it is exactly
   // the full listing told briefly.
   assert.deepEqual(JSON.parse((await runScript(['--import', HOUR_PER_READING], path.join(copy, 'bin', 'pixelbolt.js'), 'help', 'presets')).stdout), briefListing(listing));
+  // help preset --full is help presets --full, as help preset is help presets.
+  for (const topic of ['presets', 'preset']) assert.deepEqual(JSON.parse((await runScript(['--import', HOUR_PER_READING], path.join(copy, 'bin', 'pixelbolt.js'), 'help', topic, '--full')).stdout), listing, `help ${topic} --full`);
   for (const [args, message] of [[['presets', 'smoke-puff', '--full'], /--full goes with the listing/], [['help', 'presets', 'smoke-puff'], /help presets lists every preset/]]) {
     const refused = await runScript([], path.join(copy, 'bin', 'pixelbolt.js'), ...args).then(() => null, error => error);
     assert.ok(refused, args.join(' ')); assert.match(refused.stdout + refused.stderr, message);

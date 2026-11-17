@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { renderProject, buildAtlas, parseColor, scalePixels, analyzeProject, inspectProject } from '../src/core.js';
 
 const make = (ops = [], extra = {}) => ({ version: 1, name: 'test', width: 4, height: 4, palette: { r: '#f00', b: '#00f', g: '#0f0' }, frames: [{ name: 'a', ops }], ...extra });
@@ -198,6 +199,19 @@ test('flood fill respects boundaries and fills the target region exactly', () =>
 test('clear erases alpha and replace matches the full RGBA value', () => {
   const f = renderProject(make([{ op: 'rect', w: 4, h: 4, color: 'r' }, { op: 'clear', w: 1, h: 1 }, { op: 'replace', from: 'r', to: '#00f8' }])).frames[0];
   assert.deepEqual(pixel(f, 0, 0), [0, 0, 0, 0]); assert.deepEqual(pixel(f, 1, 1), [0, 0, 255, 136]);
+});
+test('pixel, rect, ellipse, line and grid in transparent leave pixels as they are, as the quick start says; clear, fill and replace to transparent erase', async () => {
+  const drawn = [{ op: 'pixel', color: 'transparent' }, { op: 'rect', w: 2, h: 2, color: 'transparent' }, { op: 'ellipse', w: 4, h: 4, color: 'transparent' }, { op: 'line', x2: 3, y2: 3, color: 'transparent' }, { op: 'grid', rows: ['z'] }];
+  const erased = [{ op: 'clear', w: 1, h: 1 }, { op: 'fill', x: 0, y: 0, color: 'transparent' }, { op: 'replace', from: 'r', to: 'transparent' }];
+  const after = op => pixel(renderProject(make([{ op: 'rect', w: 4, h: 4, color: 'r' }, op], { palette: { r: '#f00', z: 'transparent' } })).frames[0], 0, 0);
+  for (const op of drawn) assert.deepEqual(after(op), [255, 0, 0, 255], op.op);
+  for (const op of erased) assert.deepEqual(after(op), [0, 0, 0, 0], op.op);
+  const quick = await readFile(new URL('../docs/agent-quick-start.md', import.meta.url), 'utf8');
+  assert.match(quick, /so do `pixel`, `rect`, `ellipse`, `line` and `grid` in `transparent`; `clear`, and `fill` or `replace` to `transparent`, erase\./);
+});
+test('the palette keys . and space are refused with what they do instead', () => {
+  for (const key of ['.', ' ']) assert.throws(() => renderProject(make([], { palette: { [key]: 'transparent' } })), { message: `project.palette.${key}: "." and space are reserved: in grid rows they leave the pixel alone and need no palette entry (a transparent colour is "transparent" under another key)` });
+  assert.throws(() => renderProject(make([], { palette: { transparent: '#000' } })), /invalid or reserved palette name/);
 });
 test('layer opacity applies once after the layer is flattened', () => {
   const f = renderProject(make([{ op: 'rect', w: 4, h: 4, color: 'b' }], { frames: [{ name: 'a', ops: [{ op: 'rect', w: 4, h: 4, color: 'b' }], layers: [{ opacity: .5, ops: [{ op: 'pixel', color: 'r' }, { op: 'pixel', color: 'r' }] }] }] })).frames[0];

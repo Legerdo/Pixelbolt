@@ -1,6 +1,6 @@
 # Pixelbolt quick start
 
-Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic, and no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. This page covers most tasks; the last section lists the longer references for when you need more.
+Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, tiles, icons, effects and short animations, exported as PNG, atlas JSON, APNG, GIF or numbered frames for video. It is local and deterministic; no image model is involved. You write the recipe, look at what it draws, fix it with small patches, then export. This page covers most jobs; the last section lists the rest.
 
 ## A complete recipe
 
@@ -29,7 +29,7 @@ Pixelbolt turns a small JSON recipe into exact pixels: sprites, sprite sheets, t
 ```
 
 - Required: `version: 1`, `name`, `width` and `height` (1–256; a single-frame still may be up to 4096 a side and 4,194,304 pixels), and `frames` (1–256). Names start with a letter, then letters, digits, `-` or `_`; frame and animation names are unique ignoring case.
-- `palette` maps keys to `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` or `transparent`. Single-character keys draw in grid rows, where `.` and space leave pixels alone. A shared palette file is `{"$ref": "palette.json"}` (CLI, or MCP inside its root).
+- `palette` maps keys to `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` or `transparent`. Single-character keys draw in grid rows, where `.` and space leave pixels alone; so do `pixel`, `rect`, `ellipse`, `line` and `grid` in `transparent`; `clear`, and `fill` or `replace` to `transparent`, erase. A shared palette file is `{"$ref": "palette.json"}` (CLI, or MCP inside its root).
 - `symbols` are reusable grids that `stamp` draws. A frame is `{name, duration?, from?, translate?, flipX?, palette?, anchor?, points?, ops?, layers?, pixels?}`: `duration` in ms (default 100), `from` copies an earlier frame as it was finally drawn (its `pixels` corrections too), a frame `palette` recolours keys for palette cycling, `layers` are `{name?, opacity?, x?, y?, palette?, sort?, ops}` (`sort: "ground"` draws them far to near by the row each operation stands on), and `pixels` are final `{x, y, color}` corrections.
 - `animations` map names to `{frames, direction?: forward | reverse | pingpong, loop?}`. Without them, one animation plays every frame.
 - `ramps` (optional) list palette keys from dark to light, one list per material, so `shade` and scene lighting move colours along them without leaving the palette.
@@ -77,7 +77,7 @@ A source is a document whose `format` names what compiles it: `pixelforge-fluid`
 
 ## Working well
 
-- Start small: 16×16 to 32×32 and 4–8 colours, with a dark outline or a deliberate lack of one. Use one-character palette keys so the grids stay readable.
+- Start small: 16×16 to 32×32 and 4–8 colours, with a dark outline or a deliberate lack of one. Use one-character palette keys so grids stay readable.
 - Work silhouette first, then large connected colour shapes, then accents and highlights from one light direction, then poses, then timing. Primitive shapes are a blockout, not the finished art.
 - Build one good resting frame, then make the others with `from` and small changes. Give holds and impacts their own durations; 80–200 ms per frame is a good start.
 - Inspect every frame, including at native size (`native: true`), and read a `grid` of a region before changing exact pixels. Check that each patch changed only what you meant.

@@ -411,11 +411,13 @@ async function respelled(bundle, root) {
   return found;
 }
 // What a written bundle holds, for a reply: its files relative to `out`, without each frame (and each animation when
-// there are more than 16) unless `listFiles`, and how many of those there are. Paths an export removed are relative too.
+// there are more than 16) unless `listFiles`; one entry, `frames/<frame name>.png`, stands where those were, since
+// agents found the frames only by listing the folder (how many there are the reply says as `frames`). Paths an export
+// removed are relative too.
 export function outputSummary(out, files, listFiles) {
   const relative = files.map(file => path.relative(out, file).split(path.sep).join('/'));
-  const count = prefix => relative.filter(file => file.startsWith(`${prefix}/`)).length;
-  const animations = count('animations');
+  const animations = relative.filter(file => file.startsWith('animations/')).length;
+  const folded = file => (file.startsWith('frames/') ? 'frames/<frame name>.png' : file.startsWith('animations/') && animations > 16 ? 'animations/<animation name>.png' : null);
   // What the preview page runs on (its player, a scene's player/ folder of the modules it draws with) and the README
   // are in the folder for the page, not to deliver: a reply lists what a game, a site or a post takes.
   const support = file => file.startsWith('player/') || (!file.includes('/') && (file.endsWith('.js') || file === 'README.txt'));
@@ -423,8 +425,7 @@ export function outputSummary(out, files, listFiles) {
   const atlas = relative.find(file => !file.includes('/') && file.endsWith('.atlas.json')), sheet = atlas && `${atlas.slice(0, -'.atlas.json'.length)}.png`;
   return {
     ...(atlas && relative.includes(sheet) && { sheet, atlas }),
-    files: listFiles ? relative : relative.filter(file => !file.startsWith('frames/') && !(file.startsWith('animations/') && animations > 16) && !support(file)),
-    folders: { frames: count('frames'), animations },
+    files: listFiles ? relative : [...new Set(relative.filter(file => !support(file)).map(file => folded(file) ?? file))],
     ...(files.removed && { removed: files.removed.map(file => path.relative(out, file).split(path.sep).join('/')) })
   };
 }
