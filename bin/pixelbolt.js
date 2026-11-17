@@ -581,8 +581,8 @@ try {
         input = await readResolved(positional[0]);
         // A preset may be a plain recipe, which compiles to itself.
         const compile = command === 'autotile' ? compileAutotile : options.preset !== undefined ? compilePreset : COMPILERS[input.document?.format] ?? compilePoses;
-        // An effect is budgeted for the frames --frames keeps (compilePreset).
-        const compiled = compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames) }) : compile(input.document);
+        // An effect is budgeted for the frames --frames keeps and the animations --animation keeps (compilePreset).
+        const compiled = compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation?.split(','), animationPath: '--animation' }) : compile(input.document);
         // A plain recipe preset compiles to itself and has no metadata to save.
         if (options.metadata && compiled.metadata === undefined) throw new Error(`${options.preset} is a plain recipe preset, which has no metadata; omit --metadata`);
         metadata = compiled.metadata; warnings = compiled.warnings ?? []; preview = compiled.preview;
@@ -718,7 +718,8 @@ try {
       // Pose, autotile, effect and fluid sources become the recipe they compile to; a scene is rendered moment by moment,
       // and a bodies match or a falling-sand clip frame after frame (so it may run past a recipe's 256 frames).
       const bodies = input.document?.format === 'pixelforge-bodies', powder = input.document?.format === 'pixelforge-powder';
-      const document = bodies || powder ? input.document : Object.hasOwn(COMPILERS, input.document?.format ?? '') ? COMPILERS[input.document.format](input.document).recipe : input.document;
+      // An effect is budgeted for the one animation --animation plays (compilePreset).
+      const document = bodies || powder ? input.document : input.document?.format === 'pixelforge-fx' ? compilePreset(input.document, { animation: options.animation, animationPath: '--animation' }).recipe : Object.hasOwn(COMPILERS, input.document?.format ?? '') ? COMPILERS[input.document.format](input.document).recipe : input.document;
       const numeric = key => options[key] === undefined ? {} : { [key]: Number(options[key]) }, text = key => options[key] === undefined ? {} : { [key]: options[key] };
       const settings = { ...text('fps'), ...text('animation'), ...text('size'), ...numeric('scale'), ...text('fit'), ...text('align'), ...(options.offset !== undefined && { offset: options.offset.split(',').map(Number) }), ...text('background'), ...numeric('loops'), ...numeric('seconds'), ...numeric('step') };
       // A match or a clip is simulated, drawn and written a frame at a time, so its length isn't bounded by memory.
@@ -742,7 +743,7 @@ try {
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif requires --out <new.gif>');
       if (options.sheet !== undefined && !/\.png$/i.test(options.sheet)) throw new Error('--sheet must name a new .png file');
       // --preset: a shipped preset straight to its GIF, compiled as compile --preset compiles it.
-      const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames) }) : null, warnings = [...(compiled?.warnings ?? [])];
+      const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation, animationPath: '--animation' }) : null, warnings = [...(compiled?.warnings ?? [])];
       let recipe = compiled ? compiled.recipe : input.document, resized, kept;
       if (options.frames !== undefined) {
         const thinned = keepFrames(recipe, frameCount(options.frames), '--frames');
