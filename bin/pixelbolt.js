@@ -106,8 +106,9 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
 
 Options: --force allows overwriting exported files, and removes an earlier export's frames the new one no longer has. No command writes over a file it reads, however the path is spelled (patch may save over the recipe it edits). '-' reads JSON from stdin, for one input a call. An option is given once; a list goes in one value, separated by commas.
 --embed-recipe on render or scene embeds the resolved recipe in exported PNGs (not scene asset passes).
-render and scene reply with their folder once and the files in it to deliver, leaving out frames/<name>.png, past 16
-each animation, and what the preview page runs on (its scripts, README.txt); --list-files lists every file. compile, autotile and import save their metadata only with --metadata <new.json>.
+render and scene reply with their folder once and the files in it to deliver, with frames/<frame name>.png standing
+for each frame (and, past 16, animations/<animation name>.png for each animation) and without what the preview page
+runs on (its scripts, README.txt); --list-files lists every file. compile, autotile and import save their metadata only with --metadata <new.json>.
 Palette references ({"$ref": "palette.json"}), scene asset files and a normals source's recipe resolve from the
 input file's folder.
 Inspect: --frames a,b or --animation name (one or the other) picks cells (* and ? in a name match frames: --frames 'flash-*');
@@ -289,8 +290,9 @@ async function readResolved(file, input = INPUT_FILE) {
 }
 // Every file an export was made from: the recipe itself and the palette and asset files it references.
 const inputsOf = input => [...(input.file === '-' ? [] : [path.resolve(input.file)]), ...input.resolution.files];
-// A bundle's files relative to its folder, leaving out each frame (frames/<name>.png) and, past 16, each animation
-// unless --list-files: the reply already names the frames and animations.
+// A bundle's files relative to its folder, with one frames/<frame name>.png entry standing for each frame (and, past
+// 16, animations/<animation name>.png for each animation) unless --list-files: the reply counts them in frames and
+// animations.
 const bundleFiles = (directory, files, options) => { const { files: listed, removed, sheet, atlas } = outputSummary(directory, files, options['list-files'] === true); return { directory: shown(directory), ...(sheet && { sheet, atlas }), files: listed, ...(removed && { removed }) }; };
 // The documents whose shared-palette link carries over to the recipe they are or compile to (a normal source's recipe
 // and a scene's assets do not): every kind src/resolve.js resolves a palette for but powder, whose source has no
@@ -450,7 +452,6 @@ async function helpTopic([asked, ...words]) {
   }
   if (!TOPICS.includes(topic)) throw new Error(`Unknown help topic "${topic}"; topics: quickstart, ${TOPICS.join(', ')}`);
   if (topic === 'presets' || topic === 'preset') {
-    if (topic === 'preset' && name === undefined) throw new Error('help preset needs a preset name: pixelbolt help preset smoke-puff (pixelbolt help presets lists them)');
     const full = topic === 'presets' && name === '--full';
     if (topic === 'presets' && name !== undefined && !full) throw new Error('help presets lists every preset (--full adds every animation and file); for one preset\'s source run pixelbolt help preset <name>');
     return `${await presetsText(full ? undefined : name, full)}\n`;
@@ -609,7 +610,7 @@ try {
       }
       if (options.metadata && !/\.json$/i.test(options.metadata)) throw new Error('--metadata must name a .json file');
       if (options.preview !== undefined && !/\.png$/i.test(options.preview)) throw new Error('--preview must name a new .png file');
-      if (options.preview !== undefined && !preview) throw new Error(`--preview draws an autotile set over a test map; this source is not an autotile set. Compile without it, then look at the frames with pixelbolt inspect ${options.out ? shown(path.resolve(options.out)) : '<recipe.json>'} --out <sheet.png>`);
+      if (options.preview !== undefined && !preview) throw new Error(`--preview draws an autotile set over a test map; this source is not an autotile set. Compile without it, then look at the frames with pixelbolt inspect ${shown(path.resolve(options.out))} --out <sheet.png>`);
       // The test map: every tile of an autotile set in one image, as MCP pixel_compile returns it.
       const testMap = options.preview !== undefined ? inspectProject(renderProject(preview), { scale: testMapScale(preview) }).sheet : null;
       // Generated files use compact formatting: one line per frame, operation or short grid when it fits.

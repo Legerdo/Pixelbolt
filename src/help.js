@@ -17,10 +17,12 @@ export const TOPICS = [...Object.keys(HELP_TOPICS), 'presets', 'preset'];
 export const TOPIC_ALIASES = { terrain: ['autotile', 'terrain'], tiles: ['autotile'], tileset: ['autotile'], tilesets: ['autotile'] };
 // The topic and part a request means: an alias gives its topic, and its part unless the request names one. A word
 // that is neither, in the other number of one (scene, body, tile, examples), is that one: `help scene` cost a call.
+// `preset` without a name is `presets`, the listing that names them.
 const isTopic = topic => TOPICS.includes(topic) || Object.hasOwn(TOPIC_ALIASES, topic);
 const otherNumber = topic => [topic.endsWith('ies') && `${topic.slice(0, -3)}y`, topic.endsWith('y') && `${topic.slice(0, -1)}ies`, topic.endsWith('s') ? topic.slice(0, -1) : `${topic}s`].find(form => form && isTopic(form));
 export const resolveTopic = (topic, name) => {
   if (typeof topic === 'string' && !isTopic(topic)) topic = otherNumber(topic) ?? topic;
+  if (topic === 'preset' && name === undefined) return ['presets', undefined];
   const to = Object.hasOwn(TOPIC_ALIASES, topic ?? '') ? TOPIC_ALIASES[topic] : null;
   return to ? [to[0], name ?? to[1]] : [topic, name];
 };

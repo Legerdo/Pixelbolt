@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { startMCP } from '../src/mcp.js';
 import { startStudio, STUDIO_PATHS, REFUSED_PORTS } from '../src/server.js';
 import { renderProject, inspectProject } from '../src/core.js';
+import { resolveTopic } from '../src/help.js';
 import { encodePNG } from '../src/png.js';
 import { createSequence } from '../src/sequence.js';
 import { readZip } from '../scripts/build-studio.mjs';
@@ -164,7 +165,11 @@ test('CLI help topics print what pixel_help returns, and one section of a long g
   assert.match(JSON.parse(help('schema', 'scenes').stderr).error, /the recipe schema has no "scenes": scenes is a help topic of its own, so run pixelbolt help scenes$/);
   assert.match(JSON.parse(help('schema', 'scene').stderr).error, /run pixelbolt help scenes$/);
   assert.match(JSON.parse(help('fx', 'fluid').stderr).error, /the fx schema has no "fluid": fluid is a help topic of its own/);
-  for (const [args, message] of [[['nope'], /Unknown help topic "nope"; topics: quickstart, guide, workflow/], [['workflow', 'no such part'], /has no section "no such part" and no paragraph that mentions it; its sections are /], [['example', 'x'], /help example has no sections; guide, workflow and craft do, and a schema takes a path/], [['schema', 'x'], /the recipe schema has no "x"; it holds \$schema, version, name, width/], [['preset'], /needs a preset name/]]) {
+  // preset without a name is the listing (help presets), so the schema's redirect for it names presets.
+  assert.deepEqual(resolveTopic('preset'), ['presets', undefined]);
+  assert.deepEqual(resolveTopic('preset', 'smoke-puff'), ['preset', 'smoke-puff']);
+  assert.match(JSON.parse(help('schema', 'preset').stderr).error, /the recipe schema has no "preset": presets is a help topic of its own, so run pixelbolt help presets$/);
+  for (const [args, message] of [[['nope'], /Unknown help topic "nope"; topics: quickstart, guide, workflow/], [['workflow', 'no such part'], /has no section "no such part" and no paragraph that mentions it; its sections are /], [['example', 'x'], /help example has no sections; guide, workflow and craft do, and a schema takes a path/], [['schema', 'x'], /the recipe schema has no "x"; it holds \$schema, version, name, width/]]) {
     const out = help(...args);
     assert.deepEqual([out.status, out.stdout], [1, ''], args.join(' '));
     assert.match(JSON.parse(out.stderr).error, message);

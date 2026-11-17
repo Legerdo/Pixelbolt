@@ -9,6 +9,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { startMCP } from '../src/mcp.js';
 import { presetEntries } from '../src/presets.js';
+import { TOPIC_ALIASES } from '../src/help.js';
 
 export const MOCK_TOOLS = fileURLToPath(new URL('../evals/mocks/pixelbolt/_tools.json', import.meta.url));
 export const MOCK_SERVER = fileURLToPath(new URL('../evals/mocks/pixelbolt/_server.md', import.meta.url));
@@ -56,10 +57,19 @@ export async function mockServer(text) {
     const op = async value => JSON.parse(await reply('pixel_validate', { project: { version: 1, name: 'probe', width: 4, height: 4, palette: { k: '#000' }, frames: [{ name: 'a', ops: [{ op: value, x: 1, y: 1 }] }] } }));
     const ops = listed((await op(5)).error, 'operations: ');
     const topics = listed(JSON.parse(await reply('pixel_help', { topic: 'unknown' })).error, 'expected one of ');
+    // A word that is a topic in the other number, or an alias, is answered as that topic: each probe must be.
+    const answer = async args => { const result = await request('tools/call', { name: 'pixel_help', arguments: args }); return result.isError ? null : JSON.stringify(result.content); };
+    const same = async (word, topic, name) => {
+      if (await answer({ topic: word }) !== await answer({ topic, ...(name && { name }) })) throw new Error(`pixel_help topic ${word} no longer answers as ${topic}${name ? ` ${name}` : ''}: update the facts in scripts/eval-mock.mjs`);
+    };
+    const numbers = [['scene', 'scenes'], ['pose', 'poses'], ['body', 'bodies'], ['examples', 'example'], ['guides', 'guide']];
+    for (const [word, topic] of numbers) await same(word, topic);
+    for (const [word, [topic, name]] of Object.entries(TOPIC_ALIASES)) await same(word, topic, name);
     const code = value => `\`${value}\``;
+    const aliases = Object.entries(TOPIC_ALIASES).map(([word, [topic, name]]) => `${code(word)} is ${code(topic)}${name ? ` (its ${code(name)} part)` : ''}`);
     return [
       `- The ops are exactly these ${ops.length}: ${ops.map(code).join(', ')}. Any other \`op\` is an error that suggests the nearest one, for example ${code(JSON.stringify(await op('circle')))}.`,
-      `- The \`pixel_help\` topics are ${topics.map(code).join(', ')}; any other topic is the tool error ${code(await reply('pixel_help', { topic: 'unknown' }))}.`,
+      `- The \`pixel_help\` topics are ${topics.map(code).join(', ')}. A topic in the other number is answered as that topic (${numbers.map(([word, topic]) => `${code(word)} as ${code(topic)}`).join(', ')}), and so are these aliases: ${aliases.join(', ')}. A word that matches no topic in either number is the tool error ${code(await reply('pixel_help', { topic: 'unknown' }))}.`,
       `- The ${presets.length} shipped presets, by kind: ${[...kinds].map(([kind, names]) => `${kind} (${names.length}): ${names.join(', ')}`).join('; ')}. A preset name that isn't one of these is an error that suggests close names, such as ${code(await reply('pixel_help', { topic: 'preset', name: 'campfir' }))}.`
     ].join('\n');
   });
