@@ -40,7 +40,8 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            many times (the recipe's sheet.scale, for this export); --columns n lays
                                            the sheet out n frames across, 1 to the frame count (sheet.columns, for
                                            this export: a one-row strip is --columns <frame count>); --look also writes
-                                           look.png there, the frames enlarged to look at; --gif a GIF of each
+                                           look.png there, a contact sheet to look at, enlarged when the frames are
+                                           small (inspect --region zooms into a big one); --gif a GIF of each
                                            animation in gifs/, at the frames' own size or --gif-scale times it;
                                            --normal a normal recipe or a pixelforge-normals source of this recipe,
                                            exported beside the sheet with a Godot CanvasTexture that lights it
