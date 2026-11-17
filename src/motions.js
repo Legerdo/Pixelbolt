@@ -223,7 +223,8 @@ export function expandMotions(input, compileRest, probeJoints) {
     const fields = { walk: gait, trot: gait, run: [...gait, ...(quad ? ['flex'] : [])], idle: ['breath', 'squash'], jump: ['crouch', 'stretch', 'apex'], attack: ['arm', 'windup', 'strike', 'hold'], hurt: ['recoil', 'squash'] };
     if (template === 'run' && !quad && motion.flex !== undefined) fail(`${path}.flex`, 'flex bends a four-legged spine in its gallop; this rig has no rig.fore and rig.hind');
     object(motion, ['template', 'frames', 'duration', 'follow', 'palette', ...fields[template]], path);
-    // A palette recolours every pose the motion makes (a hurt's flash); without one they keep the rest pose's.
+    // A palette recolours every pose the motion makes (a hurt's flash); without one they keep the rest pose's, and an
+    // empty one, `{}`, gives them none.
     if (motion.palette !== undefined) paletteOverride(motion.palette, source.palette ?? {}, `${path}.palette`, 'a motion palette recolours keys declared in poses.palette');
     const p = (key, fallback, lo, hi, integer = false) => number(motion[key], fallback, lo, hi, `${path}.${key}`, integer);
     // How far the tail swings from its rest angles as it follows through: 0 holds it as drawn, 2 swings it twice as far.

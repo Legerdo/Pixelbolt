@@ -150,8 +150,8 @@ const massPart = object({ ...structuralColor, size: { ...pairOf(int(2, 64)), des
   flat: { type: 'boolean', description: 'Draw the top half of the ellipse: a dome with a flat base, anchored at the middle of its base row, which squash and rotation keep in place (slimes, mounds). Default false.' } }, ['size', 'ramp', 'base']);
 // How far a motion template swings rig.tail as it follows through.
 const follow = num(0, 2, 'How far rig.tail swings as it follows through the motion: 0 holds it as drawn, 1 by default, 2 twice as far. Needs rig.tail.');
-const posePalette = { type: 'object', maxProperties: 256, additionalProperties: color, description: "Recolor palette keys in this pose's frame (a hit flash), as a recipe frame palette. A mirror without one keeps its pose's; a tween keeps one only when both poses have the same." };
-const motionPalette = { ...posePalette, description: 'Recolor palette keys in every pose this motion makes (a hurt flash).' };
+const posePalette = { type: 'object', maxProperties: 256, additionalProperties: color, description: "Recolor palette keys in this pose's frame (a hit flash), as a recipe frame palette. A mirror without one keeps its pose's; a tween keeps one only when both poses have the same. {} is none, clearing what a mirror or tween would keep." };
+const motionPalette = { ...posePalette, description: "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none." };
 const poses = {
   $schema: schema.$schema, title: 'Pixelbolt authored poses',
   ...object({ format: { const: 'pixelforge-poses' }, version: { const: 1 }, name: id, width: int(1, 256), height: int(1, 256), palette: schema.properties.palette,

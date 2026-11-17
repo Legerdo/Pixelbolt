@@ -57,17 +57,28 @@ test('a pose palette recolours its compiled frame: a hit flash survives recompil
     { name: 'half', tween: { from: 'still', to: 'hit', t: 0.5 } },
     { name: 'held-flash', tween: { from: 'hit', to: 'hit', t: 0.5 } },
     { name: 'own', tween: { from: 'still', to: 'hit', t: 0.5 }, palette: { a: '#0f0' } },
-    { name: 'hidden', origin: [5, 6], parts, palette: { b: 'transparent' } }
-  ]);
+    { name: 'hidden', origin: [5, 6], parts, palette: { b: 'transparent' } },
+    // An empty palette is none: it clears what a mirror or a tween would keep.
+    { name: 'plain-left', mirror: 'hit', palette: {} },
+    { name: 'plain-half', tween: { from: 'hit', to: 'hit', t: 0.5 }, palette: {} },
+    // Palettes that change nothing drawn: a key the frame never stamps, and a key given its own colour.
+    { name: 'undrawn', origin: [5, 6], parts, palette: { c: '#fff' } },
+    { name: 'same', origin: [5, 6], parts, palette: { a: '#f00' } }
+  ], { palette: { a: '#f00', b: '#00f', c: '#0f0' }, sheet: { trim: true } });
   const { recipe } = compilePoses(source), palettes = Object.fromEntries(recipe.frames.map(frame => [frame.name, frame.palette]));
-  assert.deepEqual(palettes, { still: undefined, hit: { a: '#fff' }, 'hit-left': { a: '#fff' }, 'still-left': { b: 'a' }, half: undefined, 'held-flash': { a: '#fff' }, own: { a: '#0f0' }, hidden: { b: 'transparent' } });
-  // The frame palette is the recipe's own, so the renderer draws the flash, and the atlas the compiler measured
-  // (frames drawn alike share a cell) is the renderer's: a recoloured frame is a cell of its own.
+  assert.deepEqual(palettes, { still: undefined, hit: { a: '#fff' }, 'hit-left': { a: '#fff' }, 'still-left': { b: 'a' }, half: undefined, 'held-flash': { a: '#fff' }, own: { a: '#0f0' }, hidden: { b: 'transparent' },
+    'plain-left': undefined, 'plain-half': undefined, undrawn: { c: '#fff' }, same: { a: '#f00' } });
+  // The frame palette is the recipe's own, so the renderer draws the flash.
   const project = renderProject(recipe), at = (frame, x, y) => pixelsOf(project, frame).slice((y * 12 + x) * 4, (y * 12 + x) * 4 + 4);
-  assert.deepEqual([at('still', 5, 5), at('hit', 5, 5), at('hit', 7, 5)], [[255, 0, 0, 255], [255, 255, 255, 255], [0, 0, 255, 255]]);
+  assert.deepEqual([at('still', 5, 5), at('hit', 5, 5), at('hit', 7, 5), at('plain-half', 5, 5)], [[255, 0, 0, 255], [255, 255, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255]]);
   // A mirror with its own palette: the blade's blue end, reflected to column 2, is drawn in "a".
-  assert.deepEqual([at('still-left', 2, 5), at('hit-left', 4, 5)], [[255, 0, 0, 255], [255, 255, 255, 255]]);
-  assert.deepEqual(describeStampRecipe(recipe).sheet, project.sheet);
+  assert.deepEqual([at('still-left', 2, 5), at('hit-left', 4, 5), at('plain-left', 4, 5)], [[255, 0, 0, 255], [255, 255, 255, 255], [255, 0, 0, 255]]);
+  // The trimmed atlas the compiler measured without drawing is the renderer's: a recoloured frame is a cell of its
+  // own, and a palette that recolours nothing drawn shares the cell of the frame stamped alike.
+  const measured = describeStampRecipe(recipe).sheet, cell = name => { const { x, y } = project.sheet.layout[recipe.frames.findIndex(frame => frame.name === name)]; return [x, y]; };
+  assert.deepEqual(measured, project.sheet);
+  assert.deepEqual([cell('undrawn'), cell('same'), cell('half'), cell('held-flash')], [cell('still'), cell('still'), cell('still'), cell('hit')]);
+  assert.notDeepEqual(cell('hit'), cell('still'));
   // Errors name the pose's path, as a recipe frame's palette names its own.
   assert.throws(() => compilePoses(actor([{ name: 'p', parts, palette: { z: '#fff' } }])), { message: /^poses\.poses\[0\]\.palette\.z: a pose palette recolours keys declared in poses\.palette/ });
   assert.throws(() => compilePoses(actor([{ name: 'p', parts }, { name: 'q', mirror: 'p', palette: { a: 'white' } }])), { message: /^poses\.poses\[1\]\.palette\.a: unknown color "white"/ });

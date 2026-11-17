@@ -921,12 +921,13 @@ export function renderProject(spec, options = {}) {
 
 // Compiler-only validation/timing for the stamp subset emitted by compilePoses. It shares header, animation and
 // atlas validation with the renderer, but never allocates or composites a canvas. A stamp cannot erase, so visible
-// symbol bounds suffice to compute the trimmed atlas, including flips and canvas clipping. Frames drawn the same way
-// share a cell here; the renderer compares pixels, so it also shares frames that only come out the same.
+// symbol bounds suffice to compute the trimmed atlas, including flips and canvas clipping. Frames drawn the same way,
+// recolouring the same drawn keys, share a cell here; the renderer compares pixels, so it also shares frames that only
+// come out the same: this sheet is an upper bound on the renderer's, not a copy of it.
 export function describeStampRecipe(spec) {
   const { width, height, palette, symbols } = readProject(spec, { stills: false });
   if (spec.background !== undefined) fail('project.background', 'compiler stamp recipes omit the background');
-  const frameNames = new Set(), boundsBySymbol = new Map(), boxes = [];
+  const frameNames = new Set(), boundsBySymbol = new Map(), keysBySymbol = new Map(), boxes = [];
   let work = 0, operations = 0;
   const spend = amount => { work += amount; if (work > 67108864) fail('project', 'drawing work exceeds the 67-million-pixel budget; simplify repeated operations'); };
   const base = new Map(Object.keys(palette).map(key => [key, parseColor(key, palette)[3]]));
@@ -944,6 +945,11 @@ export function describeStampRecipe(spec) {
     }
     return boundsBySymbol.get(symbol);
   };
+  // The palette keys a symbol's rows use: a frame palette changes a frame's picture only where it recolours one.
+  const symbolKeys = symbol => {
+    if (!keysBySymbol.has(symbol)) keysBySymbol.set(symbol, new Set(symbols[symbol].rows.join('')));
+    return keysBySymbol.get(symbol);
+  };
   const frames = spec.frames.map((frame, index) => {
     const p = `project.frames[${index}]`;
     object(frame, p, ['name', 'duration', 'palette', 'anchor', 'points', 'layers', 'pixels']);
@@ -960,6 +966,7 @@ export function describeStampRecipe(spec) {
     const overrides = frame.palette === undefined ? null : paletteOverride(frame.palette, palette, `${p}.palette`, 'frame palettes recolor keys declared in the project palette');
     const alpha = overrides && Object.entries(overrides).some(([key, hex]) => parseColor(hex)[3] !== base.get(key)) ? new Map([...base, ...Object.entries(overrides).map(([key, hex]) => [key, parseColor(hex)[3]])]) : base;
     let left = width, top = height, right = -1, bottom = -1;
+    const drawn = new Set();
     list(frame.layers ?? [], `${p}.layers`, 64);
     for (const [li, layer] of (frame.layers ?? []).entries()) {
       const lp = `${p}.layers[${li}]`;
@@ -973,6 +980,7 @@ export function describeStampRecipe(spec) {
       const x = integer(op.x ?? 0, `${at}.x`), y = integer(op.y ?? 0, `${at}.y`);
       const flip = boolean(op.flipX ?? false, `${at}.flipX`), grid = symbols[op.symbol], box = symbolBounds(op.symbol, alpha);
       spend(grid.width * grid.height);
+      for (const key of symbolKeys(op.symbol)) drawn.add(key);
       if (box[2] < 0) continue;
       let x0 = x + (flip ? grid.width - 1 - box[2] : box[0]), x1 = x + (flip ? grid.width - 1 - box[0] : box[2]);
       let y0 = y + box[1], y1 = y + box[3];
@@ -1000,13 +1008,17 @@ export function describeStampRecipe(spec) {
       object(pixel, pp, ['x', 'y', 'color']);
       const x = integer(pixel.x, `${pp}.x`, 0, width - 1), y = integer(pixel.y, `${pp}.y`, 0, height - 1);
       if (typeof pixel.color !== 'string' || !alpha.has(pixel.color)) fail(`${pp}.color`, 'expected a palette key');
+      drawn.add(pixel.color);
       if (!alpha.get(pixel.color)) continue;
       left = Math.min(left, x); right = Math.max(right, x);
       top = Math.min(top, y); bottom = Math.max(bottom, y);
     }
-    // Frames drawn by the same stamps and corrections are one picture, and share a cell as the renderer's do.
+    // Frames drawn by the same stamps and corrections, recolouring the same drawn keys the same way, are one picture
+    // and share a cell, as the renderer's do. A palette entry that keeps its key's colour, or recolours a key the frame
+    // never stamps, changes nothing drawn.
+    const recoloured = overrides && Object.entries(overrides).filter(([key, hex]) => drawn.has(key) && toHex(parseColor(key, palette)) !== hex).sort(([a], [b]) => a < b ? -1 : 1);
     boxes.push(right < 0 ? { index, sx: 0, sy: 0, w: 1, h: 1, empty: true, key: 'empty' }
-      : { index, sx: left, sy: top, w: right - left + 1, h: bottom - top + 1, key: JSON.stringify([frame.layers ?? [], frame.pixels ?? [], overrides && Object.entries(overrides).filter(([key, hex]) => toHex(parseColor(key, palette)) !== hex).sort()]) });
+      : { index, sx: left, sy: top, w: right - left + 1, h: bottom - top + 1, key: JSON.stringify([frame.layers ?? [], frame.pixels ?? [], recoloured?.length ? recoloured : null]) });
     return { name: frameName, duration };
   });
   const animations = readAnimations(spec, frames);

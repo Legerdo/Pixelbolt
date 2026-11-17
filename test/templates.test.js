@@ -376,6 +376,16 @@ test('a motion palette recolours every pose the motion makes: the knight flashes
   const tinted = structuredClone(source); tinted.poses[0].palette = { s: '#3050a0' };
   const again = compilePoses(tinted).recipe, of = name => again.frames.find(frame => frame.name === name).palette;
   assert.deepEqual([of('walk-contact-a'), of('hurt-recoil')], [{ s: '#3050a0' }, white]);
+  // An empty motion palette is none, as an empty pose palette is: it clears the rest pose's.
+  tinted.motions.hurt.palette = {};
+  const cleared = compilePoses(tinted).recipe, clearedOf = name => cleared.frames.find(frame => frame.name === name).palette;
+  assert.deepEqual([clearedOf('walk-contact-a'), clearedOf('hurt-recoil'), clearedOf('hurt-recover')], [{ s: '#3050a0' }, undefined, undefined]);
+  // A one-frame flash: an authored pose with the generated name hurt-recoil replaces that pose, and only it flashes.
+  const once = structuredClone(source); delete once.motions.hurt.palette;
+  once.poses.push({ ...structuredClone(once.poses[0]), name: 'hurt-recoil', palette: white });
+  const flashed = compilePoses(once).recipe, flashedOf = name => flashed.frames.find(frame => frame.name === name).palette;
+  assert.deepEqual([flashedOf('hurt-recoil'), flashedOf('hurt-recover')], [white, undefined]);
+  assert.deepEqual(flashed.animations.hurt.frames, ['hurt-recoil', 'hurt-recover']);
   source.motions.hurt.palette = { Q: '#fff' };
   assert.throws(() => compilePoses(source), { message: /^poses\.motions\.hurt\.palette\.Q: a motion palette recolours keys declared in poses\.palette/ });
 });

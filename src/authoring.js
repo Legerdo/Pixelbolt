@@ -303,7 +303,8 @@ export function compilePoses(source, within) {
     identifier(pose.name, `${path}.name`);
     if (Object.hasOwn(compiled, pose.name)) fail(`${path}.name`, 'duplicate pose');
     // A pose's palette recolours its frame, as a recipe frame's palette does (a hit flash). A mirror without one takes
-    // its source pose's; a tween without one takes the palette both its poses share, and none if they differ.
+    // its source pose's; a tween without one takes the palette both its poses share, and none if they differ. A palette
+    // written empty, `{}`, is none, and is what clears an inherited one.
     const tone = pose.palette === undefined ? undefined : posePalette(pose.palette, `${path}.palette`, source.palette ?? {});
     let origin, placed, layers, markers, inputs = null, mirrorInputs = null, tween = null;
     if (pose.relight !== undefined && (typeof pose.relight !== 'boolean' || pose.mirror === undefined)) fail(`${path}.relight`, 'expected a boolean on a mirror pose');
@@ -527,7 +528,7 @@ export function compilePoses(source, within) {
     }
     const duration = pose.duration ?? (pose.mirror !== undefined ? compiled[pose.mirror].duration : undefined);
     const [from, to] = tween ? [compiled[tween.from].tone, compiled[tween.to].tone] : [];
-    const palette = tone ?? (pose.mirror !== undefined ? mirroredFrom.tone : from && to && JSON.stringify(from.hex) === JSON.stringify(to.hex) ? from : undefined);
+    const palette = pose.palette !== undefined ? tone : pose.mirror !== undefined ? mirroredFrom.tone : from && to && JSON.stringify(from.hex) === JSON.stringify(to.hex) ? from : undefined;
     const contacts = pose.mirror !== undefined ? mirroredFrom.contacts : pose.contacts;
     if (contacts !== undefined && (!Array.isArray(contacts) || contacts.length > 64 || new Set(contacts).size !== contacts.length || contacts.some(name => !markers.some(marker => marker.name === name)))) fail(`${path}.contacts`, 'expected up to 64 unique marker names from this pose');
     compiled[pose.name] = { origin, placed, layers, markers, contacts, duration, inputs, mirrorInputs, tone: palette };

@@ -235,7 +235,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "speed": {
                 "type": "number",
@@ -303,7 +303,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "speed": {
                 "type": "number",
@@ -370,7 +370,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "speed": {
                 "type": "number",
@@ -442,7 +442,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "breath": {
                 "type": "number",
@@ -488,7 +488,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "crouch": {
                 "type": "number",
@@ -538,7 +538,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "arm": {
                 "type": "integer",
@@ -593,7 +593,7 @@
                   "type": "string",
                   "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
                 },
-                "description": "Recolor palette keys in every pose this motion makes (a hurt flash)."
+                "description": "Recolor palette keys in every pose this motion makes (a hurt flash). Without one they keep the rest pose's; {} gives them none."
               },
               "recoil": {
                 "type": "integer",
@@ -1001,7 +1001,7 @@
               "type": "string",
               "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
             },
-            "description": "Recolor palette keys in this pose's frame (a hit flash), as a recipe frame palette. A mirror without one keeps its pose's; a tween keeps one only when both poses have the same."
+            "description": "Recolor palette keys in this pose's frame (a hit flash), as a recipe frame palette. A mirror without one keeps its pose's; a tween keeps one only when both poses have the same. {} is none, clearing what a mirror or tween would keep."
           },
           "tween": {
             "type": "object",
