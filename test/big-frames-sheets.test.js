@@ -4,11 +4,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PixelError, renderProject, inspectProject, stackViews } from '../src/core.js';
+import { PixelError, renderProject, inspectProject, stackViews, briefCells, briefDiagnostics } from '../src/core.js';
+import { COMPILERS } from '../src/presets.js';
 import { inspectMotion } from '../src/motion.js';
 import { encodePNG } from '../src/png.js';
 import { decodePNG } from '../src/import.js';
@@ -87,7 +89,7 @@ test('the parts legend has room kept for it when big frames are fitted, and the 
   assert.ok(inspectProject(project, { animation: 'run' }).sampling.shown > view.sampling.shown);
 });
 
-test('beside fits each sheet to its share of the one image, and a stack that would still pass it is a PixelError', async t => {
+test('beside refits the sheets to the one image, and a stack that would still pass it is a PixelError', async t => {
   const big = renderProject(screen(512, 512, 16, { plays: 4 }));
   // Inspected each on its own, two 3600x4114 sheets stack past the PNG.
   const alone = [1, 2].map(n => ({ ...inspectProject(big, { animation: 'run' }), name: `v${n}` }));
@@ -157,11 +159,13 @@ test('the parts legend reserves the columns it is drawn in beside the fitted she
   }
 });
 
-test('views stacked beside one another stay within 8,000 pixels tall, each sheet fitted to its share', async t => {
-  for (const [w, h, count] of [[512, 512, 16], [640, 360, 18]]) for (const n of [4, 9]) {
-    const big = renderProject(screen(w, h, count, { plays: 4 }));
-    const stacked = stackViews(Array.from({ length: n }, (_, i) => ({ ...inspectProject(big, { animation: 'run', sheets: n }), name: `v${i}` })));
-    assert.ok(stacked.sheet.height <= 8000 && stacked.sheet.width <= 4096, `${n} views of ${w}x${h}: ${stacked.sheet.width}x${stacked.sheet.height}`);
+test('views stacked beside one another stay within 8,000 pixels tall, the tallest refitted', async t => {
+  // n copies of one recipe's view, inspected once.
+  const views = (recipe, n, options = {}) => { const view = inspectProject(renderProject(recipe), { ...options, sheets: n }); return Array.from({ length: n }, (_, i) => ({ ...view, name: `v${i}` })); };
+  for (const [w, h, count, n] of [[512, 512, 16, 9], [640, 360, 18, 4]]) {
+    const stacked = stackViews(views(screen(w, h, count, { plays: 4 }), n, { animation: 'run' }));
+    // 4096 pixels of cells and 2-pixel gutters a side.
+    assert.ok(stacked.sheet.height <= 8000 && stacked.sheet.width <= 4096 + 2 * (stacked.sheet.columns + 1), `${n} views of ${w}x${h}: ${stacked.sheet.width}x${stacked.sheet.height}`);
     assert.ok(stacked.cells.length >= 6, `${n} views of ${w}x${h}: ${stacked.cells.length} cells`);
     encodes(stacked.sheet);
   }
@@ -172,23 +176,62 @@ test('views stacked beside one another stay within 8,000 pixels tall, each sheet
   const asked = stackViews(nine(4));
   assert.deepEqual([asked.sheet.height, asked.sheet.scale], [9612, 4]);
   encodes(asked.sheet);
-  // A frame too tall for its share even alone is refused with how many recipes fit.
-  assert.throws(() => inspectProject(renderProject(screen(256, 1024, 4)), { sheets: 9 }), { path: 'inspect.sheets',
-    message: 'inspect.sheets: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 888 each of 9 sheets stacked in one image may take (8,000 in all); compare at most 6 other recipes, or show a smaller region' });
-  // So is a tile of one, above both shares (this was a sheet "above the 4096-pixel limit", which neither side is),
-  // and a wide tile within its share of the height but not of the pixels.
-  assert.throws(() => inspectProject(renderProject(screen(256, 1024, 4)), { view: 'tile', sheets: 8 }), { path: 'inspect.sheets',
-    message: 'inspect.sheets: one row of 768×3072 cells is 3100 pixels tall with its gutters and label, past the 1000 each of 8 sheets stacked in one image may take (8,000 in all); compare at most 1 other recipe, or show a smaller region' });
-  assert.throws(() => inspectProject(renderProject(screen(1024, 256, 4)), { view: 'tile', sheets: 9 }), { path: 'inspect.sheets',
-    message: 'inspect.sheets: one row of 3072×768 cells is 3076×796 pixels with its gutters and label, past the 1,864,135 pixels each of 9 sheets stacked in one image may take (16,777,216 in all); compare at most 5 other recipes, or show a smaller region' });
-  assert.equal(inspectProject(renderProject(screen(1024, 256, 4)), { view: 'tile', sheets: 6 }).cells.length, 1);
-  // The CLI passes the share: three copies beside a 512x512 animation.
-  const dir = await folder(t, 'sheets-stack'), cli = cliIn(dir);
-  await writeFile(path.join(dir, 'a.json'), JSON.stringify(screen(512, 512, 16, { plays: 4 })));
-  const made = cli('inspect', 'a.json', '--animation', 'run', '--beside', 'a.json,a.json,a.json', '--out', 'four.png');
+  // A frame whose one row is too tall for the height left to it is refused with how many recipes fit, naming the
+  // sheet. In a stack within 8,000 pixels the same sheet is drawn as alone.
+  assert.equal(stackViews(views(screen(256, 1024, 4), 7)).sheet.height, 7 * (1028 + 12));
+  assert.throws(() => stackViews(views(screen(256, 1024, 4), 9)), { path: 'inspect.sheets',
+    message: 'inspect.sheets: v0: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
+  // So is a tile of one (this was a sheet "above the 4096-pixel limit", which neither side is), and a wide tile
+  // whose stack the one PNG holds less than 8,000 pixels tall.
+  assert.throws(() => stackViews(views(screen(256, 1024, 4), 8, { view: 'tile' })), { path: 'inspect.sheets',
+    message: 'inspect.sheets: v0: one row of 768×3072 cells is 3100 pixels tall with its gutters and label, past the 1012 left to it in an image of 8 sheets stacked (8,000 pixels tall at most); compare at most 1 other recipe, or show a smaller region' });
+  assert.throws(() => stackViews(views(screen(1024, 256, 4), 9, { view: 'tile' })), { path: 'inspect.sheets',
+    message: 'inspect.sheets: v0: one row of 3072×768 cells is 796 pixels tall with its gutters and label, past the 618 left to it in an image of 9 sheets stacked (5,454 pixels tall at most at 3076 wide, 16,777,216 in all); compare at most 5 other recipes, or show a smaller region' });
+  const six = stackViews(views(screen(1024, 256, 4), 6, { view: 'tile' }));
+  assert.deepEqual([six.cells.length, six.sheet.width * six.sheet.height <= PNG_PIXELS], [1, true]);
+  // The CLI passes the count, and replies with the cells and diagnostics of the first sheet as stacked.
+  const dir = await folder(t, 'sheets-stack'), cli = cliIn(dir), recipe = screen(512, 512, 16, { plays: 4 });
+  await writeFile(path.join(dir, 'a.json'), JSON.stringify(recipe));
+  const made = cli('inspect', 'a.json', '--animation', 'run', '--diagnostics', '--beside', 'a.json,a.json,a.json', '--out', 'four.png');
   assert.equal(made.status, 0, made.stderr);
-  const image = decodePNG(await readFile(path.join(dir, 'four.png')));
-  assert.ok(image.height <= 8000 && image.width <= 4096, `${image.width}x${image.height}`);
+  const image = decodePNG(await readFile(path.join(dir, 'four.png'))), reply = JSON.parse(made.stdout);
+  assert.ok(image.height <= 8000 && image.width * image.height <= PNG_PIXELS, `${image.width}x${image.height}`);
+  const inProcess = stackViews(views(recipe, 4, { animation: 'run', diagnostics: true }));
+  assert.deepEqual([reply.cells, reply.sampling.shown], [briefCells(inProcess.cells), inProcess.cells.length]);
+  assert.ok(inProcess.cells.length < inspectProject(renderProject(recipe), { animation: 'run' }).cells.length);
+  assert.deepEqual(reply.diagnostics, JSON.parse(JSON.stringify(briefDiagnostics(inProcess.diagnostics))));
+});
+
+test('a beside stack is measured whole: within 8,000 pixels it is drawn as each sheet alone, past it only the tallest shrink', () => {
+  // The sheets of each recipe inspected alone, stacked: what beside drew before it measured the stack.
+  const alone = recipes => stackViews(recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe)), name: `v${i}` })));
+  const stacked = recipes => stackViews(recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { sheets: recipes.length }), name: `v${i}` })));
+  // The pixels of one stacked sheet, `width` wide from the left: the whole image by default.
+  const bytes = (s, entry = { y: 0, height: s.sheet.height }, width = s.sheet.width) => Buffer.concat(Array.from({ length: entry.height }, (_, row) =>
+    Buffer.from(s.sheet.data.subarray((entry.y + row) * s.sheet.width * 4, ((entry.y + row) * s.sheet.width + width) * 4))));
+  // The shipped presets a reviewer stacked: 6506 pixels tall, with hermit-chest 4x6 at scale 5 (825x995).
+  const shipped = ['hero.poses', 'fox.poses', 'knight.poses', 'slime-idle.poses', 'hermit-chest.poses', 'hero-sword.poses', 'coin-sparkle.fx', 'drip.fluid'].map(name => {
+    const source = JSON.parse(readFileSync(path.join(root, 'examples', `${name}.json`), 'utf8'));
+    return COMPILERS[source.format](source).recipe;
+  });
+  const before = alone(shipped), now = stacked(shipped);
+  assert.deepEqual([now.sheet.width, now.sheet.height, now.stack[4].height], [before.sheet.width, 6506, 995]);
+  assert.ok(bytes(now).equals(bytes(before)));
+  // Nine of hermit-chest pass 8,000 (9171 tall): each takes a lower scale.
+  const chests = stacked(Array(9).fill(shipped[4]));
+  assert.equal(alone(Array(9).fill(shipped[4])).sheet.height, 9171);
+  assert.ok(chests.sheet.height <= 8000 && chests.stack.every(entry => entry.height < 995), `${chests.sheet.height}`);
+  // Four big sheets beside three small ones pass 8,000 (9072 tall): the four are refitted, while the small three
+  // keep their sheets byte for byte.
+  const big = screen(256, 256, 48), mix = [big, big, screen(32, 32, 8), screen(64, 48, 6), big, big, screen(16, 16, 4)];
+  const was = alone(mix), mixed = stacked(mix);
+  assert.equal(was.sheet.height, 9072);
+  assert.ok(mixed.sheet.height <= 8000, `${mixed.sheet.height}`);
+  mixed.stack.forEach((entry, i) => assert.equal(entry.height, mix[i] === big ? 1292 : was.stack[i].height, `sheet ${i}`));
+  for (const i of [2, 3, 6]) {
+    const { width } = inspectProject(renderProject(mix[i])).sheet;
+    assert.ok(bytes(mixed, mixed.stack[i], width).equals(bytes(was, was.stack[i], width)), `sheet ${i} is drawn as alone`);
+  }
 });
 
 test('motion review keeps both sides of its strip within 4096, in the squarest grid, and says why a trajectory is left out', () => {
@@ -251,6 +294,51 @@ test('diagnostics of a long full-screen effect list findings only for the frames
   assert.equal(full.findingTotals, undefined);
   const call = await runner(t), { info } = await call('pixel_inspect', { project: rain, diagnostics: true });
   assert.deepEqual(info.diagnostics.findingTotals, diagnostics.findingTotals);
+});
+
+test('diagnostics past eight frames still name the empty frames, and add off-palette colours up by colour', async t => {
+  // A 12-frame walk: a stray pixel in every drawn frame, walk-7 empty, #123456 in ten frames and #abcdef in two.
+  const walk = (count, empty) => ({ version: 1, name: 'walk', width: 32, height: 32, palette: { a: '#203040', b: '#e0a040' },
+    frames: Array.from({ length: count }, (_, i) => ({ name: `walk-${i}`, ops: empty.includes(i) ? [] : [
+      { op: 'rect', x: 4 + i, y: 8, w: 10, h: 16, color: 'a' }, { op: 'pixel', x: 30, y: i, color: 'b' },
+      ...(i < 10 ? [{ op: 'rect', x: 20, y: 20, w: 3, h: 3, color: '#123456' }] : []), ...(i === 2 || i === 11 ? [{ op: 'rect', x: 0, y: 28, w: 2, h: 2, color: '#abcdef' }] : [])] })) });
+  const brief = recipe => briefDiagnostics(inspectProject(renderProject(recipe), { diagnostics: true }).diagnostics);
+  const one = brief(walk(12, [7]));
+  // The three frames kept (walk-0 to walk-2) list their findings; the empty frame is named as before diagnostics were
+  // added up, not counted as "1 frame".
+  assert.deepEqual(one.frames.map(row => row.frame), ['walk-0', 'walk-1', 'walk-2']);
+  assert.deepEqual(one.findings.find(finding => finding.code === 'empty'), { code: 'empty', frame: 'walk-7', note: 'An empty effect/transition frame may be intentional.' });
+  // Each colour once, with the frames it is in among the others: not "7 colours in 7 frames", which counted a colour
+  // again in every frame it is in.
+  assert.deepEqual(one.findingTotals, { isolated: '8 pixels in 8 frames', palette: '#123456 in 6 frames, #abcdef in 1 frame' });
+  // Several empty frames are one finding naming them, runs as their ends.
+  const four = brief(walk(20, [5, 6, 7, 12]));
+  assert.deepEqual(four.findings.filter(finding => finding.code === 'empty'), [{ code: 'empty', frames: 'walk-5 … walk-7, walk-12', note: 'An empty effect/transition frame may be intentional.' }]);
+  // Forty colours a frame: eight are named, and the rest counted, with "or more" since a frame lists its first 32.
+  const many = { version: 1, name: 'many', width: 40, height: 4, palette: { a: '#203040' },
+    frames: Array.from({ length: 10 }, (_, i) => ({ name: `m-${i}`, ops: Array.from({ length: 40 }, (_, x) => ({ op: 'rect', x, y: 0, w: 1, h: 4, color: `#0000${(x + 16).toString(16)}` })) })) };
+  assert.equal(brief(many).findingTotals.palette, '#000010 in 10 frames, #000011 in 10 frames, #000012 in 10 frames, #000013 in 10 frames, #000014 in 10 frames, #000015 in 10 frames, #000016 in 10 frames, #000017 in 10 frames, 24 or more other colours');
+  // The CLI reply is the same.
+  const dir = await folder(t, 'sheets-empty'), cli = cliIn(dir);
+  await writeFile(path.join(dir, 'walk.json'), JSON.stringify(walk(12, [7])));
+  const made = cli('inspect', 'walk.json', '--diagnostics');
+  assert.equal(made.status, 0, made.stderr);
+  assert.deepEqual(JSON.parse(made.stdout).diagnostics, JSON.parse(JSON.stringify(one)));
+});
+
+test('a contact sheet refusal states the rule it enforces: gutters as wide as the scale count past 2 pixels', () => {
+  const wide = renderProject(screen(1024, 256, 16));
+  // 4096 pixels of frames and two 4-pixel gutters at scale 4: 4104, past the 4100 that 2-pixel gutters allow.
+  assert.throws(() => inspectProject(wide, { scale: 4, frames: ['f0'] }), { path: 'inspect',
+    message: 'inspect: the contact sheet would be 4104×1032 pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters; the 4-pixel gutters at scale 4 count their other 2 pixels against the 4096); select fewer frames, a smaller region or a lower scale' });
+  // With 2-pixel gutters the refusal reads as it did before big frames.
+  assert.throws(() => inspectProject(renderProject(screen(4096, 1024, 1)), { scale: 2 }), {
+    message: 'inspect: the contact sheet would be 8196×2052 pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters); select fewer frames, a smaller region or a lower scale' });
+  assert.equal(inspectProject(wide, { scale: 3, frames: ['f0'] }).sheet.width, 3078);
+  // Within the sides but past one PNG: said as that.
+  const big = renderProject(screen(512, 512, 16));
+  assert.throws(() => inspectProject(big, { scale: 1, frames: Array.from({ length: 64 }, (_, i) => `f${i % 16}`) }), {
+    message: 'inspect: the contact sheet would be 4114×4114 pixels, past the 16,777,216 one PNG holds; select fewer frames, a smaller region or a lower scale' });
 });
 
 test('motion review of tall frames keeps the arcs and the trajectory it can, and names what crowds a trajectory out', () => {
