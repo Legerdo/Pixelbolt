@@ -318,7 +318,7 @@ test('compile --size and pixel_compile size put a preset on the canvas asked for
   assert.deepEqual(shell.kept, thin.kept);
   assert.deepEqual(JSON.parse(await readFile(thinOut, 'utf8')), resizeRecipe(keepFrames(await preset('campfire'), 8).recipe, '32x32').recipe);
   const gif = JSON.parse(cli('gif', '--preset', 'fire-explosion', '--frames', '6', '--out', path.join(dir, 'boom.gif')).stdout);
-  assert.deepEqual([gif.frames, gif.kept, gif.duration], [6, { 'fire-explosion': '6 of 16' }, 960]);
+  assert.deepEqual([gif.frames, gif.kept, gif.duration], [6, { 'fire-explosion': '6 of 19' }, 1130]);
   for (const [args, pattern] of [
     [['compile', '--preset', 'campfire', '--frames', 'few'], /--frames expects how many frames each animation keeps, such as --frames 8/],
     [['compile', '--preset', 'campfire', '--frames', '0'], /--frames: expected how many frames each animation keeps, a whole number from 1 to 256/],

@@ -50,7 +50,9 @@ const coin = { version: 1, name: 'coin', width: 24, height: 24, palette: { edge:
   ...(w > 8 ? [{ op: 'line', x: 12, y: 9, x2: 12, y2: 15, color: 'shade' }] : [])
 ] })), animations: { spin: { frames: widths.map((_, i) => `turn-${i}`) } }, sheet: { columns: 6, padding: 1 } };
 
-// Seeded particle effects: every frame compiles to stamps, grids and lines on these symbols.
+// Seeded particle effects: every frame compiles to stamps, grids and lines on these symbols. The compiled recipe,
+// examples/effects.json, is in the frozen pre-M0 baseline (test/fixtures/figures-baseline.json), so these stay exactly as
+// they are: the one-shots among them still draw a few pixels on their last frame.
 const emit = (at, extra) => ({ at, ...extra });
 const effects = { format: 'pixelforge-fx', version: 1, name: 'effects', width: 48, height: 40,
   palette: { W: '#fff4d6', y: '#ffd166', o: '#f4843c', r: '#c2413a', s: '#d8c7a8', S: '#a38d74', u: '#6f5d52', l: '#b8dc7a', g: '#79b15a', G: '#3f7a4a', q: '#a9a6c4', Q: '#6b6888' },
@@ -82,9 +84,10 @@ const heroMagic = { format: 'pixelforge-fx', version: 1, name: 'hero-magic', wid
   symbols: { hero: { recipe: 'hero.poses.json', frame: 'idle-rest' }, spark: ['W'], 'spark-dim': ['c'] },
   anchor: [20, 51],
   effects: {
-    teleport: { frames: 14, duration: 70, seed: 3, edges: ['top', 'bottom'],
+    // The pillar is over in 14 frames; the last of his pixels rise for three more, and the last frame is empty.
+    teleport: { frames: 18, duration: 70, seed: 3, edges: ['top', 'bottom'],
       looks: { light: { colors: ['v', 'b', 'c', 'W'], thresholds: [0.3, 0.5, 0.72, 0.9] } },
-      layers: [{ kind: 'beam', look: 'light', at: [20, 51], to: [20, 0], width: [1, 11, 9, 0], reveal: 0.2, wobble: 0.12, wavelength: 9, waves: -3, fade: 0.6,
+      layers: [{ kind: 'beam', look: 'light', at: [20, 51], to: [20, 0], frames: [0, 14], width: [1, 11, 9, 0], reveal: 0.2, wobble: 0.12, wavelength: 9, waves: -3, fade: 0.6,
         power: [1.2, 1.1, 0.7, 0], ease: 'linear', noise: 0.35, scale: 3 }],
       emitters: [{ sprite: { symbol: 'hero' }, at: heroAt, release: { sweep: 270, jitter: 0.35 }, start: 1, end: 10,
         angle: [255, 285], speed: [0.6, 1.6], gravity: [0, -0.12], drag: 0.02, life: [5, 8], tint: [{}, 'W', 'c', 'b'], dissolve: 0.35 }] },
