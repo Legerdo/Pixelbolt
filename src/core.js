@@ -1457,9 +1457,14 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
     const m = measure(c, scale ?? 1), better = !layout || (withinSheet(m, room) === withinSheet(layout, room) ? Math.max(m.width, m.height) < Math.max(layout.width, layout.height) : withinSheet(m, room));
     if (better) layout = m;
   }
-  if (!withinSheet(layout, room) && withinSheet(layout, { ...room, maxHeight: Infinity })) {
-    const row = region.h * layout.scale + 2 * layout.gap + room.height;
-    fail(`${where}.sheets`, `one row of ${region.w}×${region.h} cells is ${row} pixels tall with its gutters and label, past the ${room.maxHeight} each of ${room.sheets} sheets stacked in one image may take (${grouped(STACK_SIDE)} in all); compare ${Math.floor(STACK_SIDE / row) > 1 ? `at most ${Math.floor(STACK_SIDE / row) - 1} other recipes` : 'one recipe at a time'}, or show a smaller region`);
+  // A sheet that one PNG would hold alone but not as one of `sheets` stacked passes its share of the height or of the
+  // pixels: said with how many recipes the one image holds. Cells are fitted first, so this is one row of one cell.
+  if (room.sheets > 1 && !withinSheet(layout, room) && withinSheet(layout, { ...room, pixels: PNG_PIXELS, maxHeight: Infinity })) {
+    const legend = room.legend ? room.legend(layout) : { width: 0, height: 0 }, wide = layout.width + legend.width, tall = Math.max(layout.height, legend.height) + room.height;
+    const fit = Math.min(Math.floor(STACK_SIDE / tall), Math.floor(PNG_PIXELS / (wide * tall))), others = fit > 1 ? `at most ${fit - 1} other recipe${fit === 2 ? '' : 's'}` : 'one recipe at a time';
+    fail(`${where}.sheets`, tall > room.maxHeight
+      ? `one row of ${region.w}×${region.h} cells is ${tall} pixels tall with its gutters and label, past the ${room.maxHeight} each of ${room.sheets} sheets stacked in one image may take (${grouped(STACK_SIDE)} in all); compare ${others}, or show a smaller region`
+      : `one row of ${region.w}×${region.h} cells is ${wide}×${tall} pixels with its gutters and label, past the ${grouped(room.pixels)} pixels each of ${room.sheets} sheets stacked in one image may take (${grouped(PNG_PIXELS)} in all); compare ${others}, or show a smaller region`);
   }
   if (!withinSheet(layout, room)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters, 16,777,216 pixels in all); select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(layout.width * layout.height * 4), square = Math.max(2, Math.ceil(8 / layout.scale)), composed = new Map();
@@ -1703,14 +1708,14 @@ export function paletteUse(project) {
 // The same view of several recipes as one image, each sheet under the one before and left-aligned, with its name
 // written above it: a hero in three team colours, or a sprite before and after, compared with one look. `views` are
 // inspectProject results with a `name` each. Returns the first view with the taller sheet and `stack`: where each
-// recipe's sheet starts, under its label. Each view fits its share of the one PNG when inspected with `sheets`, the
-// number stacked; the stacked image is still checked, since views of other sizes or scales may pass it.
+// recipe's sheet starts, under its label. Each view fits its share of the one PNG, and of STACK_SIDE in height, when
+// inspected with `sheets`, the number stacked, at the scale chosen for it; a scale asked for is drawn as asked, so
+// only the one PNG bounds the stack.
 export function stackViews(views) {
   const sheets = views.map(view => view.sheet), t = Math.max(1, Math.min(2, Math.floor(sheets[0].scale / 2))), pad = 3 * t, band = (FONT_HEIGHT + 4) * t;
   const labels = views.map(view => layoutText(String(view.name).replace(/[^\x20-\x7e]/g, '?'))), width = Math.max(...sheets.map(sheet => sheet.width), ...labels.map(text => text.width * t + 2 * pad));
   const height = sheets.reduce((sum, sheet) => sum + band + sheet.height, 0), stack = [];
   if (width * height > PNG_PIXELS) fail('beside', `the ${views.length} sheets stacked would be ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; compare fewer recipes, or show fewer cells (maxCells), a smaller region or a lower scale`);
-  if (height > STACK_SIDE) fail('beside', `the ${views.length} sheets stacked would be ${width}×${height} pixels, taller than the ${grouped(STACK_SIDE)} a model reads an image at; compare fewer recipes, or show fewer cells (maxCells), a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < data.length; i += 4) data.set(gutterColor, i);
   let y = 0;
@@ -1836,8 +1841,9 @@ export function inspectProject(project, options = {}) {
     methods.push(step === 1 ? `every position from ${offset}` : `every ${step}${suffix} position from ${offset}`);
   }
   const spread = (chosen, count) => Array.from({ length: count }, (_, i) => chosen[count === 1 ? 0 : Math.floor(i * (chosen.length - 1) / (count - 1))]);
-  // Cells by time read as playback only while every one is shown: fewer cells than `every` makes is refused with the
-  // `every` that fits, as more than 256 is.
+  // Cells by time read as playback only while every one is shown: where a sheet of big frames (over 256 a side) or a
+  // share of a beside image cannot hold the cells `every` makes, it is refused with the `every` that fits, as more
+  // than 256 is. A maxCells the caller gives thins them evenly instead, as it thins frames.
   const thinEvery = (count, why) => {
     const { duration } = project.animations[options.animation];
     fail('inspect.every', `${duration} ms at one cell per ${every} ms is ${positions.length} cells, and ${why} ${count}; choose every ${Math.ceil(duration / count)} or more`);
@@ -1848,7 +1854,7 @@ export function inspectProject(project, options = {}) {
   if (options.maxCells !== undefined) {
     const requested = integer(options.maxCells, 'inspect.maxCells', 1, 256);
     const count = Math.min(positions.length, requested, Math.max(1, Math.floor(4094 / (box.w + 2)) * Math.floor(4094 / (box.h + 2))));
-    if (count < positions.length && every !== undefined) thinEvery(count, count === requested ? 'maxCells allows' : `one 4096-pixel sheet of ${box.w}×${box.h} cells holds`);
+    if (count < positions.length && every !== undefined && count < requested && (width > 256 || height > 256)) thinEvery(count, `one 4096-pixel sheet of ${box.w}×${box.h} cells holds`);
     if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced, including endpoints'); }
   }
   // Big frames (an animation's are up to 1024 a side) or a long play order may not fit one sheet at scale 1; with no
@@ -1874,7 +1880,7 @@ export function inspectProject(project, options = {}) {
     const tiled = { x: 0, y: 0, w: width * 3, h: height * 3 };
     view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale, background, room }), mode };
     view.tiles = unique.map(i => ({ frame: frames[i].name, ...tileReport(frames[i].data, width, height) }));
-    if (native) view.nativeSheet = drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale: 1, background });
+    if (native && view.sheet.scale > 1) view.nativeSheet = drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale: 1, background });
   } else {
     const parts = mode === 'parts' ? partColors(project, unique, region) : null;
     const sources = cells.map((i, n) => mode === 'onion' ? onionPixels(project, project.animations[options.animation], positions[n]) : parts ? parts.pixels.get(i) : reviewPixels(frames[i].data, mode));
@@ -1886,13 +1892,15 @@ export function inspectProject(project, options = {}) {
       view.guides = guides;
     }
     if (mode !== 'color') view.mode = mode;
-    if (native) view.nativeSheet = drawSheet(sources, width, region, { scale: 1, background });
+    if (native && (view.sheet.scale > 1 || guides)) view.nativeSheet = drawSheet(sources, width, region, { scale: 1, background });
     if (parts) {
       view.parts = parts.legend.map(({ name, color, pixels }) => ({ name, color: toHex(color), pixels }));
       view.sheet = drawPartLegend(view.sheet, parts.legend);
-      if (native) view.nativeSheet = drawPartLegend(view.nativeSheet, parts.legend);
+      if (view.nativeSheet) view.nativeSheet = drawPartLegend(view.nativeSheet, parts.legend);
     }
   }
+  // A sheet already at scale 1 is the native sheet: said once rather than drawn and sent twice.
+  if (native && !view.nativeSheet) view.native = 'same as sheet';
   if (every !== undefined) view.sampling = { total, shown: cells.length, every, positions, method: `${methods.join(', then ')}; a frame fills a cell for each ${every} ms it is held` };
   else if (total !== cells.length) view.sampling = { total, shown: cells.length, omitted: total - cells.length, positions, ...((step > 1 || offset > 0) && { step, offset }), method: `${methods.join(', then ')}; durations are original, not playback timing` };
   if (diagnostics) view.diagnostics = analyzeProject(project);
@@ -2035,9 +2043,11 @@ export function analyzeProject(project) {
 // Diagnostics as a reply carries them. Up to DIAGNOSTIC_ROWS frames keep a row each; past that the rows are added up
 // (`frameTotals`: ranges of visible pixels and colours, cleanup counts summed) and `frames` keeps only the three rows
 // with the most corners and strays, since thirty rows of near-equal counts tell a reader nothing a total does not.
-// Animations are kept whole, and so are findings but for `duplicate`: a pose a cycle passes twice, or a hold, is no
-// finding to act on, and two cold runs read the list as noise (`--full` keeps them). `analyzeProject` still measures
-// every frame.
+// Findings follow the rows: those of the frames kept are listed, those of the other frames added up by code
+// (`findingTotals`: "isolated": "129 pixels in 16 frames"), since a particle overlay has strays in every frame and a
+// block of coordinates each would be most of the reply. Animations and their findings are kept whole. `duplicate` is
+// left out: a pose a cycle passes twice, or a hold, is no finding to act on, and two cold runs read the list as noise
+// (`--full` keeps everything). `analyzeProject` still measures every frame.
 export const DIAGNOSTIC_ROWS = 8;
 export function briefDiagnostics(diagnostics) {
   const { frames, ...rest } = diagnostics;
@@ -2045,7 +2055,15 @@ export function briefDiagnostics(diagnostics) {
   if (frames.length <= DIAGNOSTIC_ROWS) return { advisory: rest.advisory, frames, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
   const range = key => [Math.min(...frames.map(row => row[key])), Math.max(...frames.map(row => row[key]))], sum = key => frames.reduce((total, row) => total + row[key], 0);
   const most = frames.map((row, index) => ({ row, index, count: row.corners + row.strays })).filter(entry => entry.count).sort((a, b) => b.count - a.count || a.index - b.index).slice(0, 3).map(entry => entry.row);
-  return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
+  const kept = new Set(most.map(row => row.frame)), totals = new Map(), units = { isolated: 'pixels', palette: 'colours' };
+  const findings = rest.findings.filter(finding => {
+    if (finding.frame === undefined || kept.has(finding.frame)) return true;
+    const total = totals.get(finding.code) ?? { count: 0, frames: 0 };
+    total.count += finding.count ?? 0; total.frames++; totals.set(finding.code, total);
+    return false;
+  });
+  const findingTotals = Object.fromEntries([...totals].map(([code, { count, frames }]) => [code, `${count ? `${count}${units[code] ? ` ${units[code]}` : ''} in ` : ''}${frames} frame${frames === 1 ? '' : 's'}`]));
+  return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, ...(rest.animations && { animations: rest.animations }), findings, ...(totals.size && { findingTotals }) };
 }
 
 // Cells (or frames) as a reply carries them: in order, a line per run that lasts the same, and a run of three or more
