@@ -6,7 +6,10 @@
 // direction of travel and change colour over their life; cues mark frames for game code. Shape layers (src/shapes.js:
 // shockwave rings, slashes, beams, lightning, magic circles, impact stars, fireballs) bake into one grid per frame
 // between `behind` particles and the rest. An effect's `shine` is the light of what it draws in its brightest colours
-// (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels.
+// (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels. Each compile
+// reviews what it made and warns about what a game would show as a fault: a loop that jumps at its seam, a canvas side
+// drawn on (unless the effect lists it in `edges`), and a one-shot that still draws on its last frame, where it is cut
+// off (unless the effect says `residue: true`).
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
 import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
@@ -520,7 +523,10 @@ function simulate(effect, context) {
     if (count) mark(e, born, q.x + ox, q.y + oy);
   };
   const layered = emitters.some(e => e.behind);
-  let counted = null;
+  // kept: what a one-shot's last frame shows of the sprites it draws (a prop, a stand-in, an animation played frame for
+  // frame), which is not something the effect left behind (the residue review). A release has taken its sprite apart
+  // by then.
+  let counted = null, kept = null;
   const end = total + (loop ? 1 : 0);
   for (let t = 0; t < end; t++) {
     // recording: one of the effect's own frames; the frame after a loop's last is drawn but not counted.
@@ -584,6 +590,12 @@ function simulate(effect, context) {
     // Draw oldest first, with `behind` emitters' particles under everyone else's. Particles partly off the canvas are
     // cropped into grid operations and trails keep only their on-canvas pixels, so nothing clips.
     const sheets = drawing ? emitters.map((e, index) => (e.sprite && (e.sprite.draw || e.pixel) ? sheet(e, index, t) : null)) : null;
+    if (drawing && !loop && t === total - 1) emitters.forEach((e, index) => {
+      if (!e.sprite?.draw || !sheets[index]?.any) return;
+      kept ??= new Uint8Array(width * height);
+      const { chars } = sheets[index];
+      for (let c = 0; c < chars.length; c++) if (chars[c]) kept[c] = 1;
+    });
     // What is left of a solid sprite, before its own pixel particles are drawn into its sheet.
     if (drawing && solids) for (const index of solid) {
       if (!sheets[index]?.any) continue;
@@ -712,7 +724,7 @@ function simulate(effect, context) {
   }
   // The next cycle's first frame, drawn as the recorded ones are, for the seam review only.
   const next = loop ? { output: output.pop(), behind: behind.pop(), back: { output: back.output.pop(), behind: back.behind.pop() }, between: between.pop(), blobs: blobs.pop(), solid: solids ? solids.pop() : null } : null;
-  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids };
+  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids, kept };
 }
 
 // What shines in an effect and how its light looks (`shine`). The pixels the effect draws in the colours of `keys`
@@ -1044,7 +1056,9 @@ export function compileEffects(source, { stats = false } = {}) {
   // Shape painting, and measuring auras' distance fields, share one work budget across every effect and frame
   // (shapes.js SHAPE_WORK).
   // touching: the canvas sides each animation may draw on (its effect's edges, turned with a turned copy).
-  const shapeWork = { spent: 0 }, probed = { spent: 0 }, pointed = new Set(), touching = new Map();
+  // ending: for each one-shot, whether its last frame is meant to stay drawn, what it shows of the sprites it draws, and
+  // what can reach it (reaching).
+  const shapeWork = { spent: 0 }, probed = { spent: 0 }, pointed = new Set(), touching = new Map(), ending = new Map();
   let totalFrames = 0;
   // A broken layer or emitter is noted and the rest of the source is still read, so one reply names every one (up to
   // ten), as for recipes. An effect with a noted error is not simulated; anything else still stops at once.
@@ -1058,9 +1072,12 @@ export function compileEffects(source, { stats = false } = {}) {
   effects: for (const [base, effect] of Object.entries(source.effects)) {
     const path = `fx.effects.${base}`;
     identifier(base, path);
-    fields(effect, ['frames', 'duration', 'loop', 'seed', 'emitters', 'layers', 'looks', 'cleanup', 'turn', 'light', 'edges', 'shine'], path);
+    fields(effect, ['frames', 'duration', 'loop', 'seed', 'emitters', 'layers', 'looks', 'cleanup', 'turn', 'light', 'edges', 'shine', 'residue'], path);
     // light: true writes the light track into the frames as a point named light, which scene lights can follow.
     const lightPoint = flag(effect.light, `${path}.light`), edges = readEdges(effect.edges, `${path}.edges`);
+    // residue: true says a one-shot is meant to end with its last frame still drawn (debris at rest, a mark on the
+    // ground), so the review below doesn't warn about it.
+    const stays = flag(effect.residue, `${path}.residue`);
     for (const { name, view } of turnsOf(effect, base, path, width, height)) {
     if (lightPoint) pointed.add(name);
       // Effect names become animation and frame names, which must be unique ignoring case for portable bundles.
@@ -1082,6 +1099,7 @@ export function compileEffects(source, { stats = false } = {}) {
       };
       budget(count);
       if (typeof loop !== 'boolean') fail(`${path}.loop`, 'expected a boolean');
+      if (loop && stays) fail(`${path}.residue`, 'residue accepts what a one-shot still draws on its last frame; a loop has no last frame to leave');
       const durations = Array.isArray(effect.duration)
         ? (effect.duration.length === count ? effect.duration.map((d, i) => integer(d, `${path}.duration[${i}]`, 1, 60000)) : fail(`${path}.duration`, `expected one duration or ${count}`))
         : isObject(effect.duration) ? curve(effect.duration, `${path}.duration`, count)
@@ -1146,9 +1164,10 @@ export function compileEffects(source, { stats = false } = {}) {
       }
       const empty = () => Array.from({ length: count }, () => []);
       const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view, solid: shine?.solid }, context)
-        : { output: empty(), behind: empty(), back: { output: empty(), behind: empty() }, between: empty(), blobs: empty(), operations: 0, culled: 0, stats: [], cues: Array.from({ length: count }, () => ({})), props: new WeakSet(), solids: null,
+        : { output: empty(), behind: empty(), back: { output: empty(), behind: empty() }, between: empty(), blobs: empty(), operations: 0, culled: 0, stats: [], cues: Array.from({ length: count }, () => ({})), props: new WeakSet(), solids: null, kept: null,
           next: loop ? { output: [], behind: [], back: { output: [], behind: [] }, between: [], blobs: [], solid: null } : null };
       if (shapes) for (const layer of shapes.layers) if (layer.cue && !Object.hasOwn(run.cues[layer.t0], layer.cue)) run.cues[layer.t0][layer.cue] = [Math.floor(layer.at[0] + 0.5), Math.floor(layer.at[1] + 0.5)];
+      if (!loop) ending.set(name, { stays, kept: run.kept, reach: stays ? [] : reaching(emitters, shapes, count) });
       const spawned = run.stats.reduce((sum, s) => sum + s.spawned, 0);
       if (spawned > LIMITS.spawned) fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; lower burst, rate or frames`);
       // Cues become named frame points, which atlases export for game code (a shake or a pause on the impact frame).
@@ -1238,7 +1257,8 @@ export function compileEffects(source, { stats = false } = {}) {
   };
   // A review of what each animation delivers: a loop's seam (the pixels that change from its last frame to its first)
   // against its largest ordinary step, warned about when the loop jumps; a one-shot's residue, the pixels its last
-  // frame still draws (0 when it ends empty).
+  // frame still draws besides the sprites the effect draws (0 when it ends empty), warned about unless the effect
+  // says its last frame stays (residue: true): whatever is there is cut off where a game ends the effect.
   const project = renderProject(recipe), at = new Map(recipe.frames.map((frame, i) => [frame.name, project.frames[i].data])), warnings = [...loopNotes];
   // The frame each loop should go on to after its last, drawn with the same palette and symbols.
   if (nextFrames.length) {
@@ -1253,10 +1273,11 @@ export function compileEffects(source, { stats = false } = {}) {
     for (let y = 0; y < height; y++) { if (drawn(0, y)) count.left++; if (drawn(width - 1, y)) count.right++; }
     return count;
   };
-  const frameOf = new Map(recipe.frames.map(frame => [frame.name, frame]));
+  const frameOf = new Map(recipe.frames.map(frame => [frame.name, frame])), leftover = new Set();
   for (const [name, animation] of Object.entries(animations)) {
     const data = animation.frames.map(frame => at.get(frame)), effect = metadata.effects[name], of = effect.turn?.of ?? name;
-    const residue = () => { let n = 0; const last = data[data.length - 1]; for (let i = 3; i < last.length; i += 4) if (last[i]) n++; return n; };
+    const end = ending.get(effect.part?.of ?? name), kept = end?.kept;
+    const residue = () => { let n = 0; const last = data[data.length - 1]; for (let i = 3, c = 0; i < last.length; i += 4, c++) if (last[i] && !(kept && kept[c])) n++; return n; };
     const steps = () => data.slice(1).map((frame, k) => differ(data[k], frame));
     // A part (what goes behind a character, or in front) is reviewed with its whole effect; it gets its own residue or seam.
     if (effect.part) {
@@ -1286,7 +1307,16 @@ export function compileEffects(source, { stats = false } = {}) {
       const where = cut.map(side => `${side}: up to ${edges[side].pixels} pixel${edges[side].pixels === 1 ? '' : 's'} a frame, ${edges[side].frames[0] === edges[side].frames[1] ? `frame ${edges[side].frames[0]}` : `frames ${edges[side].frames[0]}–${edges[side].frames[1]}`}`).join('; ');
       warnings.push(`fx.effects.${of}: ${name} draws on the canvas's ${cut.length === 1 ? `${cut[0]} edge` : `${cut.slice(0, -1).join(', ')} and ${cut.at(-1)} edges`} (${where}), so whatever reaches past it is cut off: keep it further inside or grow the canvas, or, if the effect is meant to touch that side (a bolt from the sky, a figure standing on the bottom row), list it in edges`);
     }
-    if (animation.loop === false) { effect.residue = residue(); continue; }
+    if (animation.loop === false) {
+      effect.residue = residue();
+      // Once per effect: its turned copies are written the same way.
+      if (effect.residue && !end.stays && !leftover.has(of)) {
+        leftover.add(of);
+        const reach = end.reach.length > 4 ? [...end.reach.slice(0, 4), `${end.reach.length - 4} more`] : end.reach;
+        warnings.push(`fx.effects.${of}: ${name} still draws ${effect.residue} pixel${effect.residue === 1 ? '' : 's'} on its last frame (frame ${effect.frames - 1}), so ${effect.residue === 1 ? 'it is' : 'they are'} cut off where the effect ends${reach.length ? `. What can be there: ${reach.join('; ')}` : ''}. End ${reach.length === 1 ? 'it' : 'them'} before the last frame (a shorter life, an earlier start or end, frames on a layer that end sooner) or give the effect more frames; if it is meant to stay on screen (debris at rest, a mark on the ground), set residue: true`);
+      }
+      continue;
+    }
     // A seamless loop's first frame is exactly the frame that follows its last: jump counts the pixels where they differ.
     // How much the last frame changes into the first (pixels) against the largest ordinary step is shown too, but a
     // seamless loop can have its largest change there by chance, so only a jump is warned about.
@@ -1295,6 +1325,27 @@ export function compileEffects(source, { stats = false } = {}) {
     if (jump) warnings.push(`fx.effects.${of}: ${name} jumps at its loop point: its first frame differs in ${jump} pixel${jump === 1 ? '' : 's'} from the frame that should follow its last, so end keys where they start, spin and sway by whole turns, close paths, and give flicker an even frame count`);
   }
   return JSON.parse(JSON.stringify({ recipe, metadata, ...(warnings.length && { warnings }), ...(stats && { work: { painted: shapeWork.spent + probed.spent } }) }));
+}
+
+// What can still be drawn on a one-shot's last frame, by how the effect is written: an emitter whose last spawn and
+// longest life reach it (a particle born in frame t with a life of L is drawn through frame t + L − 1; a child is born
+// the frame after its parent's event at the latest), and a layer whose frames run to the end. Whether anything is drawn
+// there is measured (the residue); this names where to look, and through which frame each emitter can draw.
+function reaching(emitters, shapes, count) {
+  const until = [], found = [];
+  emitters.forEach((e, i) => {
+    if (e.drawOnly) { until.push(-Infinity); return; }
+    const born = e.parent !== null ? until[e.parent] + 1 : e.burst !== null ? e.start : e.end - 1, last = e.life ? born + e.life[1] - 1 : Infinity;
+    until.push(last);
+    if (last < count - 1) return;
+    const who = `emitters[${i}]${e.name ? ` (${e.name})` : ''}`;
+    const lives = `living up to ${e.life?.[1]} frame${e.life?.[1] === 1 ? '' : 's'}`, through = Number.isFinite(last) ? `, so drawn through frame ${last}` : '';
+    found.push(!e.life ? `${who}, whose particles have no life and never end`
+      : e.parent !== null ? `${who}, born when its parent's particles ${e.when === 'life' ? 'live' : e.when === 'floor' ? 'land' : 'end'} and ${lives}${through}`
+        : `${who}, born ${e.burst !== null ? 'in' : 'until'} frame ${born} and ${lives}${through}`);
+  });
+  shapes?.layers.forEach((layer, i) => { if (layer.t1 >= count) found.push(`layers[${i}], a ${layer.kind} whose frames run to the effect's end`); });
+  return found;
 }
 
 // The canvas sides an effect is meant to touch: each once.

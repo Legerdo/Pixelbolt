@@ -639,6 +639,60 @@ test('a compile reviews each animation: the jump at a loop\'s seam, warned when 
   assert.equal(compileEffects(effects({ frames: 6, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'ring', at: [12, 12], radius: 6, power: [1, 0] }] })).metadata.effects.burst.residue, 0);
 });
 
+test('a one-shot that still draws on its last frame is warned about, with what can reach it, unless its last frame is meant to stay', () => {
+  const sparks = extra => compileEffects(effects({ frames: 6, emitters: [{ name: 'sparks', at: [12, 12], burst: 4, start: 1, speed: [0.5, 1], life: 5, shapes: ['dot'] }], ...extra }));
+  // Born in frame 1 with a life of 5: drawn through frame 5, the last of six, where the effect is cut off.
+  const cut = sparks();
+  assert.ok(cut.metadata.effects.burst.residue > 0);
+  assert.equal(cut.warnings.length, 1);
+  assert.match(cut.warnings[0], /^fx\.effects\.burst: burst still draws \d+ pixels? on its last frame \(frame 5\), so (it is|they are) cut off where the effect ends\. What can be there: emitters\[0\] \(sparks\), born in frame 1 and living up to 5 frames, so drawn through frame 5\. End it before the last frame \(a shorter life, an earlier start or end, frames on a layer that end sooner\) or give the effect more frames; if it is meant to stay on screen \(debris at rest, a mark on the ground\), set residue: true$/);
+  // One more frame ends it empty, and so does a life one frame shorter.
+  for (const ended of [sparks({ frames: 7 }), compileEffects(effects({ frames: 6, emitters: [{ at: [12, 12], burst: 4, start: 1, speed: [0.5, 1], life: 4, shapes: ['dot'] }] }))]) {
+    assert.equal(ended.metadata.effects.burst.residue, 0);
+    assert.equal(ended.warnings, undefined);
+  }
+  // residue: true says the last frame is meant to stay: the count is still reported, and nothing is warned.
+  const stays = sparks({ residue: true });
+  assert.equal(stays.metadata.effects.burst.residue, cut.metadata.effects.burst.residue);
+  assert.equal(stays.warnings, undefined);
+  assert.equal(sparks({ residue: false }).warnings.length, 1);
+
+  // What can be there is named by how the effect is written: a rate emitter by its last spawn, a child by its parent's
+  // particles, an emitter whose particles never end, and a layer whose frames run to the end.
+  const warm = { warm: { colors: ['y'], thresholds: [0.2] } };
+  const named = effect => compileEffects(effects({ frames: 6, ...effect })).warnings?.[0] ?? 'no warning';
+  assert.match(named({ emitters: [{ at: [12, 12], rate: 1, end: 4, speed: 0, life: 3, shapes: ['dot'] }] }), /What can be there: emitters\[0\], born until frame 3 and living up to 3 frames, so drawn through frame 5\./);
+  assert.match(named({ emitters: [{ name: 'shell', at: [12, 12], burst: 1, speed: 0, life: 2, shapes: ['dot'] }, { from: 'shell', burst: 2, speed: [0.5, 1], life: 4, shapes: ['warm'] }] }),
+    /What can be there: emitters\[1\], born when its parent's particles end and living up to 4 frames, so drawn through frame 5\./);
+  assert.match(named({ emitters: [{ at: [12, 12], burst: 1, speed: 0, shapes: ['dot'] }] }), /What can be there: emitters\[0\], whose particles have no life and never end\./);
+  assert.match(named({ looks: warm, layers: [{ kind: 'ring', at: [12, 12], radius: 6 }] }), /What can be there: layers\[0\], a ring whose frames run to the effect's end\./);
+  assert.equal(named({ looks: warm, layers: [{ kind: 'ring', at: [12, 12], radius: 6, frames: [0, 5] }] }), 'no warning');
+
+  // A sprite the effect draws (a prop standing through it, a stand-in) is not something left over; a particle still
+  // there beside it is.
+  const prop = { sprite: { symbol: 'chip', draw: true }, at: [10, 10] };
+  const beside = compileEffects(effects({ frames: 6, emitters: [prop, { at: [12, 12], burst: 3, speed: [0.5, 1], life: 3, shapes: ['dot'] }] }));
+  assert.deepEqual([beside.metadata.effects.burst.residue, beside.warnings], [0, undefined]);
+  assert.ok(renderProject(beside.recipe).frames.at(-1).data.some(value => value), 'the prop is still drawn on the last frame');
+  const late = compileEffects(effects({ frames: 6, emitters: [prop, { at: [4, 4], burst: 1, speed: 0, life: 6, shapes: ['dot'] }] }));
+  assert.equal(late.metadata.effects.burst.residue, 1);
+  assert.match(late.warnings[0], /burst still draws 1 pixel on its last frame \(frame 5\), so it is cut off where the effect ends\. What can be there: emitters\[1\], born in frame 0 and living up to 6 frames, so drawn through frame 5\./);
+
+  // Once for an effect: its turned copies and its back and front parts are written the same way.
+  const turned = compileEffects(effects({ frames: 6, turn: { angles: [0, 90, 180] }, emitters: [{ at: [12, 12], burst: 2, angle: [0, 0], speed: 1, life: 6, shapes: ['dot'] }] }));
+  assert.equal(turned.warnings.length, 1);
+  assert.match(turned.warnings[0], /^fx\.effects\.burst: burst-0 still draws/);
+  const parted = compileEffects(effects({ frames: 6, emitters: [{ at: [12, 12], burst: 2, speed: 0, life: 6, shapes: ['dot'], depth: 'back' }] }));
+  assert.equal(parted.warnings.length, 1);
+  assert.ok(parted.metadata.effects['burst-back'].residue > 0);
+
+  // A loop has no last frame to leave, and the field is a boolean.
+  const looping = { frames: 6, loop: true, emitters: [{ at: [12, 12], rate: 1, speed: 0, life: 2, shapes: ['dot'] }] };
+  assert.match(compileEffectsError(() => compileEffects(effects({ ...looping, residue: true }))), /fx\.effects\.burst\.residue: residue accepts what a one-shot still draws on its last frame; a loop has no last frame to leave/);
+  assert.equal(compileEffects(effects(looping)).warnings, undefined);
+  assert.match(compileEffectsError(() => sparks({ residue: 'yes' })), /fx\.effects\.burst\.residue: expected true or false/);
+});
+
 test('a compile gives each animation a light track: where its bright pixels are, how much light and what colour', () => {
   const { metadata } = compileEffects(effects({ frames: 4, looks: { warm: { colors: ['o', 'y', 'w'], thresholds: [0.2, 0.5, 0.8] } }, layers: [{ kind: 'burst', at: [10, 14], frames: [0, 3], radius: [6, 2], noise: 0, power: [1.4, 0.3] }] }));
   const light = metadata.effects.burst.light;

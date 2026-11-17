@@ -16,7 +16,8 @@ const pixelsOf = recipe => { const project = renderProject(recipe); return new M
 const drawnOn = data => { let n = 0; for (let i = 3; i < data.length; i += 4) if (data[i]) n++; return n; };
 
 test('a compile reports the canvas sides each animation draws on, and warns unless the effect lists the side in edges', () => {
-  const ring = (extra = {}) => compileEffects(source({ edge: { frames: 3, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'ring', at: [16, 24], radius: 12, width: 2 }], ...extra } }));
+  // The ring stands still for its three frames, so its last frame is meant to be drawn (residue).
+  const ring = (extra = {}) => compileEffects(source({ edge: { frames: 3, residue: true, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'ring', at: [16, 24], radius: 12, width: 2 }], ...extra } }));
   const cut = ring();
   assert.deepEqual(Object.keys(cut.metadata.effects.edge.edges), ['bottom']);
   assert.deepEqual(cut.metadata.effects.edge.edges.bottom.frames, [0, 2]);
@@ -27,7 +28,7 @@ test('a compile reports the canvas sides each animation draws on, and warns unle
   const listed = ring({ edges: ['bottom'] });
   assert.equal(listed.warnings, undefined);
   assert.deepEqual(listed.metadata.effects.edge.edges, cut.metadata.effects.edge.edges);
-  const inside = compileEffects(source({ edge: { frames: 3, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'ring', at: [16, 16], radius: 8, width: 2 }] } }));
+  const inside = compileEffects(source({ edge: { frames: 3, residue: true, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'ring', at: [16, 16], radius: 8, width: 2 }] } }));
   assert.equal(inside.metadata.effects.edge.edges, undefined);
   assert.equal(inside.warnings, undefined);
   for (const bad of [['up'], ['top', 'top'], 'top']) assert.throws(() => ring({ edges: bad }), /edges: expected the canvas sides/);
@@ -35,7 +36,7 @@ test('a compile reports the canvas sides each animation draws on, and warns unle
 
 test('edges turn with a turned copy: a side listed for the drawn effect is the side its turned copies may touch', () => {
   // A beam running off the right edge, turned a quarter (down), a half (left) and an eighth (toward the lower right corner).
-  const beam = edges => compileEffects(source({ beam: { frames: 2, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'beam', at: [16, 16], to: [40, 16], width: 3 }],
+  const beam = edges => compileEffects(source({ beam: { frames: 2, residue: true, looks: { warm: { colors: ['y'], thresholds: [0.2] } }, layers: [{ kind: 'beam', at: [16, 16], to: [40, 16], width: 3 }],
     turn: { angles: [0, 45, 90, 180], about: [16, 16] }, ...(edges && { edges }) } }));
   const warned = beam().warnings.map(w => w.match(/: (beam-\d+) draws on the canvas's (.*?) edges? \(/).slice(1));
   assert.deepEqual(warned, [['beam-0', 'right'], ['beam-45', 'right and bottom'], ['beam-90', 'bottom'], ['beam-180', 'left']]);
