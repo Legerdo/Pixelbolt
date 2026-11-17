@@ -437,8 +437,8 @@ const engineVersion = async () => JSON.parse(await readFile(new URL('../package.
 // which reads as a broken file. `own` are the formats the command reads itself (inspect compiles poses and waves).
 function recipeOnly(command, document, file, own = []) {
   const format = typeof document?.format === 'string' && document.format.startsWith('pixelforge-') && !own.includes(document.format) ? document.format : null;
-  if (format === 'pixelforge-scene') throw new Error(`this is a scene, not a recipe: use pixelbolt scene on it (--out <folder>, or --image <view.png> for one view) or pixelbolt gif (--out <new.gif>)`);
-  if (format && Object.hasOwn(COMPILERS, format)) throw new Error(`this is a ${format} source: compile it first (pixelbolt compile ${file} --out <new.json>), then ${command} the recipe it writes`);
+  if (format === 'pixelforge-scene') throw new PixelError('project.format', `this is a scene, not a recipe: use pixelbolt scene on it (--out <folder>, or --image <view.png> for one view) or pixelbolt gif (--out <new.gif>)`);
+  if (format && Object.hasOwn(COMPILERS, format)) throw new PixelError('project.format', `this is a ${format} source: compile it first (pixelbolt compile ${file} --out <new.json>), then ${command} the recipe it writes`);
 }
 // Whether a file holds a scene, which `gif` writes whole where it writes one animation of a recipe.
 async function holdsScene(file) {
@@ -757,8 +757,9 @@ try {
       // --preset: a shipped preset straight to its GIF, compiled as compile --preset compiles it.
       const input = await readResolved(positional[0]), compiled = options.preset !== undefined ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation, animationPath: '--animation' }) : null, warnings = [...(compiled?.warnings ?? [])];
       let recipe = compiled ? compiled.recipe : input.document, resized, kept;
-      // The recipe's animations, named in the reply even when --size keeps one of them.
-      const listed = isObject(recipe?.animations) ? Object.keys(recipe.animations) : null;
+      // The recipe's animations, named in the reply even when --size keeps one of them. An empty list (stills) names none,
+      // so it reaches the GIF's stills refusal.
+      const listed = isObject(recipe?.animations) && Object.keys(recipe.animations).length ? Object.keys(recipe.animations) : null;
       if (options.frames !== undefined) {
         const thinned = keepFrames(recipe, frameCount(options.frames), '--frames');
         ({ recipe, kept } = thinned); warnings.push(...thinned.notes);
