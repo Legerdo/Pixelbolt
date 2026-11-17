@@ -8,8 +8,9 @@
 // between `behind` particles and the rest. An effect's `shine` is the light of what it draws in its brightest colours
 // (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels. Each compile
 // reviews what it made and warns about what a game would show as a fault: a loop that jumps at its seam, a canvas side
-// drawn on (unless the effect lists it in `edges`), and a one-shot that still draws on its last frame, where it is cut
-// off (unless the effect says `residue: true`).
+// drawn on (unless the effect lists it in `edges`), a one-shot that still draws on its last frame, where it is cut
+// off (unless the effect says `residue: true`), a loop whose particles outlive it (each drawn more than once at a
+// time), and compile --frames thinning a loop unevenly.
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
 import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
@@ -29,8 +30,8 @@ const SALT = { x: 1, y: 2, angle: 3, speed: 4, life: 5, variant: 6, remap: 7, ph
 // pixels just outside it (as a look's outline takes them).
 export const SPRITE_PIXELS = ['all', 'edge', 'outline'];
 const clear = char => char === '.' || char === ' ';
-// operations: what an effect may draw, in the frames it delivers; simulated: what it may draw in all when a compile
-// keeps fewer frames than it makes (compile --frames), since every frame is still simulated (simulate).
+// operations: what the recipe a compile delivers draws, every effect's frames it keeps (each turned copy's and part's)
+// together; simulated: what every effect may draw in all, kept or not, since every frame is simulated (simulate).
 const LIMITS = { effects: 64, emitters: 16, spawned: 4096, alive: 1024, operations: 20000, simulated: 80000 };
 // A particle's symbol stays at most 256 a side, whether written as rows or taken from a recipe: it is stamped for every
 // particle drawn, and one partly off the canvas is cropped into a grid of its own, so it is not the canvas. A sprite
@@ -372,11 +373,17 @@ const evenAngle = ([from, to], k, count) => (to - from >= 360 ? from + 360 * k /
 
 // What to lower when a release passes a particle limit: it has no burst or rate, its particles are a share of its
 // sprite's pixels. `made` of the particles counted come from emitters[index] and `room` is what the limit leaves it
-// beside the others; the share that fits (about, two figures, rounded down) also keeps every release within `spawned`.
-function releaseAdvice(e, index, made, room) {
+// beside the others, for a first guess; the share named (two figures, rounded down) is the largest at or below it that
+// `fits` (what the release would spawn with that share, against every limit), and never more than keeps it within
+// `spawned` on its own.
+function releaseAdvice(e, index, made, room, fits) {
   const cells = e.sprite.frames[0].cells.length, share = e.release.share;
-  let fit = Math.min(share * Math.max(0, room) / made, LIMITS.spawned / cells), k = 0, scale = 1;
-  if (fit > 0) { while (fit * scale < 10) { k++; scale *= 10; } fit = Number((Math.floor(fit * scale) / scale).toFixed(k)); }
+  let fit = Math.min(share * Math.max(0, room) / made, LIMITS.spawned / cells), k = 0, scale = 1, n = 0;
+  if (fit > 0) { while (fit * scale < 10) { k++; scale *= 10; } n = Math.floor(fit * scale); }
+  // One step down in the second figure at a time (0.010 is followed by 0.0099), while the share named does not fit.
+  const at = () => Number((n / scale).toFixed(k));
+  for (let tries = 0; n > 0 && tries < 400 && !fits(at()); tries++) if (--n < 10 && n > 0) { n = n * 10 + 9; scale *= 10; k++; }
+  fit = n > 0 ? at() : 0;
   return `emitters[${index}] releases ${share < 1 ? `a ${share} share of` : 'every one of'} its sprite's ${cells.toLocaleString('en-US')} pixels: ${fit > 0 ? `lower its release.share (about ${fit} fits) or use a smaller sprite` : 'use a smaller sprite'}`;
 }
 
@@ -434,15 +441,33 @@ function simulate(effect, context) {
   const props = new WeakSet(), solids = solid?.size ? perFrame().map(() => null) : null;
   const stats = emitters.map(e => ({ ...(e.name && { name: e.name }), spawned: 0, maxAlive: 0, ...(e.sprite && { pixels: e.sprite.frames[0].cells.length }) }));
   let operations = 0, culled = 0;
-  // `share`: the frames of this canvas a recipe holds, which are rendered together (the compile's review, keepFrames).
-  // When compile --frames keeps fewer frames than the effect makes (context.keep) and they are more than that, they
-  // are rendered a share at a time before they are thinned: then `operations` holds the frames kept (keptAt, checked
-  // once all are drawn) and every `share` frames in a row, and what is simulated holds LIMITS.simulated. Otherwise the
-  // effect is rendered whole and every frame counts. frameOps: what each of the effect's frames draws.
-  const share = Math.floor(FRAME_AREA / (width * height)), keep = context.keep < frames && frames > share ? context.keep : undefined, frameOps = keep ? new Array(frames).fill(0) : null;
-  let together = 0;
+  // What every effect of a compile simulates holds LIMITS.simulated (context.simulated, shared), so the work is bounded
+  // before the frames a recipe delivers are held to LIMITS.operations (compileEffects). thinned: compile --frames keeps
+  // fewer of this effect's frames than it makes (context.keep), though every one is simulated.
+  const thinned = context.keep < frames, before = context.simulated.spent;
   // How many frames fit, at the density of `made` operations over `drawn` frames.
   const fits = (made, drawn, limit) => { const fit = Math.floor(limit * drawn / made); return `about ${fit === 1 ? '1 frame fits' : `${fit} frames fit`} at this density`; };
+  // Past the particles alive at once, the effect is simulated on, drawing nothing, to say how many it keeps alive at its
+  // peak and whose they are (crowd), up to CROWD; or, when a release holds most of them (blamed), what share of it
+  // fits beside what the other emitters keep alive and spawn in all.
+  let crowded = false, crowd = null, blamed = null;
+  const CROWD = 4 * LIMITS.alive;
+  const census = () => {
+    const by = emitters.map(() => 0);
+    for (const p of alive) by[p.index]++;
+    return { total: alive.length, by };
+  };
+  const overcrowded = () => {
+    if (blamed) {
+      const { e, index, made, room } = blamed, others = (key, j) => stats.reduce((sum, s, i) => sum + (i === j ? 0 : s[key]), 0);
+      const fits = share => { const r = released(index, share); return r.alive <= LIMITS.alive - others('maxAlive', index) && r.spawned <= LIMITS.spawned - others('spawned', index); };
+      fail(context.path, `more than ${LIMITS.alive} particles are alive at once; ${releaseAdvice(e, index, made, room, fits)}`);
+    }
+    const shares = crowd.by.map((n, i) => [n, emitters[i].name ?? `emitters[${i}]`]).filter(([n]) => n).sort((a, b) => b[0] - a[0]);
+    const named = shares.slice(0, 5).map(([n, who]) => `${who} ${n.toLocaleString('en-US')}`).concat(shares.length > 5 ? [`${shares.length - 5} more`] : []);
+    const many = crowd.total > CROWD ? `more than ${CROWD.toLocaleString('en-US')}` : `about ${crowd.total.toLocaleString('en-US')}`;
+    fail(context.path, `more than ${LIMITS.alive} particles are alive at once (${many}: ${named.join(', ')}); lower burst, rate or life`);
+  };
   // A release gives each of the sprite's pixels the frame it leaves on: where the sweep's front reaches it between start
   // and end (loosened by jitter), or a seeded random frame without a sweep. `due` lists the pixels that spawn a particle
   // in each frame (a share of them, when share is below 1) and `leaves` every leaving pixel's frame by its place in the
@@ -453,15 +478,26 @@ function simulate(effect, context) {
     const dx = sweep === null ? 0 : cosDeg(sweep), dy = sweep === null ? 0 : sinDeg(sweep), along = cells.map(c => c.x * dx + c.y * dy);
     let low = Infinity, high = -Infinity;
     for (const a of along) { if (a < low) low = a; if (a > high) high = a; }
-    const due = Array.from({ length: frames }, () => []), leaves = new Map();
+    // leaving: each pixel's frame; picked: the draw a share is compared with (what another share would release).
+    const due = Array.from({ length: frames }, () => []), leaves = new Map(), leaving = new Int32Array(cells.length), picked = new Float64Array(cells.length);
     cells.forEach((c, i) => {
       const order = sweep === null || high - low < 1e-9 ? 0 : (along[i] - low) / (high - low);
       const frame = e.start + Math.min(span - 1, Math.floor(((1 - jitter) * order + jitter * random(seed, index, -1, i, SALT.release)) * span));
       if (c.key !== null) leaves.set(c.y * w + c.x, frame);
-      if (share >= 1 || random(seed, index, -1, i, SALT.share) < share) due[frame].push(i);
+      leaving[i] = frame; picked[i] = random(seed, index, -1, i, SALT.share);
+      if (share >= 1 || picked[i] < share) due[frame].push(i);
     });
-    return { due, leaves };
+    return { due, leaves, leaving, picked };
   });
+  // What a release would spawn with another share: in all, and alive at once at the most (each pixel living its
+  // longest life), for the share its refusals name (releaseAdvice).
+  const released = (index, share) => {
+    const { leaving, picked } = releases[index], counts = new Array(frames).fill(0), e = emitters[index], span = e.life ? e.life[1] : frames;
+    for (let i = 0; i < leaving.length; i++) if (share >= 1 || picked[i] < share) counts[leaving[i]]++;
+    let spawned = 0, peak = 0;
+    for (let t = 0, sum = 0; t < frames; t++) { spawned += counts[t]; sum += counts[t] - (t >= span ? counts[t - span] : 0); peak = Math.max(peak, sum); }
+    return { spawned, alive: peak };
+  };
   // What a sprite emitter draws of the sprite itself this frame (all of it, or what is left after a release), as
   // palette-key codes over the canvas; its pixel particles are added on top.
   const sheet = (e, index, t) => {
@@ -524,17 +560,26 @@ function simulate(effect, context) {
   // Every new particle comes through here, so child emitters that multiply within one frame fail at the limit instead
   // of piling up millions of particles first.
   const add = particle => {
+    // A release blamed for the crowd adds no more: the others are simulated on to measure what they keep alive and spawn.
+    if (blamed && particle.index === blamed.index) return;
     alive.push(particle);
     if (alive.length <= LIMITS.alive) return;
+    if (crowded) {
+      if (alive.length > CROWD) { crowd = census(); overcrowded(); }
+      return;
+    }
+    crowded = true; crowd = census();
     // A release is told what to lower only when it holds most of the particles alive, as with those spawned.
-    const e = particle.emitter, mine = e.release ? alive.filter(p => p.index === particle.index).length : 0;
-    if (mine * 2 <= alive.length) fail(context.path, `more than ${LIMITS.alive} particles are alive at once; lower burst, rate or life`);
+    let index = -1;
+    emitters.forEach((e, i) => { if (e.release && (index < 0 || crowd.by[i] > crowd.by[index])) index = i; });
+    const mine = index < 0 ? 0 : crowd.by[index];
+    if (mine * 2 <= alive.length) return;
     // A release's particles alive at once peak where the most pixels leave within one life (its longest), which is
     // known before they are simulated; what is alive now is only the start of it.
-    const due = releases[particle.index].due, span = e.life ? e.life[1] : due.length;
+    const e = emitters[index], due = releases[index].due, span = e.life ? e.life[1] : due.length;
     let peak = 0;
     for (let t = 0, sum = 0; t < due.length; t++) { sum += due[t].length - (t >= span ? due[t - span].length : 0); peak = Math.max(peak, sum); }
-    fail(context.path, `more than ${LIMITS.alive} particles are alive at once; ${releaseAdvice(e, particle.index, Math.max(mine, peak), LIMITS.alive - (alive.length - mine))}`);
+    blamed = { e, index, made: Math.max(mine, peak), room: LIMITS.alive - (alive.length - mine) };
   };
   // Children of particle q, born in frame `born`: keyed by the parent's tag and age, so a looping parent has the same
   // children every cycle.
@@ -560,7 +605,7 @@ function simulate(effect, context) {
   const end = total + (loop ? 1 : 0);
   for (let t = 0; t < end; t++) {
     // recording: one of the effect's own frames; the frame after a loop's last is drawn but not counted.
-    const cycle = t % frames, drawing = t >= first, recording = drawing && t < total, startOps = operations;
+    const cycle = t % frames, drawing = t >= first && !crowded, recording = t >= first && t < total;
     if (t === total) counted = { operations, culled };
     emitters.forEach((e, index) => {
       if (e.parent !== null) return;
@@ -602,6 +647,7 @@ function simulate(effect, context) {
         if (q.index === e.parent) spawnChildren(index, q, Math.floor((q.age + 1) * e.rate + 1e-9) - Math.floor(q.age * e.rate + 1e-9), t, true);
       }
     });
+    if (crowded && alive.length > crowd.total) crowd = census();
     if (recording) emitters.forEach((e, index) => { stats[index].maxAlive = Math.max(stats[index].maxAlive, alive.filter(p => p.index === index).length); });
     // Every live particle's rounded (and swayed) position. Sway never carries a particle below its floor. A facing
     // particle turns with its velocity in every frame, warm-up included, so a loop's frame 0 continues its last frame.
@@ -750,40 +796,17 @@ function simulate(effect, context) {
     // once is not held to the limit on particles alive by children it never shows.
     if (t + 1 < end) for (let k = events.length - 1; k >= 0; k--) { const [q, when] = events[k]; for (const index of children[q.index][when]) spawnChildren(index, q, emitters[index].burst, t + 1); }
     if (counted) ({ operations, culled } = counted);
-    if (keep) {
-      if (recording) {
-        const f = t - first, from = Math.max(0, f - share + 1);
-        frameOps[f] = operations - startOps; together += frameOps[f] - (f >= share ? frameOps[f - share] : 0);
-        if (together > LIMITS.operations) fail(context.path, `frames ${from}–${f} need about ${together.toLocaleString('en-US')} drawing operations (${Math.round(together / (f - from + 1))} a frame); every ${share} frames of ${width}×${height} in a row are drawn together before frames ${keep} thins them, and make at most ${LIMITS.operations}, so ${fits(together, f - from + 1, LIMITS.operations)}: lower burst, rate or trail, or the effect's frames`);
-      }
-      if (operations > LIMITS.simulated) {
-        const drawn = Math.min(frames, Math.max(1, t - first + 1));
-        fail(context.path, `the effect simulates all ${frames} of its frames, kept or not, and needs about ${Math.ceil(operations * frames / drawn).toLocaleString('en-US')} drawing operations (${Math.round(operations / drawn)} a frame) of the ${LIMITS.simulated.toLocaleString('en-US')} it may make, so ${fits(operations, drawn, LIMITS.simulated)}: lower burst, rate or trail, or the effect's frames`);
-      }
-    } else if (operations > LIMITS.operations) {
-      // How many it would need in all, and how many frames fit, at the density of the frames drawn so far.
-      const drawn = Math.min(frames, Math.max(1, t - first + 1)), needed = Math.ceil(operations * frames / drawn);
-      fail(context.path, `the effect needs about ${needed.toLocaleString('en-US')} drawing operations (${Math.round(operations / drawn)} a frame) and makes at most ${LIMITS.operations}, so ${fits(operations, drawn, LIMITS.operations)}: lower burst, rate or trail, or frames`);
+    if (!crowded && before + operations > LIMITS.simulated) {
+      // At the density of the frames drawn so far: as many frames as fit what the compile may still simulate, and
+      // without frames, what a recipe delivers too.
+      const drawn = Math.min(frames, Math.max(1, t - first + 1)), room = thinned ? LIMITS.simulated - before : Math.min(LIMITS.simulated - before, LIMITS.operations);
+      fail(context.path, `the effect ${thinned ? `simulates all ${frames} of its frames, kept or not, and ` : ''}needs about ${Math.ceil(operations * frames / drawn).toLocaleString('en-US')} drawing operations (${Math.round(operations / drawn)} a frame) of the ${LIMITS.simulated.toLocaleString('en-US')} a compile may simulate${before ? ` (${before.toLocaleString('en-US')} taken by the effects before it)` : ''}, so ${fits(operations, drawn, room)}: lower burst, rate or trail, or the effect's frames`);
     }
   }
-  if (keep) {
-    // The frames keepFrames keeps of this animation with frames n: a loop's floor(i × frames / n), a one-shot's first and
-    // last that draws (here: draws a particle) and evenly between. The most that fit is said as a route that works.
-    const keptAt = n => {
-      let last = frames - 1;
-      if (!loop) while (last >= n && !frameOps[last]) last--;
-      return Array.from({ length: n }, (_, i) => frameOps[loop ? Math.floor(i * frames / n) : n === 1 ? 0 : Math.round(i * last / (n - 1))]).reduce((sum, ops) => sum + ops, 0);
-    };
-    const made = keptAt(keep);
-    if (made > LIMITS.operations) {
-      let most = keep - 1;
-      while (most > 0 && keptAt(most) > LIMITS.operations) most--;
-      fail(context.path, `the ${keep} frames kept with frames ${keep} need about ${made.toLocaleString('en-US')} drawing operations (${Math.round(made / keep)} a frame) and make at most ${LIMITS.operations}${most ? `, so frames ${most} fits (pixelbolt compile --frames ${most}), or` : ':'} lower burst, rate or trail`);
-    }
-  }
+  if (crowded) overcrowded();
   // The next cycle's first frame, drawn as the recorded ones are, for the seam review only.
   const next = loop ? { output: output.pop(), behind: behind.pop(), back: { output: back.output.pop(), behind: back.behind.pop() }, between: between.pop(), blobs: blobs.pop(), solid: solids ? solids.pop() : null } : null;
-  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids, kept };
+  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids, kept, released };
 }
 
 // What shines in an effect and how its light looks (`shine`). The pixels the effect draws in the colours of `keys`
@@ -1085,12 +1108,33 @@ function followed(layer, path, frames) {
   return { ...rest, points, ...(follow.pivot !== undefined && { pivot: recipePoints(follow, `${path}.follow`, 'pivot') }) };
 }
 
+// The 20,000 drawing operations one render takes (core.js renderProject), for frameParts.
+const RENDER_OPERATIONS = 20000;
+// `frames` (of `area` pixels each) in runs that one render takes, in order: at most FRAME_AREA pixels and
+// RENDER_OPERATIONS drawing operations a run (a frame past them alone is a run of its own, refused by the render). An
+// effect compiled for fewer frames (compileEffects' `frames`) may make more of both than a recipe holds, and is read a
+// run at a time: here and in its own review.
+export function frameParts(frames, area) {
+  const parts = [], opsOf = frame => (Array.isArray(frame?.ops) ? frame.ops.length : 0) + (Array.isArray(frame?.layers) ? frame.layers.reduce((sum, layer) => sum + (Array.isArray(layer?.ops) ? layer.ops.length : 0), 0) : 0);
+  let part = [], ops = 0;
+  for (const frame of frames) {
+    const n = opsOf(frame);
+    if (part.length && ((part.length + 1) * area > FRAME_AREA || ops + n > RENDER_OPERATIONS)) { parts.push(part); part = []; ops = 0; }
+    part.push(frame); ops += n;
+  }
+  if (part.length) parts.push(part);
+  return parts;
+}
+
 // With `stats`, the result also has `work`: the pixels its shape layers' painting visited (`painted`), every frame and
 // each loop's seam probe together, to hold the work instead of timing it.
 // `frames`: how many frames of each animation the compile keeps (compile --frames, pixel_compile frames; resize.js
 // keepFrames thins them after). The pixels a recipe's frames hold are counted against the frames kept, so an effect
 // made at a screen size may simulate more frames than fit and deliver fewer; the recipe returned still has them all.
-export function compileEffects(source, { stats = false, frames: keep } = {}) {
+// `animation`: the animations a compile keeps (compile --animation, pixel_compile animation; resize.js keepAnimations
+// keeps them after), named at `animationPath`. Only the effects that make them are simulated, and only they are
+// charged, so one spell of a set authored at a screen size compiles on its own.
+export function compileEffects(source, { stats = false, frames: keep, animation, animationPath = 'animation' } = {}) {
   if (!Number.isInteger(keep) || keep < 1 || keep > 256) keep = undefined;
   fields(source, ['format', 'version', 'name', 'width', 'height', 'palette', 'symbols', 'anchor', 'effects', 'sheet'], 'fx');
   if (source.format !== 'pixelforge-fx' || source.version !== 1) fail('fx', 'expected version-1 pixelforge-fx');
@@ -1118,6 +1162,27 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
     rows.forEach((row, j) => { for (const char of row) if (char !== '.' && char !== ' ' && !Object.hasOwn(palette, char)) fail(`fx.symbols.${name}[${j}]`, `unknown palette character ${JSON.stringify(char)}; the palette has ${Object.keys(palette).join(' ')}, and . or a space is clear`); });
   }
   if (!isObject(source.effects) || !Object.keys(source.effects).length || Object.keys(source.effects).length > LIMITS.effects) fail('fx.effects', `expected 1–${LIMITS.effects} named effects`);
+  // The animations an effect makes: one for each turned copy, and its -back and -front parts when it draws behind a
+  // character (read from the depths written, as `split` is once its emitters are read).
+  const madeBy = (effect, base) => {
+    const behind = drawsBehind(effect);
+    return turnsOf(effect, base, `fx.effects.${base}`, width, height).map(({ name }) => [name, ...(behind ? [`${name}-back`, `${name}-front`] : [])]);
+  };
+  // wanted: the animations kept, or null for all. A name the source doesn't make is refused as keepAnimations refuses
+  // it; while an effect can't be read, everything is compiled and that effect's own refusal comes first.
+  let wanted = null;
+  const names = (Array.isArray(animation) ? animation : [animation]).filter(name => typeof name === 'string' && name);
+  if (names.length) {
+    let made = [];
+    try { made = Object.entries(source.effects).flatMap(([base, effect]) => madeBy(effect, base).flat()); } catch { made = null; }
+    if (made) {
+      const unknown = names.find(name => !made.includes(name));
+      if (unknown !== undefined) fail(animationPath, `no animation ${JSON.stringify(unknown)}; this one has ${made.join(', ')}`);
+      wanted = new Set(names);
+    }
+  }
+  // How many of `list` (animation names) a compile keeps.
+  const keptOf = list => (wanted ? list.filter(name => wanted.has(name)).length : list.length);
   // nextFrames: for each loop, the frame that follows its last, rendered only to review the seam.
   // loopNotes: warnings found while reading, such as a stream spanning a loop whose head keys don't close.
   const frames = [], nextFrames = [], loopNotes = [], animations = {}, metadata = { format: 'pixelforge-fx-metadata', version: 1, effects: {} }, seen = new Map();
@@ -1126,11 +1191,12 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
   // touching: the canvas sides each animation may draw on (its effect's edges, turned with a turned copy).
   // ending: for each one-shot, whether its last frame is meant to stay drawn, what it shows of the sprites it draws, and
   // what can reach it (reaching).
-  const shapeWork = { spent: 0 }, probed = { spent: 0 }, pointed = new Set(), touching = new Map(), ending = new Map();
-  // totalFrames: the frames the effects make (at most 256); keptFrames: those delivered with `frames` (the pixels'
-  // total is on them); counted: each effect's own frames and how many of the recipe's each makes, for the frames that
-  // fit; behindBefore: whether an effect already counted draws behind a character.
-  let totalFrames = 0, keptFrames = 0, behindBefore = false;
+  // simulated: the drawing operations every effect simulates (simulate, LIMITS.simulated).
+  const shapeWork = { spent: 0 }, probed = { spent: 0 }, simulated = { spent: 0 }, pointed = new Set(), touching = new Map(), ending = new Map();
+  // totalFrames: the frames the effects counted so far make (at most 256); keptFrames: those delivered with `frames`
+  // (the pixels' total is on them); counted: each effect's own frames, how many of the recipe's each makes and whether
+  // it draws behind a character, for the replies, which count every effect, those after the one refused too.
+  let totalFrames = 0, keptFrames = 0;
   const counted = [];
   // A broken layer or emitter is noted and the rest of the source is still read, so one reply names every one (up to
   // ten), as for recipes. An effect with a noted error is not simulated; anything else still stops at once.
@@ -1152,50 +1218,65 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
     const stays = flag(effect.residue, `${path}.residue`);
     // The recipe's limits on frames, checked once an effect, before anything is simulated or painted rather than after.
     // Each frame of an effect is one of the recipe's for each turned copy, and three for each when the effect draws
-    // anything behind a character (its -back and -front parts too). That is read from the depths written, the same
-    // test as `split` below once the emitters and layers are read, so the first refusal already counts it; the reply
-    // then names the effect as written and says how many of its own frames fit beside the effects before it.
-    const turns = turnsOf(effect, base, path, width, height), behind = drawsBehind(effect), per = turns.length * (behind ? 3 : 1);
-    const budget = (own, times) => {
-      const before = totalFrames, keptBefore = keptFrames, fits = Math.floor(FRAME_AREA / (width * height));
+    // anything behind a character (its -back and -front parts too), of those the compile keeps. That is read from the
+    // depths written, the same test as `split` below once the emitters and layers are read, so the first refusal
+    // already counts it; the reply then names the effect as written and says how many of its own frames fit beside the
+    // others. shares: for each turned copy, how many of its whole and of its parts are kept.
+    const turns = turnsOf(effect, base, path, width, height);
+    const shares = madeBy(effect, base).map(([name, ...parts]) => [keptOf([name]), keptOf(parts)]);
+    const per = shares.reduce((total, [whole, parts]) => total + whole + parts, 0), copies = shares.filter(([whole, parts]) => whole + parts).length, behindKept = shares.some(([, parts]) => parts);
+    const budget = (own, times, parts = false) => {
+      const fits = Math.floor(FRAME_AREA / (width * height));
+      counted.push([own, times, behindKept || parts, base]);
       totalFrames += own * times; keptFrames += Math.min(own, keep ?? own) * times;
-      counted.push([own, times]);
-      const ownRoom = (room, already) => {
-        if (per === 1) return '';
-        const left = Math.max(0, Math.floor((room - already) / per));
-        const why = [...(turns.length > 1 ? [`makes ${turns.length} turned copies`] : []), ...(behind ? ['draws behind a character'] : [])].join(' and ');
-        return `; ${base} ${why}, so each frame of its own makes ${per} of the recipe's, and ${left > 1 ? `${left} of its own fit` : left ? '1 of its own fits' : 'not one of its own fits'}`;
+      if (totalFrames <= 256 && !frameTotalProblem(keptFrames, width, height)) return;
+      // The reply counts every effect: those counted so far and those after this one, whose frames and copies are read
+      // from the source as written (one not read cleanly is left to its own refusal).
+      const order = Object.keys(source.effects), ahead = order.slice(order.indexOf(base) + 1).flatMap(name => {
+        const later = source.effects[name];
+        if (!isObject(later) || !Number.isInteger(later.frames) || later.frames < 1 || later.frames > 256) return [];
+        try {
+          const made = madeBy(later, name), k = made.reduce((total, list) => total + keptOf(list), 0);
+          return k ? [[later.frames, k, made.some(([, ...parts]) => keptOf(parts)), name]] : [];
+        } catch { return []; }
+      });
+      // sum: the frames of a list of [own frames, how many of the recipe's each makes] with at most m of each animation's.
+      const sum = (list, m = Infinity) => list.reduce((total, [n, k]) => total + Math.min(n, m) * k, 0);
+      const all = [...counted, ...ahead], others = all.filter(entry => entry[3] !== base), mine = all.filter(entry => entry[3] === base).reduce((total, [, k]) => total + k, 0);
+      const made = sum(all), kept = sum(all, keep);
+      const ownRoom = (room, taken) => {
+        if (mine === 1) return '';
+        const left = Math.max(0, Math.floor((room - taken) / mine));
+        const why = [...(copies > 1 ? [`makes ${copies} turned copies`] : []), ...(behindKept || parts ? ['draws behind a character'] : [])].join(' and ');
+        return `; ${base} ${why}, so each frame of its own makes ${mine} of the recipe's, and ${left > 1 ? `${left} of its own fit` : left ? '1 of its own fits' : 'not one of its own fits'}`;
       };
-      // An effect counted before this one that draws behind a character is said here; this one's own reply says it.
-      const aside = (behindBefore || times === 2) && !behind ? ' (an effect drawn behind a character also makes its -back and -front parts)' : '';
-      if (totalFrames > 256) fail('fx.effects', `the effects make ${totalFrames} frames${aside}; a recipe holds at most 256${ownRoom(keep ? 256 : Math.min(256, fits), before)}`);
-      const tooMany = frameTotalProblem(keptFrames, width, height);
-      if (tooMany) {
-        // The most frames of each animation a compile may keep, evenly spaced, for every effect to fit: those counted so
-        // far and those after this one, whose frames and copies are read from the source as written (one not read
-        // cleanly is left to its own refusal). Fewer frames that way leave the effect whole, where fewer in the source
-        // cut it short.
-        const names = Object.keys(source.effects), ahead = names.slice(names.indexOf(base) + 1).flatMap(name => {
-          const later = source.effects[name];
-          if (!isObject(later) || !Number.isInteger(later.frames) || later.frames < 1 || later.frames > 256) return [];
-          try { return [[later.frames, turnsOf(later, name, `fx.effects.${name}`, width, height).length * (drawsBehind(later) ? 3 : 1)]]; } catch { return []; }
-        });
-        let most = 0;
-        while (most < 256 && [...counted, ...ahead].reduce((sum, [n, k]) => sum + Math.min(n, most + 1) * k, 0) <= fits) most++;
-        const route = most < 2 ? '' : keep ? `; frames ${most} fits` : `; or compile with frames ${most} (pixelbolt compile --frames ${most}): it keeps that many of each animation's, evenly spaced, without cutting the effect short`;
-        fail('fx.effects', `the effects make ${totalFrames} frames${keep ? `, ${keptFrames} of them kept with frames ${keep}` : ''}${aside}: ${tooMany}${ownRoom(Math.min(256, fits), keptBefore)}${route}`);
+      // Another effect that draws behind a character is said here; this one's own reply says it.
+      const aside = others.some(entry => entry[2]) && !(behindKept || parts) ? ' (an effect drawn behind a character also makes its -back and -front parts)' : '';
+      // The most frames of each animation a compile may keep, evenly spaced, for every effect to fit. Fewer frames that
+      // way leave an effect whole, where fewer in the source cut it short.
+      const most = list => { let m = 0; while (m < 256 && sum(list, m + 1) <= fits) m++; return m; };
+      if (made > 256) {
+        // The frames the effects make come first: frames thins them only after they are made. Once this one's own fit,
+        // the frames value that fits the pixels too.
+        const own = Math.max(0, Math.floor((256 - sum(others)) / mine)), after = [...others, [own, mine]], then = own && frameTotalProblem(sum(after, keep), width, height) ? most(after) : 0;
+        fail('fx.effects', `the effects make ${made} frames${aside}; a recipe holds at most 256${ownRoom(256, sum(others))}${then ? `; then frames ${then} fits (pixelbolt compile --frames ${then})` : ''}`);
       }
-      if (behind || times === 2) behindBefore = true;
+      const fit = most(all), route = !fit ? '' : keep ? `; frames ${fit} fits` : `; or compile with frames ${fit} (pixelbolt compile --frames ${fit}): it keeps that many of each animation's, evenly spaced, without cutting the effect short`;
+      fail('fx.effects', `the effects make ${made} frames${keep ? `, ${kept} of them kept with frames ${keep}` : ''}${aside}: ${frameTotalProblem(kept, width, height)}${ownRoom(Math.min(256, fits), sum(others, keep))}${route}`);
     };
     let charged = false;
-    for (const { name, view } of turns) {
+    for (const [copy, { name, view }] of turns.entries()) {
     if (lightPoint) pointed.add(name);
       // Effect names become animation and frame names, which must be unique ignoring case for portable bundles.
       // seen maps each name taken to the effect whose back or front part it is, or to null.
       if (seen.has(name.toLowerCase())) fail(path, seen.get(name.toLowerCase()) ? `${seen.get(name.toLowerCase())} draws something behind a character, so it also makes the animation ${name}; rename one of the two effects` : `effect names must be unique ignoring case; they name animations and frames${name === base ? '' : ` (${name} is a turned copy of ${base})`}`);
       seen.set(name.toLowerCase(), null);
       touching.set(name, turnedEdges(edges, view));
+      // A copy the compile keeps nothing of is not made.
+      if (!shares[copy][0] && !shares[copy][1]) continue;
       const count = integer(effect.frames, `${path}.frames`, 1, 256), loop = effect.loop ?? false;
+      // first: the first copy made, which says what is said once an effect.
+      const first = !charged;
       if (!charged) { charged = true; budget(count, per); }
       if (typeof loop !== 'boolean') fail(`${path}.loop`, 'expected a boolean');
       if (loop && stays) fail(`${path}.residue`, 'residue accepts what a one-shot still draws on its last frame; a loop has no last frame to leave');
@@ -1203,7 +1284,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
         ? (effect.duration.length === count ? effect.duration.map((d, i) => integer(d, `${path}.duration[${i}]`, 1, 60000)) : fail(`${path}.duration`, `expected one duration or ${count}`))
         : isObject(effect.duration) ? curve(effect.duration, `${path}.duration`, count)
           : Array(count).fill(integer(effect.duration ?? 100, `${path}.duration`, 1, 60000));
-      const seed = integer(effect.seed ?? 1, `${path}.seed`, 0, 2147483647), context = { frames: count, loop, seed, symbols, sequences, palette, width, height, path, view, spun, work: shapeWork, keep };
+      const seed = integer(effect.seed ?? 1, `${path}.seed`, 0, 2147483647), context = { frames: count, loop, seed, symbols, sequences, palette, width, height, path, view, spun, work: shapeWork, simulated, keep };
       // Shape layers (rings, slashes, beams, bolts, glyphs, stars, bursts, auras, trails) draw between `behind` particles and
       // the rest. A trail that follows a point of an animation takes that point's place in each frame as its points.
       const before = noted.length;
@@ -1214,7 +1295,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
       const layered = Boolean(shapes) || noted.length > before;
       context.looks = shapes ? shapes.looks.map(look => look.name) : noted.length > before ? null : [];
       // Once per effect, not per turned copy: what a layer spanning the loop reads at the end of each frame must close.
-      if (shapes && name === turnsOf(effect, base, path, width, height)[0].name) shapes.layers.forEach((layer, i) => {
+      if (shapes && first) shapes.layers.forEach((layer, i) => {
         if (!layer.seams?.length) return;
         const keys = layer.seams.filter(key => key !== 'reveal');
         loopNotes.push(`${path}.layers[${i}]: this ${layer.kind} spans the loop, so ${[...(keys.length ? [`its ${keys.join(' and ')} keys must end where they start`] : []), ...(layer.seams.includes('reveal') ? ['a reveal draws it on again every cycle (leave reveal out)'] : [])].join(', and ')}; otherwise the loop jumps`);
@@ -1242,7 +1323,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
       if (noted.length > before) continue effects;
       // An emitter spanning a loop goes round its keys every cycle, so a path, sweep, throttle, keyed rate or ring grow
       // must end where it starts; otherwise new particles jump at the loop point. Once per effect, not per turned copy.
-      if (loop && name === turnsOf(effect, base, path, width, height)[0].name) emitters.forEach((e, i) => {
+      if (loop && first) emitters.forEach((e, i) => {
         if (e.parent !== null || e.start !== 0 || e.end !== count) return;
         const source = list[i], same = (a, b) => JSON.stringify(a) === JSON.stringify(b), open = [];
         if (Array.isArray(source.path) && !same(source.path[0], source.path.at(-1))) open.push('path');
@@ -1250,6 +1331,13 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
         if (Array.isArray(source.ring?.grow) && source.ring.grow[0] !== source.ring.grow.at(-1)) open.push('ring grow');
         if (open.length) loopNotes.push(`${path}.emitters[${i}]: this emitter spans the loop, so its ${open.join(' and ')} must end where ${open.length === 1 ? 'it starts' : 'they start'}; otherwise its new particles jump at the loop point`);
       });
+      // A loop spawns the same particles every cycle, so a particle living longer than the loop is drawn more than once at
+      // a time, a cycle apart: repeats along its path, or columns where it falls. Once per effect, not per turned copy.
+      const lasting = loop && first ? emitters.flatMap((e, i) => (!e.drawOnly && e.life && e.life[1] > count ? [[`emitters[${i}]${e.name ? ` (${e.name})` : ''}`, e.life[1]]] : [])) : [];
+      if (lasting.length) {
+        const and = items => (items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`), one = lasting.length === 1;
+        loopNotes.push(`${path}: ${and(lasting.map(([who]) => who))} ${one ? 'lives' : 'live'} longer than its ${count}-frame loop (up to ${and([...new Set(lasting.map(([, life]) => life))])} frames), so the loop draws each of ${one ? 'its' : 'their'} particles up to ${Math.max(...lasting.map(([, life]) => Math.ceil(life / count)))} times at once, a cycle apart, as repeats or columns: keep life within ${count} frames or give the loop more frames`);
+      }
       // An effect with anything behind a character (or a stand-in between) also compiles <name>-back and <name>-front:
       // what a game draws under its character and over it. The whole effect draws the back, the stand-in, then the front.
       const split = emitters.some(e => e.depth !== null && e.depth !== 'front') || (shapes?.layers.some(l => l.depth !== 'front') ?? false);
@@ -1259,13 +1347,14 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
           if (seen.has(part.toLowerCase())) fail(path, `${name} draws something behind a character, so it also makes the animation ${part}; another effect has that name, so rename one`);
           seen.set(part.toLowerCase(), name);
         }
-        // Counted with the rest of the effect above; read from the depths written, `behind` agrees with `split`.
-        if (!behind) budget(count, 2);
+        // Counted with the rest of the effect above; read from the depths written, `behindKept` agrees with `split`.
+        if (!behindKept && keptOf(Object.values(parts))) budget(count, keptOf(Object.values(parts)), true);
       }
       const empty = () => Array.from({ length: count }, () => []);
       const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view, solid: shine?.solid }, context)
         : { output: empty(), behind: empty(), back: { output: empty(), behind: empty() }, between: empty(), blobs: empty(), operations: 0, culled: 0, stats: [], cues: Array.from({ length: count }, () => ({})), props: new WeakSet(), solids: null, kept: null,
           next: loop ? { output: [], behind: [], back: { output: [], behind: [] }, between: [], blobs: [], solid: null } : null };
+      simulated.spent += run.operations;
       if (shapes) for (const layer of shapes.layers) if (layer.cue && !Object.hasOwn(run.cues[layer.t0], layer.cue)) run.cues[layer.t0][layer.cue] = [Math.floor(layer.at[0] + 0.5), Math.floor(layer.at[1] + 0.5)];
       if (!loop) ending.set(name, { stays, kept: run.kept, reach: stays ? [] : reaching(emitters, shapes, count) });
       const spawned = run.stats.reduce((sum, s) => sum + s.spawned, 0);
@@ -1274,7 +1363,9 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
         let most = -1;
         emitters.forEach((e, i) => { if (e.release && (most < 0 || run.stats[i].spawned > run.stats[most].spawned)) most = i; });
         const made = most < 0 ? 0 : run.stats[most].spawned;
-        fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; ${made * 2 > spawned ? releaseAdvice(emitters[most], most, made, LIMITS.spawned - (spawned - made)) : 'lower burst, rate or frames'}`);
+        // With frames, every frame is simulated, kept or not: the effect's own frames are what to lower, by how many fit.
+        const fewer = count > keep ? `lower burst or rate, or the effect's frames (about ${Math.floor(LIMITS.spawned * count / spawned)} fit)` : 'lower burst, rate or frames';
+        fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; ${made * 2 > spawned ? releaseAdvice(emitters[most], most, made, LIMITS.spawned - (spawned - made), share => run.released(most, share).spawned <= LIMITS.spawned - (spawned - made)) : fewer}`);
       }
       // Cues become named frame points, which atlases export for game code (a shake or a pause on the impact frame).
       const cues = [], partFrames = { back: [], front: [] };
@@ -1320,7 +1411,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
       if (loop) { const own = { spent: 0 }; after = opsAt(count, run.next, own); probed.spent += own.spent; }
       // The effect's light is drawn last, over everything it falls on (lightFrames).
       const lights = shine ? lightFrames(shine, made, after, run, { ...context, loop }) : null, lit = (ops, grid) => (grid ? [...ops, grid] : ops);
-      if (lights && !lights.shining && name === turnsOf(effect, base, path, width, height)[0].name) loopNotes.push(`${path}.shine.keys: nothing the effect draws is in ${Object.keys(effect.shine.keys).length === 1 ? 'this colour' : 'these colours'}, so nothing shines: name the palette keys of its brightest pixels`);
+      if (lights && !lights.shining && first) loopNotes.push(`${path}.shine.keys: nothing the effect draws is in ${Object.keys(effect.shine.keys).length === 1 ? 'this colour' : 'these colours'}, so nothing shines: name the palette keys of its brightest pixels`);
       const names = made.map(({ ops, back, front }, i) => {
         const points = Object.keys(run.cues[i]).length ? run.cues[i] : null, light = lights?.frames[i];
         if (points) for (const [cue, at] of Object.entries(points)) cues.push({ name: cue, frame: i, at });
@@ -1341,6 +1432,18 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
   }
   } catch (error) { throw noted.length && error instanceof PixelError && !error.errors ? joinErrors([...noted, error]) : error; }
   if (noted.length) throw joinErrors(noted);
+  // Only the animations a compile keeps go into the recipe, with their frames and seam probes: an effect drawn behind a
+  // character makes its whole and its parts together, and says which parts it delivers.
+  if (wanted) {
+    for (const name of Object.keys(animations)) if (!wanted.has(name)) { delete animations[name]; delete metadata.effects[name]; }
+    for (const effect of Object.values(metadata.effects)) if (effect.parts) {
+      const parts = Object.fromEntries(Object.entries(effect.parts).filter(([, part]) => wanted.has(part)));
+      if (Object.keys(parts).length) effect.parts = parts; else delete effect.parts;
+    }
+    const delivered = new Set(Object.values(animations).flatMap(animation => animation.frames));
+    frames.splice(0, frames.length, ...frames.filter(frame => delivered.has(frame.name)));
+    nextFrames.splice(0, nextFrames.length, ...nextFrames.filter(frame => Object.hasOwn(animations, frame.name.slice(0, -'-next'.length))));
+  }
   if (frames.length > 256) fail('fx.effects', `the effects make ${frames.length} frames; a recipe holds at most 256`);
   for (const { name, rows } of spun.values()) symbols[name] = rows;
   const recipe = { version: 1, name: source.name, width, height, palette, ...(Object.keys(symbols).length && { symbols }), ...(source.anchor !== undefined && { anchor: source.anchor }), frames, animations, ...(source.sheet !== undefined && { sheet: source.sheet }) };
@@ -1366,22 +1469,23 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
   // frame still draws besides the sprites the effect draws (0 when it ends empty), warned about unless the effect
   // says its last frame stays (residue: true): whatever is there is cut off where a game ends the effect.
   // The frames are read in order, an animation at a time (eachFrame): rendered once, or, when the effects make more
-  // frames than a recipe holds (compiled to be thinned, `frames`), a share of the total at a time, so no more is held.
-  const frameOf = new Map(recipe.frames.map(frame => [frame.name, frame])), warnings = [...loopNotes];
-  const whole = recipe.frames.length * width * height <= FRAME_AREA ? renderProject(recipe) : null, at = new Map(whole ? recipe.frames.map((frame, i) => [frame.name, whole.frames[i].data]) : []);
-  const share = Math.floor(FRAME_AREA / (width * height));
+  // frames or drawing operations than one render takes (compiled to be thinned, `frames`), a run at a time
+  // (frameParts), so no more is held.
+  const frameOf = new Map(recipe.frames.map(frame => [frame.name, frame])), warnings = [...loopNotes], area = width * height;
+  const renderRuns = (list, visit) => {
+    let i = 0;
+    for (const part of frameParts(list, area)) renderProject({ ...recipe, frames: part, animations: { review: { frames: part.map(frame => frame.name) } } }).frames.forEach(frame => visit(frame.data, i++));
+  };
+  const at = new Map(), whole = frameParts(recipe.frames, area).length === 1;
+  if (whole) renderRuns(recipe.frames, (data, i) => at.set(recipe.frames[i].name, data));
   const eachFrame = (names, visit) => {
-    if (whole) { names.forEach((name, k) => visit(at.get(name), k)); return; }
-    for (let i = 0; i < names.length; i += share) {
-      const part = names.slice(i, i + share);
-      renderProject({ ...recipe, frames: part.map(name => frameOf.get(name)), animations: { review: { frames: part } } }).frames.forEach((frame, k) => visit(frame.data, i + k));
-    }
+    if (whole) names.forEach((name, k) => visit(at.get(name), k));
+    else renderRuns(names.map(name => frameOf.get(name)), visit);
   };
   // The frame each loop should go on to after its last, drawn with the same palette and symbols.
-  if (nextFrames.length) {
-    const probe = renderProject({ ...recipe, frames: nextFrames, animations: { next: { frames: nextFrames.map(frame => frame.name) } } });
-    nextFrames.forEach((frame, i) => at.set(frame.name, probe.frames[i].data));
-  }
+  renderRuns(nextFrames, (data, i) => at.set(nextFrames[i].name, data));
+  // Whether each frame of a one-shot draws, for the frames a compile keeps of it (keepFrames).
+  const draws = new Map();
   const differ = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) n++; return n; };
   // The pixels a frame draws on each side's outermost row or column.
   const onEdges = data => {
@@ -1399,6 +1503,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
     let first = null, last = null, largest = 0;
     const light = [], edges = {};
     eachFrame(animation.frames, (frame, k) => {
+      if (animation.loop === false) { let any = false; for (let i = 3; i < frame.length && !any; i += 4) any = frame[i] !== 0; draws.set(animation.frames[k], any); }
       if (last && animation.loop !== false) largest = Math.max(largest, differ(last, frame));
       if (!k) first = frame;
       last = frame;
@@ -1419,7 +1524,7 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
     // parts' frames take the whole effect's light, so game code drawing them finds it too.
     if (pointed.has(name)) animation.frames.forEach((frameName, k) => {
       if (!effect.light[k]) return;
-      for (const target of [frameName, ...(effect.parts ? [`${effect.parts.back}-${k}`, `${effect.parts.front}-${k}`] : [])]) {
+      for (const target of [frameName, ...(effect.parts ? Object.values(effect.parts).map(part => `${part}-${k}`) : [])]) {
         const frame = frameOf.get(target);
         if (!frame.points?.light) frame.points = { ...frame.points, light: effect.light[k].at };
       }
@@ -1447,6 +1552,57 @@ export function compileEffects(source, { stats = false, frames: keep } = {}) {
     const seam = length > 1 ? differ(last, first) : 0, jump = differ(at.get(`${name}-next`), first);
     effect.seam = { pixels: seam, largestStep: largest, jump };
     if (jump) warnings.push(`fx.effects.${of}: ${name} jumps at its loop point: its first frame differs in ${jump} pixel${jump === 1 ? '' : 's'} from the frame that should follow its last, so end keys where they start, spin and sway by whole turns, close paths, and give flicker an even frame count`);
+  }
+  // The drawing operations a recipe makes (LIMITS.operations) hold the frames it delivers: every animation's (each
+  // turned copy's, each -back and -front part's), and with `frames` those keepFrames keeps of each: a loop's
+  // floor(i × F / n), a one-shot's first, its last that draws and evenly between. The most frames that fit are said as
+  // a route that works.
+  const lists = Object.entries(animations).map(([name, animation]) => {
+    const effect = metadata.effects[name], whole = effect.part?.of ?? name;
+    return { of: metadata.effects[whole]?.turn?.of ?? whole, loop: animation.loop !== false, ops: animation.frames.map(frame => frameOf.get(frame).ops?.length ?? 0), draws: animation.frames.map(frame => draws.get(frame)) };
+  });
+  const deliveredAt = n => {
+    const by = new Map();
+    let total = 0, count = 0;
+    for (const { of, loop, ops, draws: drawn } of lists) {
+      const F = ops.length;
+      let picks;
+      if (n === undefined || F <= n) picks = ops.map((_, i) => i);
+      else if (loop) picks = Array.from({ length: n }, (_, i) => Math.floor(i * F / n));
+      else {
+        let last = F - 1;
+        while (last >= n && !drawn[last]) last--;
+        picks = Array.from({ length: n }, (_, i) => (n === 1 ? 0 : Math.round(i * last / (n - 1))));
+      }
+      const made = picks.reduce((sum, i) => sum + ops[i], 0);
+      total += made; count += picks.length; by.set(of, (by.get(of) ?? 0) + made);
+    }
+    return { total, count, by };
+  };
+  const delivered = deliveredAt(keep);
+  // frames thins a loop evenly only when it divides the loop's frames; otherwise some kept frames last longer than
+  // others and the loop stutters. Once per effect, not per turned copy or part.
+  if (keep) {
+    const told = new Set();
+    for (const [name, animation] of Object.entries(animations)) {
+      const effect = metadata.effects[name], of = effect.turn?.of ?? name, F = animation.frames.length;
+      if (effect.part || animation.loop === false || F <= keep || F % keep === 0 || told.has(of)) continue;
+      told.add(of);
+      const even = [];
+      for (let d = keep - 1; d > 1 && even.length < 3; d--) if (F % d === 0) even.push(d);
+      const named = even.length === 1 ? `${even[0]} keeps` : `${even.slice(0, -1).join(', ')} or ${even.at(-1)} keep`;
+      warnings.push(`fx.effects.${of}: frames ${keep} thins its ${F}-frame loop unevenly, so some kept frames last longer than others and the loop stutters; ${even.length ? `frames ${named} an even step` : `give the loop a multiple of ${keep} frames`}`);
+    }
+  }
+  if (delivered.total > LIMITS.operations) {
+    const longest = Math.max(...lists.map(list => list.ops.length));
+    let most = Math.min(keep ?? longest, longest) - 1;
+    while (most > 0 && deliveredAt(most).total > LIMITS.operations) most--;
+    const shares = [...delivered.by].filter(([, made]) => made).sort((a, b) => b[1] - a[1]), single = shares.length === 1;
+    const by = single ? '' : ` (${shares.slice(0, 4).map(([of, made]) => `${of} ${made.toLocaleString('en-US')}`).concat(shares.length > 4 ? [`${shares.length - 4} more`] : []).join(', ')})`;
+    const what = keep ? `the ${delivered.count} frames kept with frames ${keep}` : `the ${delivered.count} frames ${single ? 'the effect makes' : 'the effects make'}`;
+    const route = !most ? 'lower' : keep ? `so frames ${most} fits (pixelbolt compile --frames ${most}), or lower` : `so frames ${most} fits (pixelbolt compile --frames ${most}): it keeps that many of each animation's, evenly spaced, without cutting the effect short; or lower`;
+    fail(single ? `fx.effects.${shares[0][0]}` : 'fx.effects', `${what} need about ${delivered.total.toLocaleString('en-US')} drawing operations (${Math.round(delivered.total / delivered.count)} a frame)${by} and a recipe makes at most ${LIMITS.operations.toLocaleString('en-US')}${most ? ', ' : ': '}${route} burst, rate or trail`);
   }
   return JSON.parse(JSON.stringify({ recipe, metadata, ...(warnings.length && { warnings }), ...(stats && { work: { painted: shapeWork.spent + probed.spent } }) }));
 }

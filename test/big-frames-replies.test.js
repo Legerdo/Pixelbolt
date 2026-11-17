@@ -74,14 +74,16 @@ test('compile --frames and pixel_compile frames deliver a screen-sized effect', 
   assert.deepEqual([reply.ok, reply.width, reply.height, reply.frames, reply.kept], [true, 640, 360, 12, { 'frost-nova': '12 of 24' }]);
 });
 
-test('too many drawing operations says how many the effect needs and about how many frames fit', () => {
+test('too many drawing operations says how many the effect needs and the frames that fit', () => {
   // Slanted rain over a 320x180 screen: 69 frames fit under 20,000 operations, 70 do not.
   const rain = frames => ({ format: 'pixelforge-fx', version: 1, name: 'rain', width: 320, height: 180, palette: { d: '#9fb8d8', l: '#5d7397', s: '#cfe0f4' }, symbols: { drop: ['d'], splash: ['s'] },
     effects: { rain: { frames, duration: 60, loop: true, seed: 7, edges: ['top', 'left', 'right'], emitters: [
       { name: 'drop', at: [150, -8], area: [400, 1], rate: 7, angle: [100, 102], speed: [8, 9], life: [16, 21], shapes: ['drop'], trail: { color: 'l', length: 2 } },
       { from: 'drop', when: 'death', burst: 2, angle: [200, 340], speed: [0.5, 1.2], gravity: [0, 0.3], life: [2, 3], shapes: ['splash'] }] } } });
-  // Before: "the effect needs more than 20000 drawing operations; lower counts or frames".
-  refusal(() => compileEffects(rain(70)), /^fx\.effects\.rain: the effect needs about 20,251 drawing operations \(289 a frame\) and makes at most 20000, so about 69 frames fit at this density: lower burst, rate or trail, or frames$/);
+  // Before: "the effect needs more than 20000 drawing operations; lower counts or frames", and then "about 69 frames fit
+  // at this density: lower burst, rate or trail, or frames", which compile --frames did not change.
+  refusal(() => compileEffects(rain(70)), /^fx\.effects\.rain: the 70 frames the effect makes need about 20,251 drawing operations \(289 a frame\) and a recipe makes at most 20,000, so frames 69 fits \(pixelbolt compile --frames 69\): it keeps that many of each animation's, evenly spaced, without cutting the effect short; or lower burst, rate or trail$/);
+  assert.equal(keepFrames(compilePreset(rain(70), { frames: 69 }).recipe, 69).recipe.frames.length, 69);
   assert.equal(compileEffects(rain(69)).recipe.frames.length, 69);
 });
 

@@ -126,9 +126,10 @@ test('a loop is reviewed against the frame that should follow its last, so only 
   const bolt = reroll => jumpOf({ layers: [{ kind: 'bolt', at: [4, 16], to: [28, 16], reroll, branches: 1 }] });
   assert.equal(bolt(2).jump, 0);
   assert.ok(bolt(3).jump > 0);
-  // Particles in a loop are periodic whatever the seed: embers that wander and sway never jump.
+  // Particles in a loop are periodic whatever the seed: embers that wander and sway never jump. (They live at most the
+  // loop's 8 frames: one living longer is drawn twice at once, which the compile warns about.)
   for (const seed of [1, 2, 3, 7, 11]) {
-    const { metadata, warnings } = compileEffects(source({ e: { frames: 8, loop: true, seed, emitters: [{ at: [16, 26], area: [12, 2], rate: 1.5, angle: [260, 280], speed: [0.6, 1.2], life: [6, 11], drag: 0.05, turbulence: { strength: 0.2 }, sway: { amplitude: [1, 0], period: 4 }, shapes: ['dot', 'warm'], trail: { color: 'o', length: 1 } }] } }));
+    const { metadata, warnings } = compileEffects(source({ e: { frames: 8, loop: true, seed, emitters: [{ at: [16, 26], area: [12, 2], rate: 1.5, angle: [260, 280], speed: [0.6, 1.2], life: [6, 8], drag: 0.05, turbulence: { strength: 0.2 }, sway: { amplitude: [1, 0], period: 4 }, shapes: ['dot', 'warm'], trail: { color: 'o', length: 1 } }] } }));
     assert.equal(metadata.effects.e.seam.jump, 0, `seed ${seed}`);
     assert.equal(warnings, undefined, `seed ${seed}`);
   }
@@ -143,16 +144,24 @@ test('a loop is reviewed against the frame that should follow its last, so only 
   assert.match(emitter({ path: [[8, 16], [24, 16]] })[0], /its path must end where it starts/);
 });
 
+// The shipped loops whose particles live longer than the loop, so each is drawn more than once at a time, which the
+// compile warns about; their output is pinned (goldens, the frozen baseline), so they are listed, not changed.
+const LASTING = { 'effects.fx.json': ['embers'], 'holy-spells.fx.json': ['buff'], 'ice-spells.fx.json': ['buff'], 'poison-spells.fx.json': ['projectile'], 'shadow-spells.fx.json': ['projectile'], 'water-spells.fx.json': ['buff'] };
+const lastingOf = warnings => (warnings ?? []).filter(text => / longer than its \d+-frame loop/.test(text)).map(text => /^fx\.effects\.([\w-]+):/.exec(text)[1]);
+const otherWarnings = warnings => { const rest = (warnings ?? []).filter(text => !/ longer than its \d+-frame loop/.test(text)); return rest.length ? rest : undefined; };
+
 test('every effect example compiles without warnings, and the Effects lab presets stay off the canvas edges and loop cleanly at seeds 2, 3 and 7', async () => {
   const lab = new Set(EFFECT_PRESETS.map(preset => preset.file));
   for (const file of (await readdir(path.join(root, 'examples'))).filter(name => name.endsWith('.fx.json'))) {
     const { document } = await resolveReferences(JSON.parse(await readFile(path.join(root, 'examples', file), 'utf8')), { baseDir: path.join(root, 'examples') });
-    assert.equal(compileEffects(document).warnings, undefined, file);
+    const { warnings } = compileEffects(document);
+    assert.equal(otherWarnings(warnings), undefined, file);
+    assert.deepEqual(lastingOf(warnings), LASTING[file] ?? [], file);
     if (!lab.has(file.slice(0, -'.fx.json'.length))) continue;
     for (const seed of [2, 3, 7]) {
       const reseeded = structuredClone(document);
       for (const effect of Object.values(reseeded.effects)) effect.seed = seed;
-      assert.equal(compileEffects(reseeded).warnings, undefined, `${file} at seed ${seed}`);
+      assert.equal(otherWarnings(compileEffects(reseeded).warnings), undefined, `${file} at seed ${seed}`);
     }
   }
 });
