@@ -17,11 +17,12 @@ import { createToolRunner } from '../src/mcp.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PNG_PIXELS = 16777216;
 // A dark ground and a red square moving right, in two layers; `plays` repeats the frames in the animation.
-const screen = (width, height, count, { plays = 1, part = 'square' } = {}) => ({
+// `parts` above 1 draws that many squares, each its own layer named after `part`.
+const screen = (width, height, count, { plays = 1, part = 'square', parts = 1 } = {}) => ({
   version: 1, name: 'screen', width, height, palette: { k: '#102030', r: '#e04030' },
   frames: Array.from({ length: count }, (_, i) => ({ name: `f${i}`, duration: 80, layers: [
     { name: 'ground', ops: [{ op: 'rect', x: 0, y: 0, w: width, h: height, color: 'k' }] },
-    { name: part, ops: [{ op: 'rect', x: i * 8, y: 4, w: 8, h: 8, color: 'r' }] }] })),
+    ...Array.from({ length: parts }, (_, p) => ({ name: parts > 1 ? `${part}-${String(p).padStart(2, '0')}` : part, ops: [{ op: 'rect', x: (i * 8 + p) % width, y: 4 + p, w: 8, h: 8, color: 'r' }] }))] })),
   animations: { run: { frames: Array.from({ length: count * plays }, (_, i) => `f${i % count}`) } }
 });
 const encodes = sheet => { assert.ok(sheet.width * sheet.height <= PNG_PIXELS); return decodePNG(encodePNG(sheet.data, sheet.width, sheet.height)); };
@@ -53,6 +54,9 @@ test('every refuses to drop cells that do not fit, naming the every that does', 
   const fits = inspectProject(project, { animation: 'run', every: 92 });
   assert.deepEqual([fits.cells.length, fits.sampling.every, fits.sampling.method], [56, 92, 'one cell per 92 ms of playback; a frame fills a cell for each 92 ms it is held']);
   encodes(fits.sheet);
+  // Never thinned instead: the sampling of a sheet by time always reads as playback.
+  assert.throws(() => inspectProject(project, { animation: 'run', every: 40 }), { path: 'inspect.every',
+    message: 'inspect.every: 5120 ms at one cell per 40 ms is 128 cells, and one 4096-pixel sheet of 512×512 cells holds 56; choose every 92 or more' });
   // maxCells below the cells every makes is refused the same way.
   assert.throws(() => inspectProject(renderProject(screen(32, 32, 16, { plays: 4 })), { animation: 'run', every: 80, maxCells: 10 }),
     { path: 'inspect.every', message: 'inspect.every: 5120 ms at one cell per 80 ms is 64 cells, and maxCells allows 10; choose every 512 or more' });
@@ -116,7 +120,7 @@ test('motion review fits its timing cells to frames over 256 tall and says what 
   const project = renderProject(screen(512, 512, 16));
   // Four columns of 16 512x512 cells pass 4,194,304 pixels; fifteen fit in three columns.
   const review = inspectMotion(project, { animation: 'run', ground: 511 });
-  assert.deepEqual(review.sampling, { total: 16, shown: 15, omitted: 1, method: 'evenly spaced, including endpoints: as many 512×512 frames as fit the 4,194,304-pixel image' });
+  assert.deepEqual(review.sampling, { total: 16, shown: 15, omitted: 1, method: 'evenly spaced, including endpoints: as many 512×512 frames as fit the 4,194,304-pixel image, 4096 a side' });
   assert.deepEqual([review.cells.length, review.cells[0].position, review.cells.at(-1).position], [15, 0, 15]);
   assert.ok(review.nativeSheet.width * review.nativeSheet.height <= 4194304);
   // The ground line is drawn under the first cell's last row, 511.
@@ -128,4 +132,59 @@ test('motion review fits its timing cells to frames over 256 tall and says what 
   // Over MCP, with a ground row past 255.
   const call = await runner(t), { info } = await call('pixel_inspect', { project: screen(512, 512, 16), animation: 'run', view: 'motion', ground: 500 });
   assert.deepEqual([info.sampling.shown, info.motion.ground], [15, 500]);
+});
+
+test('the parts legend reserves the columns it is drawn in beside the fitted sheet, not one column per twelve names', () => {
+  // 30 parts named 40 characters each: the legend beside a sheet thousands of pixels tall is one column.
+  for (const [w, h, count, cells] of [[640, 360, 18, 66], [512, 512, 16, 56]]) {
+    const project = renderProject(screen(w, h, count, { plays: 4, part: 'p'.repeat(37), parts: 30 }), { owners: true });
+    const view = inspectProject(project, { animation: 'run', view: 'parts' });
+    assert.equal(view.cells.length, cells, `${w}x${h}`);
+    encodes(view.sheet);
+  }
+});
+
+test('views stacked beside one another stay within 8,000 pixels tall, each sheet fitted to its share', async t => {
+  for (const [w, h, count] of [[512, 512, 16], [640, 360, 18]]) for (const n of [4, 9]) {
+    const big = renderProject(screen(w, h, count, { plays: 4 }));
+    const stacked = stackViews(Array.from({ length: n }, (_, i) => ({ ...inspectProject(big, { animation: 'run', sheets: n }), name: `v${i}` })));
+    assert.ok(stacked.sheet.height <= 8000 && stacked.sheet.width <= 4096, `${n} views of ${w}x${h}: ${stacked.sheet.width}x${stacked.sheet.height}`);
+    assert.ok(stacked.cells.length >= 6, `${n} views of ${w}x${h}: ${stacked.cells.length} cells`);
+    encodes(stacked.sheet);
+  }
+  // Small frames take a smaller scale rather than nine sheets of 1024 pixels.
+  const small = renderProject(screen(64, 64, 16)), nine = scale => Array.from({ length: 9 }, (_, i) => ({ ...inspectProject(small, { scale, sheets: 9 }), name: `v${i}` }));
+  assert.ok(stackViews(nine()).sheet.height <= 8000);
+  // A scale asked for is kept, so a stack that passes the height is refused by stackViews.
+  assert.throws(() => stackViews(nine(4)), error => error instanceof PixelError && error.path === 'beside' && /^beside: the 9 sheets stacked would be \d+×9612 pixels, taller than the 8,000 a model reads an image at; compare fewer recipes/.test(error.message));
+  // A frame too tall for its share even alone is refused with how many recipes fit.
+  assert.throws(() => inspectProject(renderProject(screen(256, 1024, 4)), { sheets: 9 }), { path: 'inspect.sheets',
+    message: 'inspect.sheets: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 888 each of 9 sheets stacked in one image may take (8,000 in all); compare at most 6 other recipes, or show a smaller region' });
+  // The CLI passes the share: three copies beside a 512x512 animation.
+  const dir = await folder(t, 'sheets-stack'), cli = cliIn(dir);
+  await writeFile(path.join(dir, 'a.json'), JSON.stringify(screen(512, 512, 16, { plays: 4 })));
+  const made = cli('inspect', 'a.json', '--animation', 'run', '--beside', 'a.json,a.json,a.json', '--out', 'four.png');
+  assert.equal(made.status, 0, made.stderr);
+  const image = decodePNG(await readFile(path.join(dir, 'four.png')));
+  assert.ok(image.height <= 8000 && image.width <= 4096, `${image.width}x${image.height}`);
+});
+
+test('motion review keeps both sides of its strip within 4096, in the squarest grid, and says why a trajectory is left out', () => {
+  for (const [w, h, count, shown] of [[480, 490, 17, 16], [490, 480, 17, 16], [640, 360, 18, 16], [360, 640, 18, 16]]) {
+    const review = inspectMotion(renderProject(screen(w, h, count)), { animation: 'run', ground: h - 1, speed: 20 });
+    const { width, height } = review.nativeSheet;
+    assert.ok(width <= 4096 && height <= 4096 && width * height <= 4194304, `${w}x${h}x${count}: ${width}x${height}`);
+    // Four columns: 16 cells in a square grid rather than one row or column of 17.
+    assert.deepEqual([review.cells.length, review.cells[4].timing[1] > review.cells[3].timing[1]], [shown, true], `${w}x${h}x${count}`);
+    // A few pixels of travel: what does not fit is the panel of lanes beside the cells, and the reason says so.
+    assert.deepEqual(review.trajectory, { shown: false, reason: `The trajectory panel (${Math.round(20 * (count - 1) * 80 / 1000) + w + 8} pixels wide, lanes of ${w}×${h} frames) does not fit beside the timing cells within the 4,194,304-pixel image.` });
+  }
+  // Tall frames take fewer lanes when that fits: 400x400 in five.
+  const lanes = inspectMotion(renderProject(screen(400, 400, 12)), { animation: 'run', speed: 20 });
+  assert.deepEqual([lanes.trajectory.shown, lanes.trajectory.lanes], [true, 5]);
+  assert.ok(lanes.nativeSheet.width * lanes.nativeSheet.height <= 4194304);
+  // Small frames keep eight.
+  assert.equal(inspectMotion(renderProject(screen(256, 256, 16)), { animation: 'run', speed: 20 }).trajectory.lanes, 8);
+  // Travel wider than the image is said as travel.
+  assert.equal(inspectMotion(renderProject(screen(64, 64, 32)), { animation: 'run', speed: 4000 }).trajectory.reason, 'Travel exceeds the 4096-pixel width: 9920 pixels of travel beside a 64-pixel frame.');
 });

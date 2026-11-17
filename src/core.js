@@ -1382,18 +1382,24 @@ const readRegion = (data, width, region, namer) => Array.from({ length: region.h
 // A sheet holds at most 4096 pixels of cells a side; their 2-pixel gutters may take it past that, so a still 4096
 // pixels wide shows whole. Wider gutters (above scale 2) count against the limit. In all it is one PNG, at most
 // 16,777,216 pixels (png.js), which 64 cells of 512x512 with their gutters would pass. `room` is what the image adds
-// round the cells, which the same PNG must hold: a parts legend to the right (`width`, and at least `minHeight` tall),
-// a label band over each sheet stacked beside others (`height`), and the share of the PNG one stacked sheet may take
-// (`pixels`).
-const SHEET_SIDE = 4096, NO_ROOM = { pixels: PNG_PIXELS, width: 0, height: 0, minHeight: 0 };
-const withinSheet = (layout, room = NO_ROOM) => layout.width <= SHEET_SIDE + 2 * (layout.columns + 1) && layout.height <= SHEET_SIDE + 2 * (layout.rows + 1)
-  && (layout.width + room.width) * Math.max(layout.height + room.height, room.minHeight) <= room.pixels;
+// round the cells, which the same PNG must hold: a parts legend to the right (`legend`, its size beside a layout), a
+// label band over each sheet stacked beside others (`height`), and the share of the PNG (`pixels`) and of the stack's
+// height (`maxHeight`, band included) one stacked sheet may take, so `sheets` stacked stay within STACK_SIDE.
+const SHEET_SIDE = 4096, NO_ROOM = { pixels: PNG_PIXELS, height: 0, maxHeight: Infinity, legend: null };
+// The tallest image the views stacked beside one another make: about the longest side a model reads an image at
+// (8,000 pixels), so the agent comparing them sees every one. The tallest label band stackViews writes over a sheet.
+const STACK_SIDE = 8000, STACK_BAND = 2 * (FONT_HEIGHT + 4);
+const withinSheet = (layout, room = NO_ROOM) => {
+  if (layout.width > SHEET_SIDE + 2 * (layout.columns + 1) || layout.height > SHEET_SIDE + 2 * (layout.rows + 1)) return false;
+  const legend = room.legend ? room.legend(layout) : { width: 0, height: 0 }, tall = Math.max(layout.height, legend.height) + room.height;
+  return tall <= room.maxHeight && (layout.width + legend.width) * tall <= room.pixels;
+};
 // The most of `count` cells of w×h one sheet holds at `scale` in some number of columns (fewer cells always fit).
 function cellsThatFit(count, w, h, scale, room = NO_ROOM) {
   const gap = Math.max(2, scale), fits = n => {
     for (let c = 1; c <= n; c++) {
       const rows = Math.ceil(n / c);
-      if (withinSheet({ columns: c, rows, width: c * w * scale + (c + 1) * gap, height: rows * h * scale + (rows + 1) * gap }, room)) return true;
+      if (withinSheet({ columns: c, rows, scale, width: c * w * scale + (c + 1) * gap, height: rows * h * scale + (rows + 1) * gap }, room)) return true;
     }
     return false;
   };
@@ -1411,13 +1417,17 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
   for (let s = scale ?? Math.min(16, Math.max(1, Math.floor(256 / Math.max(region.w, region.h)))); s >= (scale ?? 1) && !layout; s--) {
     for (const c of choices) {
       const m = measure(c, s);
-      if (m.width <= 1024 && m.height <= 1024 && (!layout || m.rows < layout.rows || (m.rows === layout.rows && m.width * m.height < layout.width * layout.height))) layout = m;
+      if (m.width <= 1024 && m.height <= 1024 && withinSheet(m, room) && (!layout || m.rows < layout.rows || (m.rows === layout.rows && m.width * m.height < layout.width * layout.height))) layout = m;
     }
   }
   // Otherwise the squarest layout within the limit, if any is.
   if (!layout) for (const c of choices) {
     const m = measure(c, scale ?? 1), better = !layout || (withinSheet(m, room) === withinSheet(layout, room) ? Math.max(m.width, m.height) < Math.max(layout.width, layout.height) : withinSheet(m, room));
     if (better) layout = m;
+  }
+  if (!withinSheet(layout, room) && withinSheet(layout, { ...room, maxHeight: Infinity })) {
+    const row = region.h * layout.scale + 2 * layout.gap + room.height;
+    fail(`${where}.sheets`, `one row of ${region.w}×${region.h} cells is ${row} pixels tall with its gutters and label, past the ${room.maxHeight} each of ${room.sheets} sheets stacked in one image may take (${grouped(STACK_SIDE)} in all); compare ${Math.floor(STACK_SIDE / row) > 1 ? `at most ${Math.floor(STACK_SIDE / row) - 1} other recipes` : 'one recipe at a time'}, or show a smaller region`);
   }
   if (!withinSheet(layout, room)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters, 16,777,216 pixels in all); select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(layout.width * layout.height * 4), square = Math.max(2, Math.ceil(8 / layout.scale)), composed = new Map();
@@ -1527,22 +1537,26 @@ export function partColors(project, indices, region = { x: 0, y: 0, w: project.w
   return { legend, pixels };
 }
 // A legend to the right of a contact sheet: a swatch and the part's name in the built-in font, in columns of at most
-// as many rows as the sheet is tall (twelve at least). The cells keep their places.
-function legendColumns(names, t, perColumn) {
-  const texts = names.map(name => layoutText(name)), columns = [];
-  for (let i = 0; i < names.length; i += perColumn) columns.push(Math.max(...texts.slice(i, i + perColumn).map(text => text.width)) * t + 10 * t + 3 * t);
-  return { texts, columns, width: 3 * t + columns.reduce((sum, w) => sum + w, 0), height: perColumn * (FONT_HEIGHT + 4) * t + 6 * t };
+// as many rows as the sheet is tall (twelve at least). The cells keep their places. Its text is drawn at `t` times,
+// twice on a sheet of scale 4 or more.
+const legendScale = scale => Math.max(1, Math.min(2, Math.floor(scale / 2)));
+const legendPerColumn = (count, height, t) => Math.max(1, Math.min(count, Math.max(12, Math.floor((height - 6 * t) / ((FONT_HEIGHT + 4) * t)))));
+// The width each column takes and the legend's size, for names `widths` font pixels wide in columns of perColumn.
+function legendSize(widths, t, perColumn) {
+  const columns = [];
+  for (let i = 0; i < widths.length; i += perColumn) columns.push(Math.max(...widths.slice(i, i + perColumn)) * t + 13 * t);
+  return { columns, width: 3 * t + columns.reduce((sum, w) => sum + w, 0), height: perColumn * (FONT_HEIGHT + 4) * t + 6 * t };
 }
-// The most a legend of any of these parts adds at scale 1, reserved when the cells are fitted: every name, in columns of
-// twelve (a real legend has no more names, and no fewer rows a column).
+// What a legend of any of these parts adds beside a layout (its height and scale), reserved when the cells are fitted:
+// every name (a real legend has no more), in the columns drawPartLegend uses beside a sheet that tall.
 function legendRoom(names) {
-  const { width, height } = legendColumns(names, 1, Math.max(1, Math.min(names.length, 12)));
-  return { width, minHeight: height };
+  const widths = names.map(name => layoutText(name).width);
+  return layout => { const t = legendScale(layout.scale ?? 1); return legendSize(widths, t, legendPerColumn(widths.length, layout.height, t)); };
 }
 function drawPartLegend(sheet, legend) {
-  const t = Math.max(1, Math.min(2, Math.floor(sheet.scale / 2))), pad = 3 * t, row = (FONT_HEIGHT + 4) * t, swatch = 7 * t;
-  const perColumn = Math.max(1, Math.min(legend.length, Math.max(12, Math.floor((sheet.height - 2 * pad) / row))));
-  const { texts, columns, width: added, height: tall } = legendColumns(legend.map(entry => entry.name), t, perColumn);
+  const t = legendScale(sheet.scale), pad = 3 * t, row = (FONT_HEIGHT + 4) * t, swatch = 7 * t;
+  const texts = legend.map(entry => layoutText(entry.name)), perColumn = legendPerColumn(legend.length, sheet.height, t);
+  const { columns, width: added, height: tall } = legendSize(texts.map(text => text.width), t, perColumn);
   const width = sheet.width + added, height = Math.max(sheet.height, tall);
   if (width > SHEET_SIDE * 2 || height > SHEET_SIDE * 2 || width * height > PNG_PIXELS) fail('inspect.view', `the parts legend would make the sheet ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(width * height * 4);
@@ -1664,6 +1678,7 @@ export function stackViews(views) {
   const labels = views.map(view => layoutText(String(view.name).replace(/[^\x20-\x7e]/g, '?'))), width = Math.max(...sheets.map(sheet => sheet.width), ...labels.map(text => text.width * t + 2 * pad));
   const height = sheets.reduce((sum, sheet) => sum + band + sheet.height, 0), stack = [];
   if (width * height > PNG_PIXELS) fail('beside', `the ${views.length} sheets stacked would be ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; compare fewer recipes, or show fewer cells (maxCells), a smaller region or a lower scale`);
+  if (height > STACK_SIDE) fail('beside', `the ${views.length} sheets stacked would be ${width}×${height} pixels, taller than the ${grouped(STACK_SIDE)} a model reads an image at; compare fewer recipes, or show fewer cells (maxCells), a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < data.length; i += 4) data.set(gutterColor, i);
   let y = 0;
@@ -1810,8 +1825,8 @@ export function inspectProject(project, options = {}) {
   // legend, and a label band and a share of the PNG for each sheet stacked beside others.
   let room = NO_ROOM;
   if (options.scale === undefined && (mode === 'parts' || sheets > 1)) {
-    const legend = mode === 'parts' ? legendRoom(project.ownerNames) : { width: 0, minHeight: 0 };
-    room = { pixels: Math.floor(PNG_PIXELS / sheets), width: legend.width, height: sheets > 1 ? FONT_HEIGHT + 4 : 0, minHeight: legend.minHeight };
+    room = { pixels: Math.floor(PNG_PIXELS / sheets), height: sheets > 1 ? STACK_BAND : 0, maxHeight: sheets > 1 ? Math.floor(STACK_SIDE / sheets) : Infinity, sheets,
+      legend: mode === 'parts' ? legendRoom(project.ownerNames) : null };
   }
   if (options.scale === undefined) {
     const count = Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1, room));

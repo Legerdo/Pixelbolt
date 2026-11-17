@@ -331,17 +331,21 @@ function drawArcs(put, [ox, oy], { entries, tracks, landings, key, magnification
   return skipped;
 }
 
-const STRIP_PIXELS = 4194304;
+const STRIP_PIXELS = 4194304, STRIP_SIDE = 4096;
 // The timing cells: at most 32 evenly spaced samples, endpoints included, in 4 columns; for frames too big for that
-// within the image, as many samples as fit in the columns that hold the most (the squarer grid on a tie). A frame up to
-// 1024 a side and 262,144 pixels always fits once.
+// within the image, as many samples as fit in some number of columns, in the squarest grid that holds them. Both sides
+// stay within 4096, as a contact sheet's do, so many big frames never make one long row or column. A frame up to 1024 a
+// side and 262,144 pixels always fits once.
 function timingGrid(entries, w, h) {
-  const area = (n, c) => (c * (w + 4) + 4) * (Math.ceil(n / c) * (h + 4) + 4);
+  const fits = (n, c) => {
+    const width = c * (w + 4) + 4, height = Math.ceil(n / c) * (h + 4) + 4;
+    return width <= STRIP_SIDE && height <= STRIP_SIDE && width * height <= STRIP_PIXELS;
+  };
   for (let count = Math.min(32, entries.length); count > 1; count--) {
-    if (area(count, Math.min(4, count)) <= STRIP_PIXELS) return { count, columns: Math.min(4, count) };
+    if (fits(count, Math.min(4, count))) return { count, columns: Math.min(4, count) };
     let best = null;
     for (let c = 1; c <= count; c++) {
-      if (area(count, c) > STRIP_PIXELS) continue;
+      if (!fits(count, c)) continue;
       const side = Math.max(c * (w + 4), Math.ceil(count / c) * (h + 4));
       if (!best || side < best.side) best = { count, columns: c, side };
     }
@@ -356,7 +360,7 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
   const positions = Array.from({ length: count }, (_, i) => count === 1 ? 0 : Math.round(i * (entries.length - 1) / (count - 1)));
   const selected = positions.map(i => entries[i]);
   const travel = selected.map(e => Math.round((motion.speed ?? 0) * e.start / 1000)), left = Math.min(...travel), span = Math.max(...travel) - left;
-  const lanes = Math.min(8, count), timingWidth = columns * (w + 4) + 4, timingHeight = Math.ceil(count / columns) * (h + 4) + 4;
+  const timingWidth = columns * (w + 4) + 4, timingHeight = Math.ceil(count / columns) * (h + 4) + 4;
   // The arcs go under the timing cells, magnified to about their width, and trace every displayed frame.
   const tracks = metadata ? arcTracks(entries, metadata) : [], magnification = Math.max(3, Math.min(8, Math.floor((timingWidth - 4) / (w + 2))));
   const partOf = (marker, position) => entries[position].markers.find(m => m.name === marker)?.part;
@@ -364,12 +368,16 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
   const landings = motion.slide.map(({ marker, samples }) => ({ position: samples[0].position, frame: samples[0].frame, marker, side: sideOf(marker, samples[0].position), part: partOf(marker, samples[0].position) }));
   const arcsWidth = (w + 2) * magnification, key = arcKey(tracks, landings, Math.max(arcsWidth, timingWidth - 4));
   const arcsHeight = (h + 2) * magnification + 3 + key.height + 2;
-  let trajectory = motion.speed !== null && span + w + 4 <= 4096, arcs = tracks.length > 0;
+  // The trajectory is a panel left of the timing cells, its frames in up to 8 lanes; tall frames take fewer lanes when
+  // that is what keeps the image within 4,194,304 pixels.
+  let trajectory = motion.speed !== null && span + w + 4 <= STRIP_SIDE, arcs = tracks.length > 0, lanes = Math.min(8, count);
   const measure = () => {
     const panel = trajectory ? span + w + 8 : 0;
     return { panel, width: panel + Math.max(timingWidth, arcs ? Math.max(arcsWidth, key.width) + 4 : 0), height: Math.max(timingHeight + (arcs ? arcsHeight : 0), trajectory ? lanes * (h + 4) + 4 : 0) };
   };
   let layout = measure();
+  const panelTried = trajectory ? layout.panel : 0;
+  while (layout.width * layout.height > STRIP_PIXELS && trajectory && lanes > 2) { lanes--; layout = measure(); }
   if (layout.width * layout.height > STRIP_PIXELS && trajectory) { trajectory = false; layout = measure(); }
   if (layout.width * layout.height > STRIP_PIXELS && arcs) { arcs = false; layout = measure(); }
   const { panel: panelWidth, width, height } = layout;
@@ -408,8 +416,9 @@ function motionStrip(project, entries, motion, requestedScale, background, metad
   } else arcsReport = { shown: false, reason: tracks.length ? 'The arcs would take the image past 4,194,304 pixels.' : 'Arcs need pose metadata with a rig (legs, arms, head) or markers.' };
   // Sampling is said as a contact sheet says it: only when cells were left out.
   const sampling = count < entries.length ? { total: entries.length, shown: count, omitted: entries.length - count,
-    method: `evenly spaced, including endpoints: ${count < Math.min(32, entries.length) ? `as many ${w}×${h} frames as fit the 4,194,304-pixel image` : 'at most 32'}` } : undefined;
-  return { cells, ...(sampling && { sampling }), trajectory: { shown: trajectory, ...(trajectory ? { origin: -left, width: panelWidth, lanes } : { reason: motion.speed === null ? 'Specify speed to draw the trajectory.' : 'Travel exceeds the 4096-pixel width or 4,194,304-pixel image limit.' }) },
+    method: `evenly spaced, including endpoints: ${count < Math.min(32, entries.length) ? `as many ${w}×${h} frames as fit the 4,194,304-pixel image, 4096 a side` : 'at most 32'}` } : undefined;
+  return { cells, ...(sampling && { sampling }), trajectory: { shown: trajectory, ...(trajectory ? { origin: -left, width: panelWidth, lanes } : { reason: motion.speed === null ? 'Specify speed to draw the trajectory.' : !panelTried ? `Travel exceeds the 4096-pixel width: ${span} pixels of travel beside a ${w}-pixel frame.`
+      : `The trajectory panel (${panelTried} pixels wide, lanes of ${w}×${h} frames) does not fit beside the timing cells within the 4,194,304-pixel image.` }) },
     arcs: arcsReport,
     nativeSheet: { width, height, scale: 1, data },
     sheet: { width: width * actualScale, height: height * actualScale, scale: actualScale, data: enlarge(data, width, height, actualScale) } };
