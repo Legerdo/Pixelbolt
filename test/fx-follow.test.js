@@ -166,6 +166,15 @@ test('a release\'s children go with it: whenever a share of 0 compiles, a share 
   const followed = follow(source([rel, drops, children]));
   assert.match(followed.reply, /^fx\.effects\.e: more than 1024 particles are alive at once; emitters\[0\] releases every one of its sprite's 3,382 pixels: lower its release\.share \(about ([\d.]+) fits\) or use a smaller sprite$/);
   assert.equal(followed.frames, 24);
+  // Past the spawned limit too: a 73x53 sprite whose every released pixel's particle ends in a child of its own spawns
+  // about as many children as pixels, so the release alone spawned under half of the 4,096 though its family spawned
+  // most. Before, no share was named although shares 0 to 0.35 compiled.
+  const spawning = source([{ ...rel, release: { sweep: 90, jitter: 0.3 }, start: 0, end: 25, life: [1, 4] }, { ...drops, rate: 43, start: 0, end: 28, life: [1, 3] }, { ...children, burst: 1, speed: [0.3, 1], life: [1, 2] }]);
+  spawning.symbols.pic.recipe = still(73, 53);
+  spawning.effects.e.frames = 28;
+  const spawned = follow(spawning);
+  assert.match(spawned.reply, /^fx\.effects\.e\.emitters: more than 4096 particles; emitters\[0\] releases every one of its sprite's 3,869 pixels: lower its release\.share \(about ([\d.]+) fits\) or use a smaller sprite$/);
+  assert.equal(spawned.frames, 28);
   // Releases with and without children, their rates and windows drawn from a seeded generator: where the source with a
   // share of 0 compiles, the reply names a share, and the source with that share compiles.
   let seed = 11, checked = 0;

@@ -1740,9 +1740,12 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
         emitters.forEach((e, i) => { if (e.release && (most < 0 || run.stats[i].spawned > run.stats[most].spawned)) most = i; });
         // The release's children (its family) spawn with it, so they are not among the others its share is weighed
         // beside, and the share named is one the effect simulated with it holds (shareHolds).
-        const made = most < 0 ? 0 : run.stats[most].spawned, own = most < 0 ? new Set() : family(emitters, most), who = i => emitters[i].name ?? `emitters[${i}]`;
-        const room = LIMITS.spawned - run.stats.reduce((sum, s, i) => sum + (own.has(i) ? 0 : s.spawned), 0);
-        const share = made * 2 > spawned ? releaseAdvice(emitters[most], most, emitters[most].release.share * Math.max(0, room) / made, share => run.released(most, share).spawned <= room, share => run.shareHolds(most, share)) : undefined;
+        // What the family spawns is what the share scales: its children are counted with the release, in the
+        // proportion they spawned beside it (`per`), and the share named is still confirmed by shareHolds.
+        const own = most < 0 ? new Set() : family(emitters, most), who = i => emitters[i].name ?? `emitters[${i}]`;
+        const self = most < 0 ? 0 : run.stats[most].spawned, made = run.stats.reduce((sum, s, i) => sum + (own.has(i) ? s.spawned : 0), 0), per = self ? made / self : 1;
+        const room = LIMITS.spawned - (spawned - made);
+        const share = made * 2 > spawned ? releaseAdvice(emitters[most], most, emitters[most].release.share * Math.max(0, room) / made, share => run.released(most, share).spawned * per <= room, share => run.shareHolds(most, share)) : undefined;
         if (share) fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; ${share}`);
         // Otherwise what the others spawn is to lower, or the effect's frames: every frame is simulated, kept or not, so
         // the frames named are the effect's own (framesRoute), with frames kept when fewer fit.
