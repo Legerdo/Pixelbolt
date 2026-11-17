@@ -138,13 +138,33 @@ test('a change that sets, removes or adds to a frame\'s corrections takes them o
   assert.equal(changed(corrected, patchRecipe(corrected, [redraw]).recipe).pixels, 359999);
 });
 
+test('a remove of one correction takes it from the part that owns it, and following the note works', () => {
+  const all = half(0, 600), redrawn = recipe => changed(still(), recipe).pixels;
+  // The recipe's own entry removed after a change appends 180,000: the change owns all of the list.
+  const corrected = still([{ x: 1, y: 1, color: 'k' }]), first = { remove: 'frames[f].pixels[0]' };
+  assert.throws(() => patchRecipe(corrected, [half(300), first, all]), { message: `${stillAdvice(2)}. The frame's 180,000 pixel corrections still draw over its operations: changes[0] adds 180,000 of them; drop or shrink it` });
+  assert.equal(redrawn(patchRecipe(corrected, [first, redraw]).recipe), 360000);
+  // Before, the loss was taken from the newest part, so the note also named the recipe, and removing its list as well is refused.
+  assert.throws(() => patchRecipe(corrected, [{ remove: 'frames[f].pixels' }, first, redraw]), { path: 'changes[1].remove' });
+  // Of two recipe corrections, the one removed after the change leaves the recipe 1, which stays when the change is dropped.
+  const two = still([{ x: 1, y: 1, color: 'k' }, { x: 2, y: 2, color: 'k' }]), second = { remove: 'frames[f].pixels[1]' };
+  assert.throws(() => patchRecipe(two, [half(300), second, all]), { message: `${stillAdvice(2)}. The frame's 180,001 pixel corrections still draw over its operations: the recipe has 1 of them (remove frames[f].pixels to drop it) and changes[0] adds 180,000; drop or shrink it` });
+  assert.equal(redrawn(patchRecipe(two, [second, redraw]).recipe), 359999);
+  assert.equal(redrawn(patchRecipe(two, [{ remove: 'frames[f].pixels' }, redraw]).recipe), 360000);
+  // An entry of an earlier change removed later is taken from that change, not from the newest.
+  const paint = { paint: 'frames[f]', value: [{ x: 1, y: 1, color: 'k' }, { x: 2, y: 2, color: 'k' }] };
+  assert.throws(() => patchRecipe(still(), [paint, half(300), first, all]), { message: `${stillAdvice(3)}. The frame's 180,001 pixel corrections still draw over its operations: changes[0] adds 1 of them and changes[1] adds 180,000; drop or shrink them` });
+  assert.equal(redrawn(patchRecipe(still(), [paint, first, redraw]).recipe), 359999);
+  assert.equal(redrawn(patchRecipe(still(), [redraw]).recipe), 360000);
+});
+
 test('a grid with more rows than a canvas up to 1024 tall is refused at its height, as on main', () => {
   for (const side of [16, 256, 1024]) {
     const canvas = { version: 1, name: 'c', width: 16, height: side, palette: { k: '#102030' }, frames: [{ name: 'f' }] };
     for (const count of [side + 1, 1025]) assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: Array(count).fill('k') } }]), { path: 'changes[0].value.h', message: 'changes[0].value.h: expected an integer region inside the canvas' });
     assert.equal(patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows: Array(side).fill('k') } }]).recipe.frames[0].pixels.length, side);
-    // Rows that are no list of text are refused at rows on every canvas.
-    for (const rows of [[], [''], [1]]) assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows } }]), { path: 'changes[0].value.rows', message: 'changes[0].value.rows: expected 1–1024 equal-width rows' });
+    // Rows that are no list of text are refused at rows on every canvas, naming the rows this canvas takes.
+    for (const rows of [[], [''], [1], ['k', 1]]) assert.throws(() => patchRecipe(canvas, [{ grid: 'frames[f]', value: { x: 0, y: 0, rows } }]), { path: 'changes[0].value.rows', message: `changes[0].value.rows: expected 1–${side} equal-width rows` });
   }
   // On a still taller than 1024, a grid is at most 1024 rows, and 1024 of them are taken.
   const tall = { version: 1, name: 'c', width: 16, height: 2048, palette: { k: '#102030' }, frames: [{ name: 'f' }] };

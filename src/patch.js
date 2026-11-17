@@ -15,13 +15,14 @@ const CANVAS = ['paint', 'grid', 'move', 'recolor', 'cleanup'], VERBS = ['set', 
 // move or recolour up to twice that (a clear and a write for every pixel).
 // A frame's pixel corrections, merged, hold at most an animation frame's area too (core reads frame.pixels so).
 const FRAME_LIST = FRAME_PIXELS.toLocaleString('en-US');
-const ROWS = `expected 1–${CANVAS_SIDE} equal-width rows`, PAINT = `paint needs 1–${FRAME_LIST} pixels with x, y and color`;
+const PAINT = `paint needs 1–${FRAME_LIST} pixels with x, y and color`;
 const hex = data => '#' + [...data].map(v => v.toString(16).padStart(2, '0')).join('');
 function regionPixels(recipe, frameIndex, verb, value, where) {
   if (!isObject(value)) fail(where, 'expected a region object');
   const allowed = ['x', 'y', 'mask', ...(verb === 'grid' ? ['rows', 'erase'] : ['w', 'h', ...(verb === 'move' ? ['dx', 'dy'] : ['from', 'to'])])];
   for (const key of Object.keys(value)) if (!allowed.includes(key) || value[key] === null) fail(`${where}.${key}`, 'unknown or null region field');
-  const rows = value.rows;
+  // Grid rows name the bound this canvas allows: its height, up to what core's readRows takes.
+  const rows = value.rows, ROWS = `expected 1–${Number.isInteger(recipe.height) && recipe.height > 0 ? Math.min(recipe.height, CANVAS_SIDE) : CANVAS_SIDE} equal-width rows`;
   if (verb === 'grid' && (!Array.isArray(rows) || !rows.length || typeof rows[0] !== 'string' || !rows[0].length)) fail(`${where}.rows`, ROWS);
   // A grid is as wide and tall as core's readRows takes, even on a still larger than an animation frame; on a canvas no
   // larger than that, the canvas is the bound the region check names.
@@ -223,33 +224,37 @@ export function patchRecipe(recipe, changes) {
   const budget = 67108864;
   if (changes.reduce((sum, change) => sum + estimate(recipe, change), 0) > budget) fail('changes', 'regional edit work exceeds 67,108,864 estimated pixels; split the batch or reduce frame scope');
   const next = structuredClone(recipe), edits = [];
-  // For a refusal's note, a ledger of each working frame's corrections by where they come from: the input recipe
-  // ('recipe') or a change of this call (its index), adding up to the frame's list. A change that grows the list is
-  // credited with what it adds; one that shrinks it takes from the latest parts first; one that replaces the list or
-  // the frame (a set or remove of frames[f].pixels or frames[f], an insert of a frame) owns all of the new list.
-  const corrections = frame => (Array.isArray(frame?.pixels) ? frame.pixels.length : 0), ledger = new Map();
-  const account = (frame, source, replaced) => {
-    const now = corrections(frame), entry = ledger.get(frame);
-    if (!entry || replaced) { ledger.set(frame, { list: frame.pixels, parts: new Map(now ? [[source, now]] : []) }); return; }
-    const { parts } = entry;
-    let change = now - [...parts.values()].reduce((sum, k) => sum + k, 0);
-    if (change > 0) parts.set(source, (parts.get(source) ?? 0) + change);
-    for (const key of [...parts.keys()].reverse()) {
-      if (change >= 0) break;
-      const taken = Math.min(parts.get(key), -change);
-      change += taken;
-      if (taken === parts.get(key)) parts.delete(key); else parts.set(key, parts.get(key) - taken);
-    }
-    entry.list = frame.pixels;
+  // For a refusal's note, a ledger of who owns each entry of each working frame's corrections, in list order: the input
+  // recipe ('recipe') or a change of this call (its index). A canvas change owns the coordinates it adds (one already
+  // corrected keeps its owner); an insert into the list owns its entry and a remove of one entry drops that entry's
+  // owner; a change that replaces the list or the frame (a set or remove of frames[f].pixels or frames[f], an insert of
+  // a frame) owns all of the new list.
+  // `lists` finds the entry of a list a change inserts into or removes one entry of.
+  const corrections = frame => (Array.isArray(frame?.pixels) ? frame.pixels.length : 0), ledger = new Map(), lists = new WeakMap();
+  const record = (frame, owners) => {
+    const entry = { list: frame.pixels, owners };
+    ledger.set(frame, entry);
+    if (Array.isArray(frame.pixels)) lists.set(frame.pixels, entry);
   };
-  // After a set, insert or remove: a frame whose list, or which itself, is new is replaced by that change.
+  const own = (frame, source) => record(frame, Array(corrections(frame)).fill(source));
+  const spot = pixel => `${pixel.x},${pixel.y}`;
+  const merged = (frame, source) => {
+    const entry = ledger.get(frame), first = new Map();
+    if (Array.isArray(entry?.list)) entry.list.forEach((pixel, k) => { if (!first.has(spot(pixel))) first.set(spot(pixel), entry.owners[k]); });
+    record(frame, (Array.isArray(frame.pixels) ? frame.pixels : []).map(pixel => first.get(spot(pixel)) ?? source));
+  };
+  // After a set, insert or remove: a frame whose list, or which itself, is new is owned by that change.
   const settle = i => {
-    if (Array.isArray(next.frames)) for (const frame of next.frames) if (isObject(frame)) account(frame, i, ledger.get(frame)?.list !== frame.pixels);
+    if (Array.isArray(next.frames)) for (const frame of next.frames) {
+      const entry = isObject(frame) && ledger.get(frame);
+      if (isObject(frame) && (!entry || entry.list !== frame.pixels || entry.owners.length !== corrections(frame))) own(frame, i);
+    }
   };
-  if (Array.isArray(next.frames)) for (const frame of next.frames) if (isObject(frame)) account(frame, 'recipe', true);
+  if (Array.isArray(next.frames)) for (const frame of next.frames) if (isObject(frame)) own(frame, 'recipe');
   const refuse = (where, frame, verb, count) => {
-    const parts = ledger.get(frame)?.parts ?? new Map();
-    fail(where, tooManyCorrections(frame, verb, count, parts.get('recipe') ?? 0, [...parts].filter(([source]) => source !== 'recipe')));
+    const parts = new Map();
+    for (const source of ledger.get(frame)?.owners ?? []) parts.set(source, (parts.get(source) ?? 0) + 1);
+    fail(where, tooManyCorrections(frame, verb, count, parts.get('recipe') ?? 0, [...parts].filter(([source]) => source !== 'recipe').sort((a, b) => a[0] - b[0])));
   };
   let work = 0;
   const apply = (change, i) => {
@@ -302,7 +307,7 @@ export function patchRecipe(recipe, changes) {
       // The limit is on the frame's corrections together, so splitting a change never gets past it: say what does.
       if (pixels.size > FRAME_PIXELS) refuse(`${where}.value`, frame, verb, pixels.size);
       if (pixels.size) frame.pixels = [...pixels.values()];
-      account(frame, i, false);
+      merged(frame, i);
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);
       if (change.scope !== undefined) edit.scope = change.scope;
@@ -318,16 +323,17 @@ export function patchRecipe(recipe, changes) {
             // Named by the palette key that draws it where one does, so a later palette edit still reaches it.
             restore.set(`${x},${y}`, { x, y, color: named(pixelId(original, at)) }); count++;
           }
-          if (count) { next.frames[index].pixels = [...restore.values()]; account(next.frames[index], i, false); edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
+          if (count) { next.frames[index].pixels = [...restore.values()]; merged(next.frames[index], i); edit.protected.push({ frame: next.frames[index].name, pixels: count }); }
         }
       }
     } else if (verb === 'insert') {
       if (!Array.isArray(parent)) fail(target, `insert needs a list position, such as ${path}[-]`);
       parent.splice(slot, 0, structuredClone(change.value));
+      lists.get(parent)?.owners.splice(slot, 0, i);
     } else if (Array.isArray(parent) || Object.hasOwn(parent, slot)) {
       edit.before = summarize(parent[slot]);
       if (verb === 'set') define(parent, slot, structuredClone(change.value));
-      else if (Array.isArray(parent)) parent.splice(slot, 1);
+      else if (Array.isArray(parent)) { parent.splice(slot, 1); lists.get(parent)?.owners.splice(slot, 1); }
       else delete parent[slot];
     } else if (verb === 'set') {
       edit.created = true;
