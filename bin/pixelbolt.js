@@ -83,8 +83,9 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            what share of the drawing a cut leaves out (--metadata keeps where the
                                            window starts)
                                            --frames (any compile) keeps that many evenly spaced frames of each
-                                           animation that has more, playing as long as before: the way to fewer
-                                           frames (lowering frames in a source cuts the effect short instead);
+                                           animation that has more, playing as long as before (a count dividing a
+                                           loop's frames keeps its step even): the way to fewer frames (lowering
+                                           frames in a source cuts the effect short instead);
                                            --animation <name> keeps only that animation of a source that makes
                                            several (a,b for more than one)
   pixelbolt presets [name] [--full]        List the presets, a line each (size, frames, loop, colours, what each is

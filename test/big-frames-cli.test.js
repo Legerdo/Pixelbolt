@@ -118,6 +118,25 @@ test('help says how the largest render scale and a --beside stack are bounded', 
   assert.match(help, /at the automatic scale the stack is kept within 8,000 px tall/);
 });
 
+test('compile --help and pixel_compile say a --frames count dividing a loop\'s frames keeps its step even, and it does', async t => {
+  const dir = await folder(t);
+  const help = spawnSync(process.execPath, [path.join(root, 'bin', 'pixelbolt.js'), 'compile', '--help'], { encoding: 'utf8' }).stdout.replace(/\s+/g, ' ');
+  assert.match(help, /playing as long as before \(a count dividing a loop's frames keeps its step even\)/);
+  const tools = JSON.parse(await readFile(path.join(root, 'evals', 'mocks', 'pixelbolt', '_tools.json'), 'utf8'));
+  const listed = (tools.tools ?? tools).find(tool => tool.name === 'pixel_compile').inputSchema.properties.frames.description;
+  assert.match(listed, /a count dividing a loop's frames keeps its step even/);
+  // A 32-frame loop: 16 divides it and keeps every kept frame 120 ms; 12 does not and draws the stutter warning.
+  const source = { format: 'pixelforge-fx', version: 1, name: 'rain', width: 160, height: 90, palette: { d: '#9fb8d8' }, symbols: { drop: ['d'] },
+    effects: { rain: { frames: 32, duration: 60, loop: true, seed: 7, edges: ['top', 'left', 'right', 'bottom'], emitters: [{ at: [70, -8], area: [240, 1], rate: 3, angle: [100, 102], speed: [8, 9], life: [12, 16], shapes: ['drop'] }] } } };
+  await writeFile(path.join(dir, 'rain.fx.json'), JSON.stringify(source));
+  const even = pixelbolt(['compile', 'rain.fx.json', '--frames', '16', '--out', 'even.json'], dir);
+  assert.deepEqual([even.ok, even.frames, even.warnings ?? []], [true, 16, []]);
+  const kept = JSON.parse(await readFile(path.join(dir, 'even.json'), 'utf8'));
+  assert.deepEqual(new Set(kept.frames.map(frame => frame.duration)), new Set([120]));
+  const uneven = pixelbolt(['compile', 'rain.fx.json', '--frames', '12', '--out', 'uneven.json'], dir);
+  assert.match(uneven.warnings.join('\n'), /frames 12 thins its 32-frame loop unevenly/);
+});
+
 test('gif --size --animation default plays a recipe that names no animations, and the reply lists every animation', async t => {
   const dir = await folder(t);
   await writeFile(path.join(dir, 'plain.json'), JSON.stringify(screen(64, 64, 4)));
