@@ -477,12 +477,17 @@ test('deploy copies only page files, inserts once, keeps second-run bytes and mt
 
 // The real controller (playground/app.js) without a browser or network: an element for each id in index.html, a
 // Worker that answers when told to, timers fired by hand, and an address that history.replaceState changes as a
-// browser's does. Each call imports its own copy of the page. Pixels and workers have their own tests above.
-async function playgroundPage(tag, run) {
+// browser's does. Each call imports its own copy of the page. Pixels and workers have their own tests above. A `box`
+// ({ width, height }) gives the preview box a size and the page getComputedStyle, so Fit can measure it.
+const recordClasses = names => ({
+  add: name => { names.add(name); }, remove: name => { names.delete(name); }, contains: name => names.has(name),
+  toggle: (name, force = !names.has(name)) => { if (force) names.add(name); else names.delete(name); return force; }
+});
+async function playgroundPage(tag, run, { box } = {}) {
   const elements = new Map(), timers = new Map(), workers = [], events = new Map(), questions = [], addresses = [], copied = [];
   let timerId = 0;
   class Element {
-    constructor(tag) { this.tag = tag; this.value = ''; this.textContent = ''; this.children = []; this.events = new Map(); this.style = {}; this.dataset = {}; this.attributes = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
+    constructor(tag) { this.tag = tag; this.value = ''; this.textContent = ''; this.children = []; this.events = new Map(); this.style = {}; this.dataset = {}; this.attributes = {}; this.classes = new Set(); this.classList = recordClasses(this.classes); }
     get options() { return this.children.flatMap(child => child.tag === 'optgroup' ? child.children : [child]); }
     append(...children) { this.children.push(...children); if (this.tag === 'select' && !this.value) this.value = this.options[0]?.value ?? ''; }
     replaceChildren(...children) { this.children = []; this.value = ''; this.append(...children); }
@@ -494,6 +499,7 @@ async function playgroundPage(tag, run) {
   }
   for (const match of (await read('playground/index.html')).matchAll(/<(\w+)\b[^>]*\bid="([^"]+)"/g)) elements.set(match[2], new Element(match[1]));
   const body = new Element('body');
+  if (box) Object.assign(elements.get('artboard'), { clientWidth: box.width, clientHeight: box.height });
   class Worker {
     constructor(url, options) { assert.ok(url.href.endsWith('/playground/worker.js')); assert.equal(options.type, 'module'); this.requests = []; workers.push(this); }
     postMessage(message) { this.requests.push(message); }
@@ -514,7 +520,8 @@ async function playgroundPage(tag, run) {
     fetch: async () => ({ ok: true, json: async () => manifest }),
     ImageData: class { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } },
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
-    clearTimeout: id => timers.delete(id)
+    clearTimeout: id => timers.delete(id),
+    ...box && { getComputedStyle: () => ({ paddingLeft: '0px', paddingRight: '0px', paddingTop: '0px', paddingBottom: '0px' }) }
   };
   const originals = new Map(Object.keys(replacements).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
@@ -544,7 +551,7 @@ async function playgroundPage(tag, run) {
   }
 }
 // The page once its first example has rendered.
-const playgroundReady = (tag, run) => playgroundPage(tag, async page => { page.source('tiny'); await page.render('tiny'); assert.equal(page.body.dataset.state, 'ready'); await run(page); });
+const playgroundReady = (tag, run, options) => playgroundPage(tag, async page => { page.source('tiny'); await page.render('tiny'); assert.equal(page.body.dataset.state, 'ready'); await run(page); }, options);
 
 test('main-thread lifecycle handles reduced motion, stale results, errors, cancellation and the 20-second deadline', () => playgroundPage('controller-test', async page => {
   const { elements, workers, events, questions, addresses, body, preview, flush, fireTimer } = page;
@@ -613,6 +620,18 @@ test('the scale line says where frame PNGs stop for a big frame, and the zoom li
   $('gif-scale').value = '8'; $('gif-scale').emit('change');
   assert.equal($('gif-size').textContent, 'GIF: 5120×2880 px, 2 frames, scale 8');
 }));
+test('a frame larger than the preview box opens at Fit, below 1x and smoothed, and a chosen zoom keeps its pixels sharp', () => playgroundReady('fit-below-one', async page => {
+  const { $ } = page, canvas = $('preview');
+  // The 2 x 1 example gets the largest whole zoom that fits the 600 x 400 box.
+  assert.equal($('zoom').value, '16'); assert.equal(canvas.style.width, '32px'); assert.equal(canvas.classes.has('smooth'), false);
+  page.type(page.named('screen')); page.fireTimer(300); await page.flush();
+  page.reply({ result: { ...page.preview, name: 'screen', width: 640, height: 360 } }); await page.flush();
+  assert.equal($('zoom').value, 'fit');
+  assert.equal(canvas.style.width, '600px'); assert.equal(canvas.style.height, '337.5px');
+  assert.equal(canvas.width, 640); assert.equal(canvas.classes.has('smooth'), true);
+  $('zoom').value = '1'; $('zoom').emit('change');
+  assert.equal(canvas.style.width, '640px'); assert.equal(canvas.classes.has('smooth'), false);
+}, { box: { width: 600, height: 400 } }));
 test('a download or a link clicked while edits wait is delivered or says why not, and the edits render after it', () => playgroundReady('waiting-click', async page => {
   const { $, workers, events, flush, fireTimer, named } = page;
   const downloads = () => $('download-links').children.map(link => link.download);
