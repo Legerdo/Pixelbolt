@@ -33,9 +33,11 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            See every frame; writes only --out
   pixelbolt patch <file.json|-> --changes <changes.json|-> [--out new.json] [--image diff.png]
                                            Preview edits; writes only --out and --image
-  pixelbolt render <file.json|-> --out dir [--scale 1-16] [--look] [--gif | --gif-scale 1-16] [--normal <file>]
-                                           Export a complete asset bundle. --scale enlarges every exported pixel that
-                                           many times (the recipe's sheet.scale, for this export); --look also writes
+  pixelbolt render <file.json|-> --out dir [--scale 1-16] [--columns n] [--look] [--gif | --gif-scale 1-16]
+                    [--normal <file>]    Export a complete asset bundle. --scale enlarges every exported pixel that
+                                           many times (the recipe's sheet.scale, for this export); --columns n lays
+                                           the sheet out n frames across, 1 to the frame count (sheet.columns, for
+                                           this export: a one-row strip is --columns <frame count>); --look also writes
                                            look.png there, the frames enlarged to look at; --gif a GIF of each
                                            animation in gifs/, at the frames' own size or --gif-scale times it;
                                            --normal a normal recipe or a pixelforge-normals source of this recipe,
@@ -165,7 +167,7 @@ const OPTIONS = {
   validate: ['fps'],
   inspect: ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
   patch: ['changes', 'out', 'image', 'force'],
-  render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'normal'],
+  render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'columns', 'normal'],
   gif: ['out', 'animation', 'scale', 'background', 'force', 'preset', 'size', 'frames', 'sheet', 'fps'],
   'gif-frames': ['out', 'fps', 'loops', 'background', 'prefix', 'force'],
   sequence: ['out', 'fps', 'animation', 'size', 'scale', 'fit', 'align', 'offset', 'background', 'loops', 'seconds', 'step', 'force'],
@@ -770,11 +772,19 @@ try {
         if (options.scale !== undefined && !/^(?:[1-9]|1[0-6])$/.test(options.scale)) throw new Error('--scale expects a whole number from 1 to 16: how many times to enlarge every exported pixel');
         // --scale: sheet.scale for this export, so "a PNG at 4x" needs no patch first. The bundle's copy of the recipe carries it.
         if (options.scale !== undefined) input.document = { ...input.document, sheet: { ...input.document.sheet, scale: Number(options.scale) } };
+        // --columns: sheet.columns for this export the same way, so a one-row strip needs no patch. Its range is the
+        // frame count, known once the recipe is drawn, so it is checked below, before anything is written.
+        if (options.columns !== undefined && !/^[1-9]\d{0,2}$/.test(options.columns)) throw new Error('--columns expects a whole number from 1 to the frame count: how many frames across the sheet');
+        if (options.columns !== undefined) {
+          if (input.document?.sheet?.trim === true) throw new Error('--columns lays the sheet out as a grid, and this recipe\'s sheet.trim packs each frame by its visible bounds, which ignores columns; patch {"set": "sheet.trim", "value": false} first');
+          input.document = { ...input.document, sheet: { ...input.document.sheet, columns: Math.min(Number(options.columns), 256) } };
+        }
         // --normal: a normal recipe aligned with this one, or the pixelforge-normals source that derives it, exported
         // beside the colour sheet with what Godot needs to light it.
         const lit = options.normal === undefined ? null : await readResolved(options.normal, '--normal');
         const normal = !lit ? undefined : lit.document?.format === 'pixelforge-normals' ? COMPILERS['pixelforge-normals'](lit.document).recipe : lit.document;
         const bundle = await createBundle(input.document, { normal }), scale = options['gif-scale'] === undefined ? undefined : Number(options['gif-scale']);
+        if (options.columns !== undefined && Number(options.columns) > bundle.project.frames.length) throw new Error(`--columns expects a whole number from 1 to the frame count, ${bundle.project.frames.length}: --columns ${bundle.project.frames.length} is a one-row strip`);
         const gifs = options.gif || scale !== undefined ? Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, { ...(scale !== undefined && { scale }) })) : undefined;
         if (gifs && gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new Error('--gif-scale: all animations at this scale exceed 67,108,864 pixels; use a lower scale');
         const check = checkDelivery(bundle.project, { recipe: input.document, gifs, expect, animation: options.animation });

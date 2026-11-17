@@ -27,6 +27,8 @@ export function readExpect(expect) {
       }
       continue;
     }
+    // A sheet's grid is asked in expect.sheet: {"rows": 1} at the top level was a guess at a one-row strip.
+    if (key === 'rows' || key === 'columns') throw new PixelError(`expect.${key}`, `unknown field; a sheet's ${key} go in expect.sheet: {"sheet": {"${key}": ${Number.isInteger(value) && value > 0 && value <= SOURCE_FRAMES ? value : 1}}}`);
     if (!Object.hasOwn(LIMITS, key)) throw new PixelError(`expect.${key}`, 'unknown field; use width, height, frames, colors, transparent, loop, gifScale or sheet');
     // frames: one count for every animation, or a count per animation name.
     if (key === 'frames' && value !== null && typeof value === 'object' && !Array.isArray(value)) {

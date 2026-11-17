@@ -105,8 +105,13 @@ function parsePath(text, where) {
   return segments;
 }
 
+// The recipe's top-level fields that hold an object (the schema's sheet, palette, symbols and animations), which a set
+// of one field inside them creates when missing. Only these, one level deep, and never a list: the schema is not at
+// hand in the browser, and a deeper or wrong guess would build a shape the renderer then refuses far from the typo.
+const OBJECT_FIELDS = ['sheet', 'palette', 'symbols', 'animations'];
+
 // Walks to the final segment's container. Lists take [index], [name] (the item whose name, or string value, matches)
-// or [-] for the end; an insert may create the list it inserts into.
+// or [-] for the end; an insert may create the list it inserts into, and a set a top-level object (OBJECT_FIELDS).
 function locate(root, segments, where, verb) {
   let node = root, path = '';
   for (const [i, segment] of segments.entries()) {
@@ -133,6 +138,8 @@ function locate(root, segments, where, verb) {
       if (!last && !Object.hasOwn(node, slot)) {
         const next = segments[i + 1];
         if (verb === 'insert' && i === segments.length - 2 && (next.end || next.index === 0)) define(node, slot, []);
+        // A set one step into a missing top-level object starts it: sheet.columns on a recipe without a sheet.
+        else if (verb === 'set' && i === 0 && segments.length === 2 && next.key !== undefined && OBJECT_FIELDS.includes(slot)) define(node, slot, {});
         else fail(where, `${owner} has no field ${JSON.stringify(slot)}`);
       }
     } else fail(where, `${owner} is ${JSON.stringify(node)}, not an object or list`);

@@ -139,3 +139,63 @@ test('MCP pixel_render and CLI render check the sheet, and the fixed recipe writ
   assert.equal(cli.status, 0, cli.stderr);
   assert.match(JSON.parse(cli.stdout).check.problems[0].fix, /pixel_patch \{"set":"sheet","value":\{"columns":10\}\}/);
 });
+
+// Cold runs asked for "a single horizontal strip of 12 frames" and spent three failed commands finding the patch
+// ('the project has no field "sheet"'), and guessed expect {"rows": 1}.
+test('render --columns and pixel_render columns lay out a one-row strip for that export, from 1 to the frame count', async t => {
+  const tempRoot = path.resolve(os.tmpdir()), dir = await mkdtemp(path.join(tempRoot, 'pixelbolt-columns-'));
+  t.after(async () => { assert.ok(dir.startsWith(tempRoot + path.sep)); await rm(dir, { recursive: true, force: true }); });
+  const file = path.join(dir, 'blast.json'), run = (...args) => spawnSync(process.execPath, ['bin/pixelbolt.js', 'render', file, ...args], { cwd: root, encoding: 'utf8' });
+  await writeFile(file, JSON.stringify(strip(12)));
+  const made = run('--out', path.join(dir, 'strip'), '--columns', '12', '--expect', '{"sheet":{"rows":1}}');
+  assert.equal(made.status, 0, made.stderr);
+  assert.equal(JSON.parse(made.stdout).check.ok, true);
+  assert.deepEqual(pngSize(await readFile(path.join(dir, 'strip/blast.png'))), [768, 64]);
+  // The bundle's copy of the recipe carries the columns, as --scale's does; the source recipe is left alone.
+  assert.deepEqual(JSON.parse(await readFile(path.join(dir, 'strip/blast.pixel.json'), 'utf8')).sheet, { columns: 12 });
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).sheet, undefined);
+  const both = run('--out', path.join(dir, 'both'), '--columns', '4', '--scale', '2');
+  assert.equal(both.status, 0, both.stderr);
+  assert.deepEqual(pngSize(await readFile(path.join(dir, 'both/blast.png'))), [512, 384]);
+  for (const [value, message] of [['13', /--columns expects a whole number from 1 to the frame count, 12: --columns 12 is a one-row strip/], ['0', /--columns expects a whole number from 1 to the frame count/], ['2.5', /--columns expects a whole number/], ['999', /frame count, 12/]]) {
+    const refused = run('--out', path.join(dir, `bad-${value}`), '--columns', value);
+    assert.equal(refused.status, 1, value);
+    assert.match(refused.stderr, message, value);
+  }
+  await writeFile(file, JSON.stringify(strip(12, { sheet: { trim: true } })));
+  assert.match(run('--out', path.join(dir, 'trimmed'), '--columns', '12').stderr, /sheet\.trim packs each frame by its visible bounds, which ignores columns/);
+  const messages = [{ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'pixel_render', arguments: { project: strip(12), columns: 12, scale: 2, expect: { sheet: { rows: 1 } } } } },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'pixel_render', arguments: { project: strip(12), columns: 13 } } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'pixel_render', arguments: { project: strip(12), columns: 0 } } }];
+  const result = spawnSync(process.execPath, ['bin/pixelbolt.js', 'mcp', '--out', path.join(dir, 'mcp')], { cwd: root, input: messages.map(message => JSON.stringify(message)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  assert.equal(result.status, 0, result.stderr);
+  const [, rendered, over, zero] = result.stdout.trim().split('\n').map(line => JSON.parse(line).result), info = JSON.parse(rendered.content[0].text);
+  assert.equal(info.check.ok, true);
+  assert.deepEqual(pngSize(await readFile(path.join(info.directory, 'blast.png'))), [1536, 128]);
+  for (const refused of [over, zero]) assert.deepEqual([refused.isError, JSON.parse(refused.content[0].text).path], [true, 'columns']);
+  assert.match(JSON.parse(over.content[0].text).error, /frame count, 12: columns 12 is a one-row strip/);
+});
+
+test('a set one field into a missing top-level object starts it, and nothing deeper or in a list', () => {
+  const recipe = strip(12), { recipe: next, edits } = patchRecipe(recipe, [{ set: 'sheet.columns', value: 12 }, { set: 'animations.boom', value: { frames: ['f0', 'f1'] } }]);
+  assert.deepEqual([next.sheet, next.animations, recipe.sheet], [{ columns: 12 }, { boom: { frames: ['f0', 'f1'] } }, undefined]);
+  assert.deepEqual(edits, [{ set: 'sheet.columns', created: true }, { set: 'animations.boom', created: true }]);
+  assert.equal(check(next, { sheet: { rows: 1 } }).ok, true);
+  assert.deepEqual(patchRecipe(strip(2), [{ set: 'project.sheet.scale', value: 2 }]).recipe.sheet, { scale: 2 });
+  // Two missing steps, a field not known to hold an object, a list item, an insert and a frame's own field are refused
+  // as before.
+  for (const [change, message] of [[{ set: 'sheet.layout.x', value: 1 }, /the project has no field "sheet"/], [{ set: 'nothing.x', value: 1 }, /the project has no field "nothing"/],
+    [{ set: 'sheet[0]', value: 1 }, /the project has no field "sheet"/], [{ insert: 'sheet.x[-]', value: 1 }, /the project has no field "sheet"/],
+    [{ set: 'frames[0].palette.a', value: '#fff' }, /frames\[0\] has no field "palette"/]]) {
+    assert.throws(() => patchRecipe(strip(2), [change]), message, JSON.stringify(change));
+  }
+  // What it makes is still validated where the recipe is drawn.
+  assert.throws(() => renderProject(patchRecipe(strip(2), [{ set: 'sheet.columns', value: 999 }]).recipe), /project\.sheet\.columns/);
+});
+
+test('expect rows or columns at the top level say they go in expect.sheet', () => {
+  for (const [key, value, shown] of [['rows', 1, 1], ['columns', 12, 12], ['rows', 'one', 1]]) {
+    assert.throws(() => readExpect({ [key]: value }), error => error instanceof PixelError && error.path === `expect.${key}` && error.message.includes(`a sheet's ${key} go in expect.sheet: {"sheet": {"${key}": ${shown}}}`), key);
+  }
+});
