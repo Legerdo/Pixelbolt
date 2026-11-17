@@ -118,7 +118,7 @@ export async function createBundle(spec, { normal } = {}) {
   // A forced export over an earlier export of this recipe removes the frame and animation PNGs that export's atlas
   // lists and this one no longer has. Another recipe's export in the same folder keeps its PNGs, and so does a PNG
   // put in frames/ by hand.
-  return { project, atlas, files, notes, owns: { marker: `${name}.atlas.json`, folders: ['frames', 'animations'], match: /^(?:frames|animations)\/[^/]+\.png$/, listed: atlasFiles, peers: /\.atlas\.json$/, resources: bundleResources(name) } };
+  return { project, atlas, files, notes, still, owns: { marker: `${name}.atlas.json`, folders: ['frames', 'animations'], match: /^(?:frames|animations)\/[^/]+\.png$/, listed: atlasFiles, peers: /\.atlas\.json$/, resources: bundleResources(name) } };
 }
 // The top-level files an export writes only sometimes (a tile set's TileSet and Tiled tileset; an animated recipe's
 // SpriteFrames, CSS and player), each with how to tell that an export of this recipe wrote it: the text Pixelbolt writes
@@ -410,7 +410,8 @@ async function respelled(bundle, root) {
 }
 // What a written bundle holds, for a reply: its files relative to `out`, without each frame (and each animation when
 // there are more than 16) unless `listFiles`, and how many of those there are. Paths an export removed are relative too.
-export function outputSummary(out, files, listFiles) {
+// `still`: the bundle exports still (createBundle's `still`), so it has no animations folder to count.
+export function outputSummary(out, files, listFiles, still = false) {
   const relative = files.map(file => path.relative(out, file).split(path.sep).join('/'));
   const count = prefix => relative.filter(file => file.startsWith(`${prefix}/`)).length;
   const animations = count('animations');
@@ -422,7 +423,7 @@ export function outputSummary(out, files, listFiles) {
   return {
     ...(atlas && relative.includes(sheet) && { sheet, atlas }),
     files: listFiles ? relative : relative.filter(file => !file.startsWith('frames/') && !(file.startsWith('animations/') && animations > 16) && !support(file)),
-    folders: { frames: count('frames'), animations },
+    folders: { frames: count('frames'), ...(!still && { animations }) },
     ...(files.removed && { removed: files.removed.map(file => path.relative(out, file).split(path.sep).join('/')) })
   };
 }

@@ -1015,11 +1015,11 @@ export const isStills = spec => isObject(spec?.animations) && !Object.keys(spec.
 export const namesAnimations = spec => isObject(spec?.animations) && Object.keys(spec.animations).length > 0;
 // What a GIF, video frames or a check say of stills: there is no animation to play, and how to make one.
 export const stillsHaveNoAnimation = what => `the frames are stills ("animations": {} in the recipe), so there is no animation to ${what}: list the frames to play under "animations", such as { "loop": { "frames": ["a", "b"] } }, or remove the field to play every frame in order`;
-// A tile set whose recipe names no animations, as createBundle finds it (it gets a Godot TileSet: tiles, no sheet.trim
-// and no terrain that mixes mask modes): its one animation, the implicit flipbook of every tile, is no animation, so it
-// has no SpriteFrames, CSS or timing.
+// A tile set whose recipe names no animations (it leaves the field out, or its tiles are stills), as createBundle finds
+// it (it gets a Godot TileSet: tiles, no sheet.trim and no terrain that mixes mask modes): its one animation, the
+// implicit flipbook of every tile, is no animation, so it has no SpriteFrames, CSS or timing.
 export function stillTileSet(spec, project) {
-  if (spec.animations !== undefined || project.sheet.trim) return false;
+  if (namesAnimations(spec) || project.sheet.trim) return false;
   const tiles = autotileFrames(spec), modes = new Map();
   if (new Set(tiles.map(tile => tile.mask)).size < 2 && !project.frames.some(frame => frame.tile)) return false;
   for (const tile of tiles) {

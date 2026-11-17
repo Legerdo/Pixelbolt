@@ -12,7 +12,8 @@ import { renderProject, inspectProject, analyzeProject, briefDiagnostics, compar
 import { patchRecipe } from '../src/patch.js';
 import { checkDelivery } from '../src/check.js';
 import { frameGrid } from '../src/sequence.js';
-import { createBundle } from '../src/export.js';
+import { createBundle, outputSummary } from '../src/export.js';
+import { inspectMotion } from '../src/motion.js';
 import { compilePoses, compileAutotile } from '../src/authoring.js';
 import { startMCP } from '../src/mcp.js';
 import { loadEngine } from '../playground/render.js';
@@ -73,6 +74,24 @@ test('stills offer no animation to choose: the check, inspect, render and pixel_
   assert.equal(inspected.status, 1); assert.match(JSON.parse(inspected.stderr).error, /^inspect\.animation: the frames are stills/);
 });
 
+test('the motion review refuses any animation on stills with the stills text: inspectMotion, inspect --motion and pixel_inspect', async t => {
+  // A pose source whose poses are stills: its metadata is a pose's, but there is still no animation to review.
+  const { recipe, metadata } = compilePoses({ ...stampRig(16, 2, 3), animations: {} }), poses = renderProject(recipe);
+  const review = /^motion\.animation: the frames are stills \("animations": \{\} in the recipe\), so there is no animation to review: /;
+  for (const [project, options] of [[renderProject(bar), { animation: 'default' }], [renderProject(bar), {}], [poses, { animation: 'default', metadata }], [poses, { animation: 'walk', metadata }]]) {
+    assert.throws(() => inspectMotion(project, options), error => error instanceof PixelError && error.path === 'motion.animation' && review.test(error.message), JSON.stringify(options.animation));
+  }
+  const dir = await temp(t), file = path.join(dir, 'stamp.poses.json');
+  await writeFile(file, JSON.stringify({ ...stampRig(16, 2, 3), animations: {} }));
+  const inspected = cli('inspect', file, '--motion', 'default');
+  assert.equal(inspected.status, 1); assert.match(JSON.parse(inspected.stderr).error, review);
+  const call = await session(t, dir, 'pixel_inspect');
+  for (const args of [{ project: bar, view: 'motion', animation: 'default' }, { project: bar, view: 'motion' }]) {
+    const { isError, info } = await call(args);
+    assert.equal(isError, true); assert.match(info.error, review);
+  }
+});
+
 test('the check on stills offers no loop, and expect.gifScale is a problem with the stills text', () => {
   const plain = checkDelivery(renderProject(bar), { recipe: bar });
   assert.equal(plain.hint, 'Pass expect with what the user asked for (width, height, frames, colors, transparent, sheet) to check every file against it.');
@@ -124,14 +143,43 @@ test('an autotile set with "animations": {} delivers tiles, and the README of a 
     const delivered = checkDelivery(renderProject(recipe), { recipe }).delivered;
     assert.deepEqual([delivered.tiles, delivered.stills, delivered.animations], [meadow.frames.length, undefined, undefined]);
   }
-  for (const recipe of [{ ...tiles, animations: {} }]) {
-    const delivered = checkDelivery(renderProject(recipe), { recipe }).delivered;
-    assert.deepEqual([delivered.tiles, delivered.stills, delivered.animations], [undefined, 2, undefined]);
-  }
   const readme = async recipe => (await createBundle(recipe)).files.get('README.txt').toString();
   assert.match(await readme(tiles), /^floor\.png: opaque RGBA tile sheet$/m);
   assert.match(await readme({ ...tiles, animations: {} }), /^floor\.png: opaque RGBA tile sheet$/m);
   assert.match(await readme({ ...tiles, sheet: { padding: 1 } }), /^floor\.png: transparent RGBA tile sheet$/m);
+});
+
+test('a still tile set of tile fields delivers tiles whether animations is left out or {}, as the export decides, and a loop asked of it is a problem', () => {
+  for (const [recipe, got] of [[tiles, 'tiles'], [{ ...tiles, animations: {} }, 'stills']]) {
+    const project = renderProject(recipe), check = checkDelivery(project, { recipe });
+    assert.deepEqual([check.delivered.tiles, check.delivered.stills, check.delivered.animations], [2, undefined, undefined], got);
+    assert.equal(check.hint, 'Pass expect with what the user asked for (width, height, frames, colors, transparent, sheet) to check every file against it.');
+    for (const loop of [true, false]) {
+      const asked = checkDelivery(project, { recipe, expect: { loop } });
+      assert.equal(asked.ok, false);
+      assert.deepEqual(asked.problems.map(problem => [problem.file, problem.asked, problem.got]), [['animations/', loop ? 'a loop' : 'one play', got]]);
+      assert.match(asked.problems[0].fix, got === 'tiles' ? /^the frames are tiles \(a tile set whose recipe names no animations\), so there is no animation to (loop|play): list the frames to play under "animations"/ : /^the frames are stills \("animations": \{\} in the recipe\), so there is no animation to (loop|play): /);
+    }
+    // Tiles are counted as frames.
+    assert.equal(checkDelivery(project, { recipe, expect: { frames: 2 } }).ok, true);
+    assert.deepEqual(checkDelivery(project, { recipe, expect: { frames: { default: 2 } } }).problems.map(problem => problem.got), [`2 ${got}`]);
+  }
+  // A tile set that names an animation plays it, and a loop asked of it is checked.
+  const named = { ...tiles, animations: { sway: { frames: ['grass', 'dirt'] } } }, project = renderProject(named);
+  assert.deepEqual(Object.keys(checkDelivery(project, { recipe: named }).delivered.animations), ['sway']);
+  assert.equal(checkDelivery(project, { recipe: named, expect: { loop: true } }).ok, true);
+});
+
+test('pixel_render counts no animations folder when the bundle exports still', async t => {
+  const dir = await temp(t), render = await session(t, dir);
+  for (const [recipe, still] of [[bar, true], [tiles, true], [{ ...tiles, animations: {} }, true], [{ ...bar, animations: undefined }, false]]) {
+    assert.equal((await createBundle(recipe)).still, still);
+    const { isError, info } = await render({ project: recipe });
+    assert.equal(isError, false, JSON.stringify(info));
+    assert.deepEqual(info.folders, still ? { frames: recipe.frames.length } : { frames: recipe.frames.length, animations: 1 });
+  }
+  assert.deepEqual(outputSummary(dir, [path.join(dir, 'frames', 'a.png')], false, true).folders, { frames: 1 });
+  assert.deepEqual(outputSummary(dir, [path.join(dir, 'frames', 'a.png')], false).folders, { frames: 1, animations: 0 });
 });
 
 test('every exported atlas of stills or a still tile set lists frames alone: createBundle, exportAtlas and the playground', async () => {
@@ -154,15 +202,15 @@ test('every exported atlas of stills or a still tile set lists frames alone: cre
   assert.equal(engine.core.exportAtlas, exportAtlas);
 });
 
-// An MCP session whose export directory is <project>/output.
-async function session(t, project) {
+// An MCP session whose export directory is <project>/output, calling `tool`.
+async function session(t, project, tool = 'pixel_render') {
   const input = new PassThrough(), output = new PassThrough(), waiting = new Map(); let buffer = '', next = 0;
   output.on('data', chunk => { buffer += chunk; for (let end; (end = buffer.indexOf('\n')) !== -1; buffer = buffer.slice(end + 1)) { const message = JSON.parse(buffer.slice(0, end)); waiting.get(message.id)?.(message); } });
   const running = startMCP({ input, output, directory: path.join(project, 'output'), root: project });
   t.after(async () => { input.end(); await running; });
   const request = (method, params) => new Promise(resolve => { waiting.set(++next, resolve); input.write(JSON.stringify({ jsonrpc: '2.0', id: next, method, params }) + '\n'); });
   await request('initialize', { protocolVersion: '2025-11-25' });
-  return async args => { const { result } = await request('tools/call', { name: 'pixel_render', arguments: args }); return { isError: result.isError === true, info: JSON.parse(result.content[0].text) }; };
+  return async args => { const { result } = await request('tools/call', { name: tool, arguments: args }); return { isError: result.isError === true, info: JSON.parse(result.content[0].text) }; };
 }
 
 test('pixel_render on stills refuses an animation and saveAs aliases stills cannot have, pointing at sheet, atlas or a frame', async t => {

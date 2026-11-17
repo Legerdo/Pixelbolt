@@ -33,6 +33,8 @@ let elapsed = 0, lastTime = 0, zoom = 12, dirty = false, valid = false, compileT
 // (typing, a sample, GIF, Frames) calls showExport, so it can neither turn the button on nor lose its label mid-export.
 let exporting = false;
 const exportLabel = [...$('export').childNodes];
+// What GIF, Frames and Motion say when the frames play: stills replace it with why each is off.
+const buttonTitles = Object.fromEntries(['gif', 'frames', 'motion-view'].map(id => [id, $(id).title]));
 function showExport() {
   const button = $('export');
   button.disabled = exporting || !valid;
@@ -192,10 +194,18 @@ function compile() {
     fitZoom(nextProject);
     spec = compiled.recipe; poseMetadata = compiled.metadata?.format === 'pixelforge-pose-metadata' ? compiled.metadata : null; project = nextProject; atlas = nextAtlas;
     motionReview = null; ownedProject = null; partsView = null;
-    $('motion-view').disabled = !poseMetadata; $('contacts').disabled = !poseMetadata;
+    // Stills ("animations": {}) keep their flipbook to step through, but have no animation to pick, make a GIF of,
+    // export as frames or review for motion: the picker is hidden, and those are off, each saying why.
+    const stills = project.stills === true, reviewable = Boolean(poseMetadata) && !stills;
+    $('animation').hidden = stills; $('animation-label').hidden = stills;
+    for (const [id, what] of [['gif', 'make a GIF of'], ['frames', 'export as frames'], ['motion-view', 'review for motion']]) {
+      $(id).title = stills ? `The frames are stills ("animations": {}), so there is no animation to ${what}.` : buttonTitles[id];
+      if (id !== 'motion-view') $(id).disabled = stills;
+    }
+    $('motion-view').disabled = !reviewable; $('contacts').disabled = !poseMetadata;
     $('motion-tools').hidden = !poseMetadata;
     $('motion-ground').value = poseMetadata?.rig?.ground ?? '';
-    if (!poseMetadata && mode === 'motion') mode = 'animation';
+    if (!reviewable && mode === 'motion') mode = 'animation';
     frameImages = project.frames.map(f => imageCanvas(f.data, project.width, project.height));
     $('project-name').textContent = title(project.name);
     $('dimensions').textContent = `${project.width} × ${project.height} px`;
