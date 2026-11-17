@@ -8,7 +8,7 @@
 // between `behind` particles and the rest. An effect's `shine` is the light of what it draws in its brightest colours
 // (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels.
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
-import { PixelError, parseColor, renderProject, FRAME_AREA, joinErrors, fail, isObject, sameWidth } from './core.js';
+import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_PIXELS, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
 import { patternProblem, ditherThreshold, traceLine, random, hash, sinDeg, cosDeg, ease, EASINGS, rotateRows } from './craft.js';
 import { readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker, paletteKey } from './shapes.js';
@@ -27,6 +27,9 @@ const SALT = { x: 1, y: 2, angle: 3, speed: 4, life: 5, variant: 6, remap: 7, ph
 export const SPRITE_PIXELS = ['all', 'edge', 'outline'];
 const clear = char => char === '.' || char === ' ';
 const LIMITS = { effects: 64, emitters: 16, spawned: 4096, alive: 1024, operations: 20000 };
+// A particle's own symbol (text rows) stays at most 256 a side: it is stamped for every particle drawn, so it is not
+// the canvas. A sprite taken from a recipe spans that recipe's canvas, so it follows the frame (CANVAS_SIDE, FRAME_PIXELS).
+const SYMBOL_SIDE = 256;
 // The most visible width plus height a spinning particle's symbol may have, so its 45° turns fit a recipe symbol.
 const SPIN_SPAN = 360;
 // When a child emitter spawns: where a parent particle ends, where it first lands on its floor, or every frame it lives.
@@ -185,7 +188,7 @@ function readEmitter(emitter, path, context, earlier) {
     fields(emitter.ring, ['radius', 'arc', 'even', 'outward', 'squash', 'grow', 'fill'], `${path}.ring`);
     const arc = emitter.ring.arc === undefined ? [0, 360] : pair(emitter.ring.arc, `${path}.ring.arc`, -3600, 3600);
     if (arc[1] < arc[0] || arc[1] - arc[0] > 360) fail(`${path}.ring.arc`, 'expected [from, to] in degrees clockwise (0 right, 90 down), from no more than to and at most 360 apart');
-    ring = { radius: range(emitter.ring.radius, `${path}.ring.radius`, 0, 256), arc, even: flag(emitter.ring.even, `${path}.ring.even`), outward: flag(emitter.ring.outward, `${path}.ring.outward`),
+    ring = { radius: range(emitter.ring.radius, `${path}.ring.radius`, 0, CANVAS_SIDE), arc, even: flag(emitter.ring.even, `${path}.ring.even`), outward: flag(emitter.ring.outward, `${path}.ring.outward`),
       // squash lays the ring on the ground as a ring layer's squash does: sparks rise from a magic circle's ellipse.
       squash: emitter.ring.squash === undefined ? null : pair(emitter.ring.squash, `${path}.ring.squash`, 0.125, 8),
       // fill picks the distance in a radius range evenly by area, so a disc of motes isn't crowded at its middle.
@@ -301,7 +304,8 @@ function readEmitter(emitter, path, context, earlier) {
   if (problem) fail(`${path}.pattern${problem[0]}`, problem[1]);
   if (emitter.pattern !== undefined && emitter.dissolve === undefined) fail(`${path}.pattern`, 'pattern shapes the dissolve; set dissolve too');
   const area = emitter.area === undefined ? [1, 1] : point(emitter.area, `${path}.area`);
-  if (area.some(n => n < 1 || n > 256)) fail(`${path}.area`, 'expected a spawn box from 1 to 256 pixels per side');
+  // Up to twice the canvas side, so a box may start above the screen and cover all of it (rain over a 1024-wide frame).
+  if (area.some(n => n < 1 || n > 2 * CANVAS_SIDE)) fail(`${path}.area`, `expected a spawn box from 1 to ${2 * CANVAS_SIDE} pixels per side`);
   return {
     name: emitter.name, at, area, ring, line, start, end, variants, face, play, life, remaps, tint, trail, attract, sway, turbulence, route, spin, sweep, throttle, ease: easing, parent, when, cue, blob, sprite, release, pixel, drawOnly, depth,
     directions: face ? variants.map((_, k) => [cosDeg(360 * k / variants.length), sinDeg(360 * k / variants.length)]) : null,
@@ -316,7 +320,7 @@ function readEmitter(emitter, path, context, earlier) {
     floor: emitter.floor === undefined ? null : integer(emitter.floor, `${path}.floor`, -4096, 4096),
     // ground: a floor that many pixels below where each particle was born, so particles thrown up from a ring laid on the
     // ground land back on their own patch of it.
-    ground: emitter.ground === undefined ? null : number(emitter.ground, `${path}.ground`, -256, 256),
+    ground: emitter.ground === undefined ? null : number(emitter.ground, `${path}.ground`, -CANVAS_SIDE, CANVAS_SIDE),
     // kick: a velocity [x, y] added to every launch, whatever its angle: outward shards on a ring laid on the ground pop
     // up as they fly out. It turns with a turned copy, as launch angles do.
     kick: emitter.kick === undefined ? null : pair(emitter.kick, `${path}.kick`, -64, 64),
@@ -869,7 +873,7 @@ export function recipeSprite(entry, palette, path) {
   if (!isObject(entry)) fail(path, 'expected rows, or { recipe, frame } or { recipe, animation }: a frame or an animation of a recipe or a pose, fluid or wave source');
   fields(entry, ['recipe', 'frame', 'animation'], path);
   const source = loadSource(entry.recipe, `${path}.recipe`), { project } = source;
-  if (project.height > 256) fail(`${path}.recipe`, `its canvas is ${project.width}×${project.height}; a symbol has at most 256 rows`);
+  if (project.width > CANVAS_SIDE || project.height > CANVAS_SIDE || project.width * project.height > FRAME_PIXELS) fail(`${path}.recipe`, `its canvas is ${project.width}×${project.height}; a symbol or sprite taken from a recipe is at most ${CANVAS_SIDE} pixels a side and 262,144 pixels, as an animation frame is`);
   const ownKey = new Map();
   for (const [key, value] of Object.entries(project.palette)) if (key.length === 1) { const id = parseColor(value, project.palette).join(); if (!ownKey.has(id)) ownKey.set(id, key); }
   const keyOf = new Map();
@@ -1009,7 +1013,10 @@ export function compileEffects(source, { stats = false } = {}) {
   if (source.palette !== undefined && !isObject(source.palette)) fail('fx.palette', 'expected a palette object');
   // Symbols taken from a recipe's frame add the colours they use, so the palette and symbols are the effect's own copies.
   const palette = { ...source.palette };
-  const width = integer(source.width, 'fx.width', 1, 256), height = integer(source.height, 'fx.height', 1, 256);
+  // The canvas is an animation frame's: at most CANVAS_SIDE a side and FRAME_PIXELS in all, a full screen of 320×180 or
+  // 640×360 included. The frames' total is checked before anything is simulated (budget, below).
+  const width = integer(source.width, 'fx.width', 1, CANVAS_SIDE), height = integer(source.height, 'fx.height', 1, CANVAS_SIDE);
+  if (width * height > FRAME_PIXELS) fail('fx', `a ${width}×${height} canvas is ${(width * height).toLocaleString('en-US')} pixels; an effect's frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale`);
   if (source.symbols !== undefined && (!isObject(source.symbols) || !Object.keys(source.symbols).length)) fail('fx.symbols', 'expected named symbols for the particles to draw');
   // An animation's frames are a sequence for sprites and auras, never stamped, so they stay out of the recipe's symbols.
   const symbols = { ...source.symbols }, sequences = {}, spun = new Map();
@@ -1020,8 +1027,9 @@ export function compileEffects(source, { stats = false } = {}) {
       if (sprite.frames) { sequences[name] = sprite.frames; delete symbols[name]; } else symbols[name] = sprite.rows;
       continue;
     }
-    if (!Array.isArray(rows) || !rows.length || rows.length > 256 || typeof rows[0] !== 'string' || !rows[0].length || rows.some(row => typeof row !== 'string')) fail(`fx.symbols.${name}`, 'expected 1–256 equal-width text rows, or { recipe, frame } or { recipe, animation }: a frame or an animation of a recipe or pose source');
+    if (!Array.isArray(rows) || !rows.length || rows.length > SYMBOL_SIDE || typeof rows[0] !== 'string' || !rows[0].length || rows.some(row => typeof row !== 'string')) fail(`fx.symbols.${name}`, 'expected 1–256 equal-width text rows, or { recipe, frame } or { recipe, animation }: a frame or an animation of a recipe or pose source');
     sameWidth(rows, `fx.symbols.${name}`);
+    if (rows[0].length > SYMBOL_SIDE) fail(`fx.symbols.${name}`, `its rows are ${rows[0].length} characters; a particle's symbol is at most 256 a side (a sprite taken from a recipe may span the canvas)`);
     // Every character is a palette key or a clear one ('.' or a space), checked here so the error names the fx source.
     rows.forEach((row, j) => { for (const char of row) if (char !== '.' && char !== ' ' && !Object.hasOwn(palette, char)) fail(`fx.symbols.${name}[${j}]`, `unknown palette character ${JSON.stringify(char)}; the palette has ${Object.keys(palette).join(' ')}, and . or a space is clear`); });
   }
@@ -1061,7 +1069,8 @@ export function compileEffects(source, { stats = false } = {}) {
       const budget = added => {
         totalFrames += added;
         if (totalFrames > 256) fail('fx.effects', `the effects make ${totalFrames} frames; a recipe holds at most 256`);
-        if (totalFrames * width * height > FRAME_AREA) fail('fx.effects', `the effects make ${totalFrames} frames of ${width}×${height}, more than the 4,194,304 pixels a recipe's frames share; use fewer frames or a smaller canvas`);
+        const tooMany = frameTotalProblem(totalFrames, width, height);
+        if (tooMany) fail('fx.effects', tooMany);
       };
       budget(count);
       if (typeof loop !== 'boolean') fail(`${path}.loop`, 'expected a boolean');
