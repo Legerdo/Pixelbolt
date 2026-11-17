@@ -131,6 +131,17 @@ function collisionPolygon(polygon, where, width, height) {
   if (!points.reduce((sum, [x, y], i) => sum + x * points[(i + 1) % n][1] - points[(i + 1) % n][0] * y, 0)) fail(where, 'the points enclose no area');
   return points;
 }
+// A palette override (a frame's, a layer's, a pose's): keys of `palette` to colours or palette names, read as exact
+// hex colours. `rule` is said at a key the palette doesn't declare.
+export function paletteOverride(value, palette, path, rule) {
+  object(value, path);
+  const overrides = {};
+  for (const [key, colour] of Object.entries(value)) {
+    if (!own(palette, key)) fail(`${path}.${key}`, rule);
+    overrides[key] = toHex(parseColor(colour, palette, `${path}.${key}`));
+  }
+  return overrides;
+}
 export function parseColor(value, palette = {}, path = 'color') {
   if (typeof value !== 'string') fail(path, 'expected a palette name or hex color');
   if (own(palette, value)) value = palette[value];
@@ -769,12 +780,7 @@ export function renderProject(spec, options = {}) {
     const duration = integer(frame.duration ?? 100, `${p}.duration`, 1, 60000);
     let overrides = null;
     if (frame.palette !== undefined) {
-      object(frame.palette, `${p}.palette`);
-      overrides = {};
-      for (const [key, value] of Object.entries(frame.palette)) {
-        if (!own(palette, key)) fail(`${p}.palette.${key}`, 'frame palettes recolor keys declared in the project palette');
-        overrides[key] = toHex(parseColor(value, palette, `${p}.palette.${key}`));
-      }
+      overrides = paletteOverride(frame.palette, palette, `${p}.palette`, 'frame palettes recolor keys declared in the project palette');
     }
     activePalette = overrides ? { ...palette, ...overrides } : palette;
     if (overrides && Object.keys(overrides).length && ![frame.ops, frame.layers, frame.pixels].some(list => Array.isArray(list) && list.length)) idlePalettes.push([frameName, typeof frame.from === 'string' ? frame.from : undefined]);
@@ -838,12 +844,7 @@ export function renderProject(spec, options = {}) {
       // flash or cycle while other drawing that shares the key keeps its colour.
       let layerOverrides = null;
       if (layer.palette !== undefined) {
-        object(layer.palette, `${lp}.palette`);
-        layerOverrides = {};
-        for (const [key, value] of Object.entries(layer.palette)) {
-          if (!own(palette, key)) fail(`${lp}.palette.${key}`, 'layer palettes recolor keys declared in the project palette');
-          layerOverrides[key] = toHex(parseColor(value, palette, `${lp}.palette.${key}`));
-        }
+        layerOverrides = paletteOverride(layer.palette, palette, `${lp}.palette`, 'layer palettes recolor keys declared in the project palette');
         layerPalettes.push({ layer: layer.name ?? li, palette: layerOverrides });
       }
       activePalette = layerOverrides ? { ...framePalette, ...layerOverrides } : framePalette;
@@ -921,29 +922,38 @@ export function renderProject(spec, options = {}) {
 
 // Compiler-only validation/timing for the stamp subset emitted by compilePoses. It shares header, animation and
 // atlas validation with the renderer, but never allocates or composites a canvas. A stamp cannot erase, so visible
-// symbol bounds suffice to compute the trimmed atlas, including flips and canvas clipping. Frames drawn the same way
-// share a cell here; the renderer compares pixels, so it also shares frames that only come out the same.
+// symbol bounds suffice to compute the trimmed atlas, including flips and canvas clipping. Frames drawn the same way,
+// recolouring the same drawn keys, share a cell here; the renderer compares pixels, so it also shares frames that only
+// come out the same: this sheet is an upper bound on the renderer's, not a copy of it.
 export function describeStampRecipe(spec) {
   const { width, height, palette, symbols } = readProject(spec, { stills: false });
   if (spec.background !== undefined) fail('project.background', 'compiler stamp recipes omit the background');
-  const frameNames = new Set(), boundsBySymbol = new Map(), boxes = [];
+  const frameNames = new Set(), boundsBySymbol = new Map(), keysBySymbol = new Map(), boxes = [];
   let work = 0, operations = 0;
   const spend = amount => { work += amount; if (work > 67108864) fail('project', 'drawing work exceeds the 67-million-pixel budget; simplify repeated operations'); };
-  const alpha = new Map(Object.keys(palette).map(key => [key, parseColor(key, palette)[3]]));
-  const symbolBounds = symbol => {
-    if (!boundsBySymbol.has(symbol)) {
+  const base = new Map(Object.keys(palette).map(key => [key, parseColor(key, palette)[3]]));
+  // A frame palette (a posed figure's hit flash) may make a key transparent or opaque; bounds are cached for the
+  // project palette's alphas only.
+  const symbolBounds = (symbol, alpha) => {
+    if (alpha !== base || !boundsBySymbol.has(symbol)) {
       const grid = symbols[symbol], bounds = [grid.width, grid.height, -1, -1];
       for (let y = 0; y < grid.height; y++) for (let x = 0; x < grid.width; x++) if (alpha.get(grid.rows[y][x])) {
         bounds[0] = Math.min(bounds[0], x); bounds[1] = Math.min(bounds[1], y);
         bounds[2] = Math.max(bounds[2], x); bounds[3] = Math.max(bounds[3], y);
       }
+      if (alpha !== base) return bounds;
       boundsBySymbol.set(symbol, bounds);
     }
     return boundsBySymbol.get(symbol);
   };
+  // The palette keys a symbol's rows use: a frame palette changes a frame's picture only where it recolours one.
+  const symbolKeys = symbol => {
+    if (!keysBySymbol.has(symbol)) keysBySymbol.set(symbol, new Set(symbols[symbol].rows.join('')));
+    return keysBySymbol.get(symbol);
+  };
   const frames = spec.frames.map((frame, index) => {
     const p = `project.frames[${index}]`;
-    object(frame, p, ['name', 'duration', 'anchor', 'points', 'layers', 'pixels']);
+    object(frame, p, ['name', 'duration', 'palette', 'anchor', 'points', 'layers', 'pixels']);
     const frameName = name(frame.name, `${p}.name`);
     if (frameNames.has(frameName.toLowerCase())) fail(`${p}.name`, `duplicate frame ${frameName}; names must also be unique ignoring case`);
     frameNames.add(frameName.toLowerCase());
@@ -954,7 +964,10 @@ export function describeStampRecipe(spec) {
       if (Object.keys(frame.points).length > 64) fail(`${p}.points`, 'at most 64 named points per frame');
       for (const [key, value] of Object.entries(frame.points)) { name(key, `${p}.points.${key}`); point(value, `${p}.points.${key}`); }
     }
+    const overrides = frame.palette === undefined ? null : paletteOverride(frame.palette, palette, `${p}.palette`, 'frame palettes recolor keys declared in the project palette');
+    const alpha = overrides && Object.entries(overrides).some(([key, hex]) => parseColor(hex)[3] !== base.get(key)) ? new Map([...base, ...Object.entries(overrides).map(([key, hex]) => [key, parseColor(hex)[3]])]) : base;
     let left = width, top = height, right = -1, bottom = -1;
+    const drawn = new Set();
     list(frame.layers ?? [], `${p}.layers`, 64);
     for (const [li, layer] of (frame.layers ?? []).entries()) {
       const lp = `${p}.layers[${li}]`;
@@ -966,8 +979,9 @@ export function describeStampRecipe(spec) {
       object(op, at, ['op', 'symbol', 'x', 'y', 'flipX']);
       if (op.op !== 'stamp' || typeof op.symbol !== 'string' || !own(symbols, op.symbol)) fail(`${at}.symbol`, 'expected a known compiler stamp');
       const x = integer(op.x ?? 0, `${at}.x`), y = integer(op.y ?? 0, `${at}.y`);
-      const flip = boolean(op.flipX ?? false, `${at}.flipX`), grid = symbols[op.symbol], box = symbolBounds(op.symbol);
+      const flip = boolean(op.flipX ?? false, `${at}.flipX`), grid = symbols[op.symbol], box = symbolBounds(op.symbol, alpha);
       spend(grid.width * grid.height);
+      for (const key of symbolKeys(op.symbol)) drawn.add(key);
       if (box[2] < 0) continue;
       let x0 = x + (flip ? grid.width - 1 - box[2] : box[0]), x1 = x + (flip ? grid.width - 1 - box[0] : box[2]);
       let y0 = y + box[1], y1 = y + box[3];
@@ -995,13 +1009,17 @@ export function describeStampRecipe(spec) {
       object(pixel, pp, ['x', 'y', 'color']);
       const x = integer(pixel.x, `${pp}.x`, 0, width - 1), y = integer(pixel.y, `${pp}.y`, 0, height - 1);
       if (typeof pixel.color !== 'string' || !alpha.has(pixel.color)) fail(`${pp}.color`, 'expected a palette key');
+      drawn.add(pixel.color);
       if (!alpha.get(pixel.color)) continue;
       left = Math.min(left, x); right = Math.max(right, x);
       top = Math.min(top, y); bottom = Math.max(bottom, y);
     }
-    // Frames drawn by the same stamps and corrections are one picture, and share a cell as the renderer's do.
+    // Frames drawn by the same stamps and corrections, recolouring the same drawn keys the same way, are one picture
+    // and share a cell, as the renderer's do. A palette entry that keeps its key's colour, or recolours a key the frame
+    // never stamps, changes nothing drawn.
+    const recoloured = overrides && Object.entries(overrides).filter(([key, hex]) => drawn.has(key) && toHex(parseColor(key, palette)) !== hex).sort(([a], [b]) => a < b ? -1 : 1);
     boxes.push(right < 0 ? { index, sx: 0, sy: 0, w: 1, h: 1, empty: true, key: 'empty' }
-      : { index, sx: left, sy: top, w: right - left + 1, h: bottom - top + 1, key: JSON.stringify([frame.layers ?? [], frame.pixels ?? []]) });
+      : { index, sx: left, sy: top, w: right - left + 1, h: bottom - top + 1, key: JSON.stringify([frame.layers ?? [], frame.pixels ?? [], recoloured?.length ? recoloured : null]) });
     return { name: frameName, duration };
   });
   const animations = readAnimations(spec, frames);

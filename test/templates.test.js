@@ -361,6 +361,35 @@ test('an arm left out of rig.arms holds what it carries: the shield of the knigh
   assert.ok(boxes.every(([left]) => Math.abs(left - boxes[0][0]) <= 1), JSON.stringify(boxes));
 });
 
+test('a motion palette recolours every pose the motion makes: the knight flashes when hurt, and other motions keep the rest pose palette', async () => {
+  const source = JSON.parse(await readFile(new URL('../examples/knight.poses.json', import.meta.url), 'utf8'));
+  const white = Object.fromEntries(['A', 'B', 'C', 'r', 's', 't', 'g', 'G', 'c', 'w'].map(key => [key, '#fff']));
+  source.motions.hurt.palette = white;
+  const { recipe } = compilePoses(source), project = renderProject(recipe), named = name => recipe.frames.find(frame => frame.name === name);
+  assert.deepEqual([named('hurt-recoil').palette, named('hurt-recover').palette, named('walk-contact-a').palette], [white, white, undefined]);
+  // Drawn: every pixel of the flash is the outline, white or the lightest steel and gold the map leaves alone.
+  const kept = new Set(['#1b1724', '#ffffff', '#e6ebf5', '#f6dc7a']), hex = (d, p) => '#' + [0, 1, 2].map(c => d[p + c].toString(16).padStart(2, '0')).join('');
+  const { data } = project.frames[recipe.frames.indexOf(named('hurt-recoil'))], seen = new Set();
+  for (let p = 0; p < data.length; p += 4) if (data[p + 3]) seen.add(hex(data, p));
+  assert.ok([...seen].every(colour => kept.has(colour)) && seen.has('#ffffff'), [...seen].join(' '));
+  // A rest pose's palette is carried into the poses the templates make from it, unless the motion gives its own.
+  const tinted = structuredClone(source); tinted.poses[0].palette = { s: '#3050a0' };
+  const again = compilePoses(tinted).recipe, of = name => again.frames.find(frame => frame.name === name).palette;
+  assert.deepEqual([of('walk-contact-a'), of('hurt-recoil')], [{ s: '#3050a0' }, white]);
+  // An empty motion palette is none, as an empty pose palette is: it clears the rest pose's.
+  tinted.motions.hurt.palette = {};
+  const cleared = compilePoses(tinted).recipe, clearedOf = name => cleared.frames.find(frame => frame.name === name).palette;
+  assert.deepEqual([clearedOf('walk-contact-a'), clearedOf('hurt-recoil'), clearedOf('hurt-recover')], [{ s: '#3050a0' }, undefined, undefined]);
+  // A one-frame flash: an authored pose with the generated name hurt-recoil replaces that pose, and only it flashes.
+  const once = structuredClone(source); delete once.motions.hurt.palette;
+  once.poses.push({ ...structuredClone(once.poses[0]), name: 'hurt-recoil', palette: white });
+  const flashed = compilePoses(once).recipe, flashedOf = name => flashed.frames.find(frame => frame.name === name).palette;
+  assert.deepEqual([flashedOf('hurt-recoil'), flashedOf('hurt-recover')], [white, undefined]);
+  assert.deepEqual(flashed.animations.hurt.frames, ['hurt-recoil', 'hurt-recover']);
+  source.motions.hurt.palette = { Q: '#fff' };
+  assert.throws(() => compilePoses(source), { message: /^poses\.motions\.hurt\.palette\.Q: a motion palette recolours keys declared in poses\.palette/ });
+});
+
 test('an attachment to a missing point or instance says what the pose has and how to add the point', async () => {
   // The hero with a bow hung from `attach`: the mistake a first character makes.
   const text = await readFile(new URL('../examples/hero.poses.json', import.meta.url), 'utf8');

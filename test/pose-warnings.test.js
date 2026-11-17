@@ -82,7 +82,7 @@ const withBodyAt = at => { const source = structuredClone(hero); source.poses[0]
 test('a rig placed off the canvas gets one warning for the rest pose and one per leg, at paths the author wrote', () => {
   const { warnings, metadata } = compilePoses(withBodyAt([16, 22]));
   assert.deepEqual(warnings, [
-    'poses.poses[0]: Pose "stand" draws nothing inside the 32x36 canvas: all 479 of its pixels fall outside (its parts cover x 24 to 35, y 42 to 69). A part without attach stands at the pose origin [15, 35] plus its at. The motion templates move this pose, so the poses they make fall outside too.',
+    'poses.poses[0]: Pose "stand" draws nothing inside the 32x36 canvas: all 479 of its pixels fall outside (its parts cover x 24 to 35, y 42 to 69). A part without attach stands at the pose origin [15, 35] plus its at. Moving the origin by [-4, -34], to [11, 1], brings it all inside. The motion templates move this pose, so the poses they make fall outside too.',
     'poses.rig.legs[1] (farShin): Motion templates aim the feet at rig.ground (row 33), but in the rest pose "stand" this leg ends at row 68, so its target is out of reach in 35 generated poses (idle, walk, run, jump, attack, hurt) by 9.055 to 19.026 px and the chain uses its closest straight pose. Move the body or the pose origin until the leg ends near row 33, or set rig.ground to match.',
     'poses.rig.legs[0] (nearShin): Motion templates aim the feet at rig.ground (row 33), but in the rest pose "stand" this leg ends at row 68, so its target is out of reach in 35 generated poses (idle, walk, run, jump, attack, hurt) by 9 to 19.026 px and the chain uses its closest straight pose. Move the body or the pose origin until the leg ends near row 33, or set rig.ground to match.'
   ]);
@@ -100,13 +100,29 @@ test('a motion that asks more than the legs reach is named once per leg, and an 
   // An authored pose that replaces a generated one moves to the end when the motions expand; its path is still
   // where it was written.
   const replaced = structuredClone(hero); replaced.poses.push({ ...structuredClone(hero.poses[0]), name: 'hurt-recoil', origin: [15, 70] });
-  assert.deepEqual(compilePoses(replaced).warnings, ['poses.poses[1]: Pose "hurt-recoil" draws nothing inside the 32x36 canvas: all 479 of its pixels fall outside (its parts cover x 8 to 19, y 42 to 69). A part without attach stands at the pose origin [15, 70] plus its at.']);
+  assert.deepEqual(compilePoses(replaced).warnings, ['poses.poses[1]: Pose "hurt-recoil" draws nothing inside the 32x36 canvas: all 479 of its pixels fall outside (its parts cover x 8 to 19, y 42 to 69). A part without attach stands at the pose origin [15, 70] plus its at. Moving the origin by [0, -34], to [15, 36], brings it all inside.']);
 });
 
 test('a pose that draws partly outside the canvas is warned with the pixels it loses', () => {
   const source = { format: 'pixelforge-poses', version: 1, name: 'peek', width: 8, height: 8, palette: { k: '#123' },
     parts: { dot: { rows: ['kkk', 'kkk'], anchor: [0, 0] } }, poses: [{ name: 'edge', origin: [6, 0], parts: [{ name: 'dot', part: 'dot' }] }, { name: 'inside', origin: [0, 0], parts: [{ name: 'dot', part: 'dot' }] }] };
   const { warnings, metadata } = compilePoses(source);
-  assert.deepEqual(warnings, ['poses.poses[0]: Pose "edge" draws 2 of its 6 pixels outside the 8x8 canvas, where they are clipped (its parts cover x 6 to 8, y 0 to 1). A part without attach stands at the pose origin [6, 0] plus its at.']);
+  assert.deepEqual(warnings, ['poses.poses[0]: Pose "edge" draws 2 of its 6 pixels outside the 8x8 canvas, where they are clipped (its parts cover x 6 to 8, y 0 to 1). A part without attach stands at the pose origin [6, 0] plus its at. Moving the origin by [-1, 0], to [5, 0], brings it all inside.']);
   assert.deepEqual(metadata.warnings.map(({ path: at, outside, pixels }) => [at, outside, pixels]), [['poses.poses[0]', 2, 6]]);
+});
+
+test('the origin move a pose off the canvas is given only where the pose has its own origin and its parts fit', () => {
+  const source = poses => ({ format: 'pixelforge-poses', version: 1, name: 'peek', width: 8, height: 8, palette: { a: '#543', b: '#975', k: '#123' }, ramps: [['a', 'b']],
+    parts: { dot: { rows: ['kkk', 'kkk'], anchor: [0, 0] }, wide: { rows: ['kkkkkkkkk'], anchor: [0, 0] },
+      upper: { bone: { length: 3, width: [1, 1], ramp: 0, base: 1 }, points: { end: 'end' } }, lower: { bone: { length: 3, width: [1, 1], ramp: 0, base: 1 }, points: { end: 'end' } } }, poses });
+  const warned = poses => compilePoses(source(poses)).warnings.map(text => text.replace(/^.*plus its at\./, ''));
+  // Up and to the left, moved down and right; a mirror and a tween take their origins from other poses.
+  assert.deepEqual(warned([{ name: 'corner', origin: [-1, -1], parts: [{ name: 'dot', part: 'dot' }] }, { name: 'back', mirror: 'corner' }, { name: 'half', tween: { from: 'corner', to: 'corner', t: 0.5 } }]),
+    [' Moving the origin by [1, 1], to [0, 0], brings it all inside.', '', '']);
+  // Nine pixels never fit an eight-pixel canvas, so no move is offered.
+  assert.deepEqual(warned([{ name: 'long', origin: [0, 0], parts: [{ name: 'wide', part: 'wide' }] }]), ['']);
+  // A reach target is a canvas point, so it moves with the origin; moved as said, the arm is drawn inside.
+  const arm = (origin, reach) => [{ name: 'arm', origin, parts: [{ name: 'upper', part: 'upper', angle: 0 }, { name: 'lower', part: 'lower', attach: { part: 'upper', point: 'end' }, reach }] }];
+  assert.deepEqual(warned(arm([6, 2], [12, 2])), [' Moving the origin by [-5, 0], to [1, 2], and its reach targets with it, brings it all inside.']);
+  assert.equal(compilePoses(source(arm([1, 2], [7, 2]))).warnings, undefined);
 });
