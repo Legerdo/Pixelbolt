@@ -152,3 +152,98 @@ test('when the effects before one took the simulation\'s room, the reply names t
     even(followed.compiled);
   }
 });
+
+test('a release\'s children go with it: whenever a share of 0 compiles, a share is named and compiles', () => {
+  const still = (width, height) => ({ version: 1, name: 'still', width, height, palette: { d: '#9fb8d8' }, frames: [{ name: 'f0', ops: [{ op: 'rect', x: 0, y: 0, w: width, h: height, color: 'd' }] }] });
+  // An 89x38 sprite released at frames 12–17, a rate-60 drop emitter, and a burst of 3 where each released pixel's
+  // particle ends. Before: "no share of rel's release fits: the other emitters alone keep more than 1024 alive in
+  // frame 23 (emitters[2] 723, emitters[1] 410)", emitters[2] being the release's own children; shares 0 to 0.1 compiled.
+  const source = emitters => ({ format: 'pixelforge-fx', version: 1, name: 's', width: 200, height: 120, palette: { d: '#9fb8d8' }, symbols: { pic: { recipe: still(89, 38), frame: 'f0' }, drop: ['d'] },
+    effects: { e: { frames: 24, residue: true, edges: sides, emitters } } });
+  const rel = { name: 'rel', at: [0, 0], sprite: { symbol: 'pic' }, release: { sweep: 90, jitter: 0.065 }, start: 12, end: 17, life: [10, 16], speed: [0.5, 1.5], angle: [0, 360] };
+  const drops = { at: [100, 60], rate: 60, start: 16, end: 23, life: [7, 10], speed: [0.2, 0.8], angle: [0, 360], shapes: ['drop'] };
+  const children = { from: 'rel', when: 'death', burst: 3, angle: [0, 359], speed: [0.3, 1], life: [2, 6], shapes: ['drop'] };
+  const followed = follow(source([rel, drops, children]));
+  assert.match(followed.reply, /^fx\.effects\.e: more than 1024 particles are alive at once; emitters\[0\] releases every one of its sprite's 3,382 pixels: lower its release\.share \(about ([\d.]+) fits\) or use a smaller sprite$/);
+  assert.equal(followed.frames, 24);
+  // Releases with and without children, their rates and windows drawn from a seeded generator: where the source with a
+  // share of 0 compiles, the reply names a share, and the source with that share compiles.
+  let seed = 11, checked = 0;
+  const r = (a, b) => { seed = (seed * 1103515245 + 12345) % 2147483648; return a + (seed / 2147483648) * (b - a); }, ri = (a, b) => Math.floor(r(a, b + 1));
+  for (let k = 0; k < 24; k++) {
+    const frames = ri(8, 40), start = ri(0, Math.floor(frames / 2)), emitters = [{ ...rel, release: { sweep: [0, 45, 90][ri(0, 2)], jitter: r(0, 1) }, start, end: ri(start + 1, frames), life: [ri(2, 10), ri(10, 20)] }];
+    for (let j = ri(1, 2); j > 0; j--) { const s = ri(0, frames - 1); emitters.push({ ...drops, rate: ri(10, 80), start: s, end: ri(s + 1, frames), life: [ri(2, 8), ri(8, 20)] }); }
+    if (k % 2) emitters.push({ ...children, burst: ri(1, 3) });
+    const written = source(emitters);
+    written.effects.e.frames = frames;
+    let reply = null;
+    try { compileEffects(written); continue; } catch (error) { reply = error.message; }
+    const zero = structuredClone(written);
+    zero.effects.e.emitters[0].release.share = 0;
+    try { compileEffects(zero); } catch { continue; }
+    const share = reply.match(/release\.share \(about ([\d.]+) fits\)/);
+    assert.ok(share, `share 0 compiles, yet: ${reply}`);
+    const named = structuredClone(written);
+    named.effects.e.emitters[0].release.share = Number(share[1]);
+    assert.doesNotThrow(() => compileEffects(named), reply);
+    checked++;
+  }
+  assert.ok(checked >= 6, `${checked} releases checked`);
+});
+
+test('the proportional route past 256 frames is named only once the source compiles at its counts', () => {
+  const drop = (at, more) => ({ name: 'drop', at, area: [at[0] * 2, 1], angle: [80, 100], speed: [1, 4], shapes: ['drop'], ...more });
+  const burst = (at, count, start) => ({ at, burst: count, start, angle: [0, 359], speed: [0.5, 2], life: [3, 12], shapes: ['drop'] });
+  const trail = { color: 'l', length: 2 };
+  // 480x270: a 24-frame loop turned two ways, a 256-frame loop with a burst at frame 174 and a 48-frame loop with one at
+  // frame 36. Counts in proportion (17, 185 and 37) and frames 8 would cut e2 short of its burst: each loop is kept past
+  // its bursts and made a multiple of 8.
+  const wide = fx({ e0: { frames: 24, duration: 60, loop: true, seed: 50, turn: { angles: [0, 180] }, emitters: [drop([240, -4], { rate: 30, life: [4, 13] }), burst([240, 135], 10, 0)] },
+    e1: { frames: 256, duration: 60, loop: true, seed: 89, emitters: [drop([240, -4], { rate: 8, life: [4, 35] }), burst([240, 135], 400, 174)] },
+    e2: { frames: 48, duration: 60, loop: true, seed: 79, emitters: [drop([240, -4], { rate: 8, life: [4, 8], trail, floor: 266 }), burst([240, 135], 10, 36)] } }, 480, 270);
+  const followed = follow(wide);
+  assert.equal(followed.reply, 'fx.effects: the effects make 352 frames; a recipe holds at most 256, so 96 must go, and the others alone make 304 (e1 256, e2 48), leaving e0 none: e0 16, e1 184 and e2 40 of their own frames fit together; then frames 8 fits (pixelbolt compile --frames 8)');
+  assert.equal(followed.frames, 4 * 8);
+  even(followed.compiled);
+  // Where the counts can't hold, no route is named, only the effects, their frames and how many must go. 640x360: a
+  // burst at frame 197 keeps a loop drawn behind a character (three animations) past 256 frames on its own. Before:
+  // "e0 19, e1 70 and e2 6 of their own frames fit together; then frames 2 fits", a start out of range and a 2-frame
+  // thinning of a 70-frame loop.
+  const screen = fx({ e0: { frames: 65, duration: 60, seed: 56, residue: true, emitters: [drop([320, -4], { rate: 8, life: [4, 5] })] },
+    e1: { frames: 236, duration: 60, loop: true, seed: 64, emitters: [drop([320, -4], { rate: 16, life: [4, 32], trail, depth: 'back' }), burst([320, 180], 1000, 197)] },
+    e2: { frames: 24, duration: 60, loop: true, seed: 87, emitters: [drop([320, -4], { rate: 0.5, life: [4, 31], trail, depth: 'back', floor: 356 })] } }, 640, 360);
+  assert.throws(() => compileEffects(screen), { message: 'fx.effects: the effects make 845 frames (an effect drawn behind a character also makes its -back and -front parts); a recipe holds at most 256, so 589 must go, and the others alone make 780 (e1 236 × 3, e2 24 × 3), leaving e0 none' });
+  // A burst of 1000 at frame 23 passes the particles alive at once at any count. Before: "e0 49, e1 64 and e2 80 of their
+  // own frames fit together; then frames 16 fits", and following it gave two start errors and that refusal.
+  const crowded = fx({ e0: { frames: 121, duration: 60, seed: 95, residue: true, turn: { angles: [0, 180] }, emitters: [drop([80, -4], { rate: 4, life: [4, 7] }), burst([80, 45], 100, 114)] },
+    e1: { frames: 178, duration: 60, loop: true, seed: 58, emitters: [drop([80, -4], { rate: 0.5, life: [4, 25], floor: 86 }), burst([80, 45], 10, 93)] },
+    e2: { frames: 206, duration: 60, loop: true, seed: 26, emitters: [drop([80, -4], { rate: 30, life: [4, 40], trail, floor: 86 }), burst([80, 45], 1000, 23)] } }, 160, 90);
+  for (const given of [{ frames: 16 }, {}]) assert.throws(() => compileEffects(crowded, given), { message: 'fx.effects: the effects make 626 frames; a recipe holds at most 256, so 370 must go, and the others alone make 448 (e0 121 × 2, e2 206), leaving e1 none' });
+});
+
+test('where one loop\'s frames are prime, so no count divides every loop, the loop\'s own frames are named and compile', () => {
+  // 64x64: a 59-frame loop turned two ways and a 60-frame loop with a burst on its last frame, past the 20,000 drawing
+  // operations. Before: "lower burst, rate or trail" alone: every count tried first shortened the 60-frame loop short
+  // of its burst, and those field errors used up the trials.
+  const trail = { color: 'l', length: 2 };
+  const prime = fx({ e0: { frames: 59, duration: 60, loop: true, seed: 12, turn: { angles: [0, 180] }, emitters: [{ name: 'drop', at: [32, -4], area: [64, 1], rate: 0.5, angle: [80, 100], speed: [1, 4], life: [4, 9], shapes: ['drop'], trail }] },
+    e1: { frames: 60, duration: 60, loop: true, seed: 61, emitters: [{ name: 'drop', at: [32, -4], area: [64, 1], rate: 8, angle: [80, 100], speed: [1, 4], life: [4, 27], shapes: ['drop'], trail },
+      { at: [32, 32], burst: 400, start: 59, angle: [0, 359], speed: [0.5, 2], life: [3, 12], shapes: ['drop'] },
+      { from: 'drop', when: 'death', burst: 3, angle: [200, 340], speed: [0.6, 1.4], life: [3, 4], shapes: ['drop'] }] } }, 64, 64);
+  for (const given of [{ frames: 64 }, {}]) {
+    const followed = follow(prime, given);
+    assert.match(followed.reply, /^fx\.effects: the 178 frames .* need about 22,848 drawing operations .* so frames (\d+) fits \(pixelbolt compile --frames \1\) once e0's loop has \d+ frames/);
+    assert.equal(followed.source.effects.e0.frames % followed.options.frames, 0, followed.reply);
+    assert.equal(followed.source.effects.e1.frames % followed.options.frames, 0, followed.reply);
+    even(followed.compiled);
+  }
+  // 128x256: a 31-frame loop turned two ways, with its burst on its last frame. Before: "lower burst, rate or trail".
+  const thirtyOne = fx({ e0: { frames: 31, duration: 60, loop: true, seed: 49, turn: { angles: [0, 180] }, emitters: [{ name: 'drop', at: [64, -4], area: [128, 1], rate: 30, angle: [80, 100], speed: [1, 4], life: [4, 7], shapes: ['drop'], trail },
+    { at: [64, 128], burst: 100, start: 30, angle: [0, 359], speed: [0.5, 2], life: [3, 12], shapes: ['drop'] }] } }, 128, 256);
+  for (const given of [{ frames: 64 }, {}]) {
+    const followed = follow(thirtyOne, given);
+    assert.match(followed.reply, /so frames (\d+) fits \(pixelbolt compile --frames \1\) once the loop has \d+ frames/);
+    assert.ok(followed.source.effects.e0.frames > 31 && followed.source.effects.e0.frames % followed.options.frames === 0, followed.reply);
+    even(followed.compiled);
+  }
+});

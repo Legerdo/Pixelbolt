@@ -195,14 +195,17 @@ export function prepareScene(source) {
       if (!Number.isFinite(area)) fail(`scene.assets.${id}`, `its ${key} pass has invalid dimensions`);
       if (sourceArea + area > 4194304) {
         // What the assets before it use, the largest by name, and the asset to give fewer frames: the largest of all.
-        const n = value => value.toLocaleString('en-US'), before = [...used].sort((a, b) => b[1] - a[1]);
+        // An asset with a normal or emissive pass needs every pass's pixels, so its need is said for all of them.
+        const n = value => value.toLocaleString('en-US'), before = [...used].filter(([name]) => name !== id).sort((a, b) => b[1] - a[1]);
         const largest = [...whole].reduce((top, entry) => entry[1].all > top[1].all ? entry : top)[0];
-        const uses = !before.length ? '' : before.length === 1 ? `${before[0][0]} uses ${n(before[0][1])}, and ` : `the assets before it use ${n(sourceArea)} (${before.slice(0, 3).map(([name, pixels]) => `${name} ${n(pixels)}`).join(', ')}${before.length > 3 ? ', …' : ''}), and `;
+        const uses = !before.length ? '' : before.length === 1 ? `${before[0][0]} uses ${n(before[0][1])}, and ` : `the assets before it use ${n(sourceArea - (used.get(id) ?? 0))} (${before.slice(0, 3).map(([name, pixels]) => `${name} ${n(pixels)}`).join(', ')}${before.length > 3 ? ', …' : ''}), and `;
+        const more = ['normal', 'emissive'].filter(pass => entry[pass] !== undefined);
+        const needs = more.length ? `${id} needs ${n(whole.get(id).all)} with its ${more.join(' and ')} pass${more.length > 1 ? 'es' : ''}` : `${id} needs ${n(area)}`;
         // How many of its frames fit beside the whole rest of the scene (every pass of it counted per frame). Its own
         // frames are set where it is made: dropping some of them to that count plays unevenly.
         const { frame, all, count } = whole.get(largest), fit = Math.floor((4194304 - (sceneArea - all)) / frame);
         const fewer = fit >= 1 ? `${largest} fits with ${fit} frame${fit === 1 ? '' : 's'}, so make it with ${fit} (in its source, rather than thinning its ${count} frames unevenly) or give it a smaller canvas` : `give ${largest} a smaller canvas`;
-        fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${id}${key === 'recipe' ? '' : `'s ${key} pass`} needs ${n(area)}: ${fewer}`);
+        fail(`scene.assets.${id}`, `a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; ${uses}${needs}: ${fewer}`);
       }
       sourceArea += area; used.set(id, (used.get(id) ?? 0) + area);
       passes[key] = renderProject(spec);

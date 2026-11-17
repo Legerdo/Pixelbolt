@@ -10,8 +10,9 @@
 // reviews what it made and warns about what a game would show as a fault: a loop that jumps at its seam, a canvas side
 // drawn on (unless the effect lists it in `edges`), a one-shot that still draws on its last frame, where it is cut
 // off (unless the effect says `residue: true`), and compile --frames thinning a loop unevenly. A refusal names a route
-// that compiles when followed: an effect's frames are confirmed by simulating them again, and a count for compile
-// --frames thins every loop evenly or names the loop frames that let it (framesRoute, evenFrames).
+// checked against the limit it reports: a release's share and an effect's frames are confirmed by simulating them
+// again (shareHolds, framesRoute), a count for compile --frames thins every loop evenly or names the loop frames that
+// let it (evenFrames), and loop frames and counts past 256 frames are confirmed by compiling them (trialCompile).
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
 import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
@@ -376,22 +377,41 @@ const evenAngle = ([from, to], k, count) => (to - from >= 360 ? from + 360 * k /
 // sprite's pixels. `fits` says whether the release fits every limit with another share (what it would spawn with that
 // share, frame by frame beside the other emitters); a larger share releases the same pixels and more, so the largest
 // share that fits is found by halving, below the share written (or, when `fits` passes that one, below `guess`, the
-// share that leaves the particles counted within the limit), and named rounded down to two figures. A share is named
-// only once `fits` has passed it. When even a share of 0 does not fit, the other emitters alone take the limit, and
-// null leaves that for the caller to say.
-function releaseAdvice(e, index, guess, fits) {
-  if (!fits(0)) return null;
+// share that leaves the particles counted within the limit), and named rounded down to two figures. `fits` weighs the
+// release's own particles only (its children, the emitters whose from chain leads to it, go with it, and are not among
+// the others it is weighed beside), so a share is named only once `holds` has passed it: the effect simulated again
+// with that share (simulate's shareHolds). Where it does not, smaller shares are simulated, halving and then
+// bisecting; a smaller share releases a subset of the same pixels, and their children a subset of theirs. When even a
+// share of 0 does not fit, the other emitters alone take the limit, and null leaves that for the caller to say.
+function releaseAdvice(e, index, guess, fits, holds = fits) {
+  if (!fits(0) || !holds(0)) return null;
   const cells = e.sprite.frames[0].cells.length, share = e.release.share;
   let low = 0, high = fits(share) ? Math.min(share, Math.max(0, guess)) : share;
   if (fits(high)) low = high;
   else for (let step = 0; step < 48; step++) { const mid = (low + high) / 2; if (fits(mid)) low = mid; else high = mid; }
-  let fit = 0;
-  if (low > 0) {
+  const rounded = value => {
+    if (value <= 0) return 0;
     let k = 0, scale = 1;
-    while (low * scale < 10) { k++; scale *= 10; }
-    fit = Number((Math.floor(low * scale) / scale).toFixed(k));
+    while (value * scale < 10) { k++; scale *= 10; }
+    return Number((Math.floor(value * scale) / scale).toFixed(k));
+  };
+  let fit = rounded(low);
+  if (fit > 0 && !holds(fit)) {
+    let good = 0, bad = fit;
+    for (let s = fit / 2, step = 0; step < 14; step++, s /= 2) { if (holds(s)) { good = s; break; } bad = s; }
+    if (good > 0) for (let step = 0; step < 6; step++) { const mid = (good + bad) / 2; if (holds(mid)) good = mid; else bad = mid; }
+    fit = rounded(good);
+    if (fit > 0 && !holds(fit)) fit = 0;
   }
-  return `emitters[${index}] releases ${share < 1 ? `a ${share} share of` : 'every one of'} its sprite's ${cells.toLocaleString('en-US')} pixels: ${fit > 0 && fits(fit) ? `lower its release.share (about ${fit} fits) or use a smaller sprite` : 'use a smaller sprite'}`;
+  const lower = fit > 0 ? `lower its release.share (about ${fit} fits)` : 'set its release.share to 0 (no larger share fits beside the others, and 0 releases none of them)';
+  return `emitters[${index}] releases ${share < 1 ? `a ${share} share of` : 'every one of'} its sprite's ${cells.toLocaleString('en-US')} pixels: ${lower} or use a smaller sprite`;
+}
+// The emitters whose particles come from emitter `index`'s: it and its children, theirs, and so on (a child's parent is
+// read before it).
+function family(emitters, index) {
+  const set = new Set([index]);
+  emitters.forEach((e, i) => { if (e.parent !== null && e.parent !== undefined && set.has(e.parent)) set.add(i); });
+  return set;
 }
 
 const and = items => (items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
@@ -481,25 +501,30 @@ function simulate(effect, context) {
   const overcrowded = () => {
     if (blamed) {
       // What the other emitters keep alive is judged frame by frame (aliveAt), with the release's own at that share
-      // beside it; where it is called before the effect's last frame, what they keep alive now counts too.
-      const { e, index, made, room } = blamed, others = counts => counts.reduce((sum, n, i) => sum + (i === index ? 0 : n), 0);
-      const now = census().by, frameOthers = aliveAt.map(others), spawnedOthers = stats.reduce((sum, s, i) => sum + (i === index ? 0 : s.spawned), 0);
+      // beside it; where it is called before the effect's last frame, what they keep alive now counts too. The
+      // release's children (its family) are part of it: a smaller share spawns fewer of them, so they are not among
+      // the others, and a share is named once the effect simulated with it holds (shareHolds).
+      const { e, index, made, room } = blamed, own = family(emitters, index), others = counts => counts.reduce((sum, n, i) => sum + (own.has(i) ? 0 : n), 0);
+      const now = census().by, frameOthers = aliveAt.map(others), spawnedOthers = stats.reduce((sum, s, i) => sum + (own.has(i) ? 0 : s.spawned), 0);
       const fits = share => {
         const r = released(index, share);
         if (r.spawned > LIMITS.spawned - spawnedOthers || others(now) > LIMITS.alive) return false;
         for (let t = 0; t < frames; t++) if (frameOthers[t] + r.at[t] > LIMITS.alive) return false;
         return true;
       };
-      const advice = releaseAdvice(e, index, e.release.share * Math.max(0, room) / made, fits);
+      const advice = releaseAdvice(e, index, e.release.share * Math.max(0, room) / made, fits, share => shareHolds(index, share));
       if (advice) fail(context.path, `more than ${LIMITS.alive} particles are alive at once; ${advice}`);
       // No share fits: the other emitters alone take a limit, whatever the release does: alive at once in one frame
-      // (the most crowded), or spawned in all.
-      let worst = -1;
-      frameOthers.forEach((n, t) => { if (n > LIMITS.alive && (worst < 0 || n > frameOthers[worst])) worst = t; });
-      const alone = worst >= 0 || others(now) > LIMITS.alive, by = worst >= 0 ? aliveAt[worst] : alone ? now : stats.map(s => s.spawned);
-      const rest = [...by].map((n, i) => [n, i]).filter(([n, i]) => i !== index && n).sort((a, b) => b[0] - a[0]);
-      const where = worst >= 0 ? ` in frame ${worst}` : '';
-      fail(context.path, `more than ${LIMITS.alive} particles are alive at once, and no share of ${who(index)}'s release fits: ${alone ? `the other emitters alone keep more than ${LIMITS.alive} alive${where}` : `the other emitters alone spawn more than ${LIMITS.spawned}`} (${rest.slice(0, 5).map(([n, i]) => `${who(i)} ${n.toLocaleString('en-US')}`).join(', ')}); ${lowering(emitters, rest.slice(0, 5).map(([, i]) => i), who, alone)}`);
+      // (the most crowded), or spawned in all. Where they do not, but the effect simulated with a share of 0 still
+      // fails, the crowd is said as it is, below.
+      if (!fits(0)) {
+        let worst = -1;
+        frameOthers.forEach((n, t) => { if (n > LIMITS.alive && (worst < 0 || n > frameOthers[worst])) worst = t; });
+        const alone = worst >= 0 || others(now) > LIMITS.alive, by = worst >= 0 ? aliveAt[worst] : alone ? now : stats.map(s => s.spawned);
+        const rest = [...by].map((n, i) => [n, i]).filter(([n, i]) => !own.has(i) && n).sort((a, b) => b[0] - a[0]);
+        const where = worst >= 0 ? ` in frame ${worst}` : '';
+        fail(context.path, `more than ${LIMITS.alive} particles are alive at once, and no share of ${who(index)}'s release fits: ${alone ? `the other emitters alone keep more than ${LIMITS.alive} alive${where}` : `the other emitters alone spawn more than ${LIMITS.spawned}`} (${rest.slice(0, 5).map(([n, i]) => `${who(i)} ${n.toLocaleString('en-US')}`).join(', ')}); ${lowering(emitters, rest.slice(0, 5).map(([, i]) => i), who, alone)}`);
+      }
     }
     const shares = crowd.by.map((n, i) => [n, i]).filter(([n]) => n).sort((a, b) => b[0] - a[0]);
     const named = shares.slice(0, 5).map(([n, i]) => `${who(i)} ${n.toLocaleString('en-US')}`).concat(shares.length > 5 ? [`${shares.length - 5} more`] : []);
@@ -535,6 +560,19 @@ function simulate(effect, context) {
     let spawned = 0;
     for (let t = 0, sum = 0; t < frames; t++) { spawned += counts[t]; sum += counts[t] - (t >= span ? counts[t - span] : 0); at[t] = sum; }
     return { spawned, at };
+  };
+  // Whether the effect holds every particle limit and the compile's simulation with release `index` at another share:
+  // simulated again from where this one started, as a confirmation (context.confirm), which stops at the first limit
+  // passed and names no route. Nothing of it is kept.
+  const shareHolds = (index, share) => {
+    const changed = emitters.map((e, i) => (i === index ? { ...e, release: { ...e.release, share } } : e));
+    try {
+      const run = simulate({ ...effect, emitters: changed }, { ...context, simulated: { spent: before }, trial: null, plan: null, earlier: null, confirm: true });
+      return run.stats.reduce((sum, s) => sum + s.spawned, 0) <= LIMITS.spawned;
+    } catch (error) {
+      if (error instanceof PixelError) return false;
+      throw error;
+    }
   };
   // What a sprite emitter draws of the sprite itself this frame (all of it, or what is left after a release), as
   // palette-key codes over the canvas; its pixel particles are added on top.
@@ -602,6 +640,8 @@ function simulate(effect, context) {
     if (blamed && particle.index === blamed.index) return;
     alive.push(particle);
     if (alive.length <= LIMITS.alive) return;
+    // A confirmation (shareHolds) only asks whether the effect holds.
+    if (context.confirm) fail(context.path, `more than ${LIMITS.alive} particles are alive at once`);
     if (crowded) {
       if (alive.length > CROWD) { crowd = census(); overcrowded(); }
       return;
@@ -857,7 +897,7 @@ function simulate(effect, context) {
   if (crowded) overcrowded();
   // The next cycle's first frame, drawn as the recorded ones are, for the seam review only.
   const next = loop ? { output: output.pop(), behind: behind.pop(), back: { output: back.output.pop(), behind: back.behind.pop() }, between: between.pop(), blobs: blobs.pop(), solid: solids ? solids.pop() : null } : null;
-  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids, kept, released, byFrame };
+  return { output, behind, back, between, blobs, next, operations, culled, stats, cues, props, solids, kept, released, shareHolds, byFrame };
 }
 
 // The frames compile --frames n keeps of an animation of F frames, as resize.js keepFrames thins it: all of them when
@@ -889,7 +929,10 @@ function evenLoops(n, loops, within = () => true) {
 // most, or a count of 3 or fewer of a long loop (crude), the most that `holds` with a change to those loops' own frames
 // (evenLoops: change lists them) is named instead, so following it gives no stutter warning, trying at most
 // ROUTE_TRIALS counts from most down to half of it; failing that, n when it is not crude, or null. A count the compile
-// was given (`given`) is the caller's own, never crude.
+// was given (`given`) is the caller's own, never crude. A count whose change `holds` turns down on a field ('field':
+// a loop given fewer frames than an emitter's start or end needs) is not a trial: it fails at once, and the counts
+// below it may leave that loop alone (a loop of a prime count is changed only by counts that divide none of the
+// others' frames).
 function evenFrames(most, loops, fits = () => true, within = () => true, holds = m => fits(m), given) {
   if (most < 1) return null;
   const rough = m => m !== given && crude(m, loops);
@@ -899,8 +942,9 @@ function evenFrames(most, loops, fits = () => true, within = () => true, holds =
   for (let m = most, tries = 0; m * 2 >= most && m > n && !rough(m) && tries < ROUTE_TRIALS; m--) {
     const change = evenLoops(m, loops, within);
     if (!change.length || !fits(m)) continue;
-    tries++;
-    if (holds(m, change)) return { n: m, change };
+    const held = holds(m, change);
+    if (held === true) return { n: m, change };
+    if (held !== 'field') tries++;
   }
   return rough(n) || !fits(n) ? null : { n, change: [] };
 }
@@ -1316,6 +1360,23 @@ export function frameParts(frames, area) {
   return parts;
 }
 
+// Whether `source` compiles with its effects' frames changed (`change`: [name, frames, new frames]) and `options`
+// (compile --frames, the animations kept), thinning nothing unevenly: true, false, or 'field' when it is turned down
+// on a field the change leaves out of range (an emitter that starts or ends past the frames named, a duration list),
+// which is known at once, before any effect is simulated where it can be. A confirmation of a route a refusal names.
+const FIELD = /^fx\.effects\.[^.]+\.(?:emitters\[\d+\]\.(?:start|end)|layers\[\d+\]|duration)/;
+function trialCompile(source, change, options) {
+  const effects = { ...source.effects };
+  for (const [name, , to] of change) {
+    const effect = effects[name];
+    if (!isObject(effect)) return false;
+    if (Array.isArray(effect.emitters) && effect.emitters.some(e => isObject(e) && ((Number.isInteger(e.start) && e.start >= to) || (Number.isInteger(e.end) && e.end > to)))) return 'field';
+    effects[name] = { ...effect, frames: to, ...(Array.isArray(effect.duration) && { duration: Array.from({ length: to }, (_, i) => effect.duration[i % effect.duration.length]) }) };
+  }
+  try { return !(compileEffects({ ...source, effects }, { ...options, trial: true }).warnings ?? []).some(warning => warning.includes(' unevenly')); }
+  catch (error) { return error instanceof PixelError && (error.errors ?? [error]).some(each => FIELD.test(each.path)) ? 'field' : false; }
+}
+
 // With `stats`, the result also has `work`: the pixels its shape layers' painting visited (`painted`), every frame and
 // each loop's seam probe together, to hold the work instead of timing it.
 // `frames`: how many frames of each animation the compile keeps (compile --frames, pixel_compile frames; resize.js
@@ -1481,14 +1542,40 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
         const after = [...others, [own, mine, false, base, false]];
         if (!own) {
           // The others alone leave this one no room, so they are named, and every effect is shortened together, each in
-          // proportion; then the frames kept (keep, or fewer where the pixels need it), each loop a multiple of them so
-          // it thins evenly.
-          const scaled = all.map(([n, ...rest]) => [Math.max(1, Math.floor(n * 256 / made)), ...rest]);
-          let t = keep;
-          if (frameTotalProblem(sum(scaled, keep), width, height)) { t = 0; while (t < 256 && sum(scaled, t + 1) <= fits) t++; }
-          const fitted = t ? scaled.map(entry => (entry[4] && entry[0] > t ? [t * Math.floor(entry[0] / t), ...entry.slice(1)] : entry)) : scaled;
+          // proportion, but never below one frame past its latest emitter's start (or to before its end), which would
+          // leave that field out of range; then the frames kept: keep, each loop a multiple of it so it thins evenly,
+          // or, where the pixels need fewer, the count evenFrames names (never a 1- to 3-frame thinning of a long
+          // loop). The route is named only once the source compiles at those counts (trialCompile): what the effects
+          // simulate and keep alive at them is not known from their frames alone. Otherwise the reply names the
+          // effects, their frames and how many must go.
+          const least = (name, n) => {
+            let m = 1;
+            for (const e of Array.isArray(source.effects[name]?.emitters) ? source.effects[name].emitters : []) if (isObject(e)) {
+              if (Number.isInteger(e.start)) m = Math.max(m, e.start + 1);
+              if (Number.isInteger(e.end)) m = Math.max(m, e.end);
+            }
+            return Math.min(n, m);
+          };
+          const at = ratio => all.map(([n, ...rest]) => [Math.max(least(rest[2], n), Math.floor(n * ratio)), ...rest]);
+          let low = 0, high = 256 / made;
+          if (sum(at(high)) <= 256) low = high;
+          else for (let step = 0; step < 40; step++) { const mid = (low + high) / 2; if (sum(at(mid)) <= 256) low = mid; else high = mid; }
+          const scaled = at(low);
+          // A loop thinned by t is a multiple of it, and never one below what its emitters need (lifted to the next).
+          let t = 0, fitted = sum(scaled) <= 256 ? scaled : null;
+          if (fitted && keep && !frameTotalProblem(sum(scaled, keep), width, height)) {
+            t = keep;
+            fitted = scaled.map(entry => (entry[4] && entry[0] > t ? [t * Math.floor(entry[0] / t), ...entry.slice(1)] : entry));
+          } else if (fitted && (keep || frameTotalProblem(sum(scaled), width, height))) {
+            const then = most(scaled, keep ?? 256);
+            t = then?.n ?? 0;
+            fitted = then ? changed(scaled, then.change) : null;
+          }
+          if (fitted && t) fitted = fitted.map(entry => { const need = least(entry[3], source.effects[entry[3]].frames); return entry[4] && entry[0] < need ? [t * Math.ceil(need / t), ...entry.slice(1)] : entry; });
+          const counts = fitted ? [...new Map(fitted.map(([n, , , name]) => [name, n]))] : [];
+          const holds = fitted && !trial && sum(fitted) <= 256 && trialCompile(source, counts.map(([name, n]) => [name, source.effects[name].frames, n]), { frames: t || undefined, animation, animationPath }) === true;
           const named = list => [...new Map(list.map(([n, , , name]) => [name, n]))].map(([name, n]) => { const k = list.filter(entry => entry[3] === name).reduce((total, [, times]) => total + times, 0); return `${name} ${n}${k > 1 ? ` × ${k}` : ''}`; });
-          const route = sum(fitted) <= 256 ? `: ${and([...new Map(fitted.map(([n, , , name]) => [name, n]))].map(([name, n]) => `${name} ${n}`))} of their own frames fit together${t ? `; then ${countText({ n: t, change: [] }, single, true, 'fits')}` : ''}` : '';
+          const route = holds ? `: ${and(counts.map(([name, n]) => `${name} ${n}`))} of their own frames fit together${t ? `; then ${countText({ n: t, change: [] }, single, true, 'fits')}` : ''}` : '';
           fail('fx.effects', `the effects make ${made} frames${aside}; a recipe holds at most 256, so ${made - 256} must go, and the others alone make ${sum(others)} (${named(others).join(', ')}), leaving ${base} none${route}`);
         }
         // With frames given, the count kept is at most that, and divides the loops it thins as any count named does.
@@ -1651,12 +1738,15 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
         // The release that spawned the most is the one to lower, when it spawned most of them.
         let most = -1;
         emitters.forEach((e, i) => { if (e.release && (most < 0 || run.stats[i].spawned > run.stats[most].spawned)) most = i; });
-        const made = most < 0 ? 0 : run.stats[most].spawned, room = LIMITS.spawned - (spawned - made), who = i => emitters[i].name ?? `emitters[${i}]`;
-        const share = made * 2 > spawned ? releaseAdvice(emitters[most], most, emitters[most].release.share * Math.max(0, room) / made, share => run.released(most, share).spawned <= room) : undefined;
+        // The release's children (its family) spawn with it, so they are not among the others its share is weighed
+        // beside, and the share named is one the effect simulated with it holds (shareHolds).
+        const made = most < 0 ? 0 : run.stats[most].spawned, own = most < 0 ? new Set() : family(emitters, most), who = i => emitters[i].name ?? `emitters[${i}]`;
+        const room = LIMITS.spawned - run.stats.reduce((sum, s, i) => sum + (own.has(i) ? 0 : s.spawned), 0);
+        const share = made * 2 > spawned ? releaseAdvice(emitters[most], most, emitters[most].release.share * Math.max(0, room) / made, share => run.released(most, share).spawned <= room, share => run.shareHolds(most, share)) : undefined;
         if (share) fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles; ${share}`);
         // Otherwise what the others spawn is to lower, or the effect's frames: every frame is simulated, kept or not, so
         // the frames named are the effect's own (framesRoute), with frames kept when fewer fit.
-        const by = run.stats.map((s, i) => [s.spawned, i]).filter(([n, i]) => n && !(share === null && i === most)).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
+        const by = run.stats.map((s, i) => [s.spawned, i]).filter(([n, i]) => n && !(share === null && own.has(i))).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
         fail(`${path}.emitters`, `more than ${LIMITS.spawned} particles${share === null ? `, and no share of ${who(most)}'s release fits: the other emitters alone spawn more than ${LIMITS.spawned}` : ''}; ${lowering(emitters, by.slice(0, 5), who, false)}${routeText(framesRoute(run.byFrame, count, loop, keep, plan()), count, keep)}`);
       }
       if (first) records.set(base, { frames: count, loop, byFrame: run.byFrame, plan, rerun });
@@ -1888,12 +1978,7 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
     while (most > 0 && deliveredAt(most).total > LIMITS.operations) most--;
     // Of the counts that fit, the most that thins every loop evenly, or a change to the loops' frames (evenFrames),
     // which holds once the source with those loops compiles with that many frames kept and thins nothing unevenly.
-    const confirm = (n, change) => {
-      if (trial) return true;
-      const effects = { ...source.effects };
-      for (const [name, , to] of change) effects[name] = { ...effects[name], frames: to, ...(Array.isArray(effects[name].duration) && { duration: Array.from({ length: to }, (_, i) => effects[name].duration[i % effects[name].duration.length]) }) };
-      try { return !(compileEffects({ ...source, effects }, { frames: n, animation, animationPath, trial: true }).warnings ?? []).some(warning => warning.includes(' unevenly')); } catch { return false; }
-    };
+    const confirm = (n, change) => (trial ? true : trialCompile(source, change, { frames: n, animation, animationPath }));
     const even = evenFrames(most, loopsOf(lists.map(list => [list.ops.length, 1, false, list.of, list.loop])), n => deliveredAt(n).total <= LIMITS.operations,
       change => lists.reduce((total, list) => total + (change.find(([name]) => name === list.of)?.[2] ?? list.ops.length), 0) <= 256,
       (n, change) => deliveredAt(n, change).total <= LIMITS.operations && confirm(n, change));

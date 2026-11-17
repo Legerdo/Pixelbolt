@@ -114,9 +114,15 @@ test('a scene past its assets\' pixels says what each uses and which to give few
   assert.ok(prepareScene(winter(31)));
   // The count holds every pass of the asset and the assets listed after it, so following it once prepares.
   const lit = frames => ({ ...scene({ backdrop: recipe(480, 270, 1), snow: { recipe: recipe(480, 270, frames), normal: recipe(480, 270, frames) } }), width: 480, height: 270 });
-  assert.throws(() => prepareScene(lit(32)), { message: "scene.assets.snow: a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; backdrop uses 129,600, and snow needs 4,147,200: snow fits with 15 frames, so make it with 15 (in its source, rather than thinning its 32 frames unevenly) or give it a smaller canvas" });
+  // What the asset needs is said for every pass of it: before, "snow needs 4,147,200", its colour pass's alone.
+  assert.throws(() => prepareScene(lit(32)), { message: "scene.assets.snow: a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; backdrop uses 129,600, and snow needs 8,294,400 with its normal pass: snow fits with 15 frames, so make it with 15 (in its source, rather than thinning its 32 frames unevenly) or give it a smaller canvas" });
   assert.ok(prepareScene(lit(15)));
   assert.throws(() => prepareScene(lit(16)));
+  // Refused at its normal pass, whose colour pass fits: the need is still the whole asset's, and its own colour pass is
+  // not among what the assets before it use. Before: "backdrop uses 129,600, and snow's normal pass needs 2,332,800".
+  const glowing = frames => ({ ...scene({ backdrop: recipe(480, 270, 1), snow: { recipe: recipe(480, 270, frames), normal: recipe(480, 270, frames), emissive: recipe(480, 270, frames) } }), width: 480, height: 270 });
+  assert.throws(() => prepareScene(glowing(18)), { message: "scene.assets.snow: a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; backdrop uses 129,600, and snow needs 6,998,400 with its normal and emissive passes: snow fits with 10 frames, so make it with 10 (in its source, rather than thinning its 18 frames unevenly) or give it a smaller canvas" });
+  assert.ok(prepareScene(glowing(10)));
   const layered = frames => ({ ...scene({ snow: recipe(480, 270, frames), backdrop: recipe(480, 270, 1), fg: recipe(480, 270, 1) }), width: 480, height: 270 });
   assert.throws(() => prepareScene(layered(32)), { message: "scene.assets.backdrop: a scene's assets render at most 4,194,304 pixels in all, every frame of every pass; snow uses 4,147,200, and backdrop needs 129,600: snow fits with 30 frames, so make it with 30 (in its source, rather than thinning its 32 frames unevenly) or give it a smaller canvas" });
   assert.ok(prepareScene(layered(30)));
