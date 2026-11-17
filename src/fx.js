@@ -8,7 +8,7 @@
 // between `behind` particles and the rest. An effect's `shine` is the light of what it draws in its brightest colours
 // (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels.
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
-import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_PIXELS, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
+import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
 import { patternProblem, ditherThreshold, traceLine, random, hash, sinDeg, cosDeg, ease, EASINGS, rotateRows } from './craft.js';
 import { readShapes, renderShapes, holdBands, settleHolds, tween, sample, sequenceFrame, atan2Deg, pathWalker, paletteKey } from './shapes.js';
@@ -27,10 +27,13 @@ const SALT = { x: 1, y: 2, angle: 3, speed: 4, life: 5, variant: 6, remap: 7, ph
 export const SPRITE_PIXELS = ['all', 'edge', 'outline'];
 const clear = char => char === '.' || char === ' ';
 const LIMITS = { effects: 64, emitters: 16, spawned: 4096, alive: 1024, operations: 20000 };
-// A particle's own symbol (text rows) stays at most 256 a side: it is stamped for every particle drawn, so it is not
-// the canvas. A sprite taken from a recipe spans that recipe's canvas, so it follows the frame (CANVAS_SIDE, FRAME_PIXELS).
+// A particle's symbol stays at most 256 a side, whether written as rows or taken from a recipe: it is stamped for every
+// particle drawn, and one partly off the canvas is cropped into a grid of its own, so it is not the canvas. A sprite
+// taken from a recipe spans that recipe's canvas and follows the frame (frameFits), but as a `sprite` emitter or an
+// aura, drawn once a frame; as a particle's shape it keeps SYMBOL_SIDE.
 const SYMBOL_SIDE = 256;
-// The most visible width plus height a spinning particle's symbol may have, so its 45° turns fit a recipe symbol.
+// The most visible width plus height a spinning particle's symbol may have. RotSprite turns it for each 45° step at
+// eight times its size, so this bounds that work; a symbol within it turns into at most 254 pixels a side.
 const SPIN_SPAN = 360;
 // When a child emitter spawns: where a parent particle ends, where it first lands on its floor, or every frame it lives.
 export const FX_EVENTS = ['death', 'floor', 'life'];
@@ -211,6 +214,8 @@ function readEmitter(emitter, path, context, earlier) {
     if (!Array.isArray(sequence) || !sequence.length || sequence.length > 64) fail(sp, 'expected a list of 1–64 symbol names');
     return sequence.map((name, i) => {
       if (typeof name !== 'string' || !Object.hasOwn(symbols, name)) fail(`${sp}[${i}]`, Object.hasOwn(sequences, name) ? `${name} is an animation: a sprite or an aura can follow it, but a particle draws one symbol` : `unknown symbol ${JSON.stringify(name)}`);
+      const rows = symbols[name];
+      if (rows.length > SYMBOL_SIDE || rows[0].length > SYMBOL_SIDE) fail(`${sp}[${i}]`, `${name} is ${rows[0].length}×${rows.length}; a particle's symbol is at most ${SYMBOL_SIDE} a side, since every particle stamps it, so a sprite as large as the canvas belongs to a sprite emitter or an aura`);
       return name;
     });
   });
@@ -223,11 +228,10 @@ function readEmitter(emitter, path, context, earlier) {
   if (spin && face) fail(`${path}.spin`, 'face already turns the particle to its direction of travel; use one or the other');
   if (spin) for (const name of new Set(variants.flat())) {
     if (name.length > 59) fail(`${path}.spin`, `turned symbols are named <symbol>_r<degrees>; shorten ${name} to 59 characters or fewer`);
-    // Turned 45°, a symbol's visible pixels span (width + height) / √2 each way, and a recipe symbol has at most 256
-    // rows and columns: a visible width plus height of 360 turns into at most 254.
+    // Turned 45°, a symbol's visible pixels span (width + height) / √2 each way: SPIN_SPAN bounds the turning.
     let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
     symbols[name].forEach((row, j) => { for (let i = 0; i < row.length; i++) if (!clear(row[i])) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; } });
-    if (x1 >= 0 && x1 - x0 + y1 - y0 + 2 > SPIN_SPAN) fail(`${path}.spin`, `spin turns ${name} in 45° steps, and turned 45° its visible ${x1 - x0 + 1} × ${y1 - y0 + 1} pixels would pass the 256 rows and columns a symbol may have; a spinning symbol's visible width plus height may be at most ${SPIN_SPAN} pixels`);
+    if (x1 >= 0 && x1 - x0 + y1 - y0 + 2 > SPIN_SPAN) fail(`${path}.spin`, `spin turns ${name} in 45° steps with RotSprite, at eight times its size; a spinning symbol's visible width plus height may be at most ${SPIN_SPAN} pixels, and its visible ${x1 - x0 + 1} × ${y1 - y0 + 1} pixels add up to ${x1 - x0 + y1 - y0 + 2}`);
   }
   // sweep: 2–8 keys in degrees added to the launch angle over the emitter's window, start to end, so a flamethrower
   // swings across or a fountain sways.
@@ -873,7 +877,7 @@ export function recipeSprite(entry, palette, path) {
   if (!isObject(entry)) fail(path, 'expected rows, or { recipe, frame } or { recipe, animation }: a frame or an animation of a recipe or a pose, fluid or wave source');
   fields(entry, ['recipe', 'frame', 'animation'], path);
   const source = loadSource(entry.recipe, `${path}.recipe`), { project } = source;
-  if (project.width > CANVAS_SIDE || project.height > CANVAS_SIDE || project.width * project.height > FRAME_PIXELS) fail(`${path}.recipe`, `its canvas is ${project.width}×${project.height}; a symbol or sprite taken from a recipe is at most ${CANVAS_SIDE} pixels a side and 262,144 pixels, as an animation frame is`);
+  if (!frameFits(project.width, project.height)) fail(`${path}.recipe`, `${frameAreaProblem(project.width, project.height)}, and a symbol or sprite taken from a recipe spans that recipe's canvas, so it is held to one`);
   const ownKey = new Map();
   for (const [key, value] of Object.entries(project.palette)) if (key.length === 1) { const id = parseColor(value, project.palette).join(); if (!ownKey.has(id)) ownKey.set(id, key); }
   const keyOf = new Map();
@@ -1016,7 +1020,7 @@ export function compileEffects(source, { stats = false } = {}) {
   // The canvas is an animation frame's: at most CANVAS_SIDE a side and FRAME_PIXELS in all, a full screen of 320×180 or
   // 640×360 included. The frames' total is checked before anything is simulated (budget, below).
   const width = integer(source.width, 'fx.width', 1, CANVAS_SIDE), height = integer(source.height, 'fx.height', 1, CANVAS_SIDE);
-  if (width * height > FRAME_PIXELS) fail('fx', `a ${width}×${height} canvas is ${(width * height).toLocaleString('en-US')} pixels; an effect's frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale`);
+  if (!frameFits(width, height)) fail('fx', `${frameAreaProblem(width, height)}, and an effect's canvas is one: draw it smaller or enlarge a smaller canvas with sheet.scale`);
   if (source.symbols !== undefined && (!isObject(source.symbols) || !Object.keys(source.symbols).length)) fail('fx.symbols', 'expected named symbols for the particles to draw');
   // An animation's frames are a sequence for sprites and auras, never stamped, so they stay out of the recipe's symbols.
   const symbols = { ...source.symbols }, sequences = {}, spun = new Map();
@@ -1065,12 +1069,16 @@ export function compileEffects(source, { stats = false } = {}) {
       seen.set(name.toLowerCase(), null);
       touching.set(name, turnedEdges(edges, view));
       const count = integer(effect.frames, `${path}.frames`, 1, 256), loop = effect.loop ?? false;
-      // The recipe's limits on frames, checked before anything is simulated or painted rather than after.
-      const budget = added => {
+      // The recipe's limits on frames, checked before anything is simulated or painted rather than after. Once an
+      // effect is known to draw behind a character (`split`), each of its frames is three of the recipe's, so the reply
+      // also says how many of its own frames fit beside the effects before it.
+      const budget = (added, split = false) => {
         totalFrames += added;
         if (totalFrames > 256) fail('fx.effects', `the effects make ${totalFrames} frames; a recipe holds at most 256`);
         const tooMany = frameTotalProblem(totalFrames, width, height);
-        if (tooMany) fail('fx.effects', tooMany);
+        if (!tooMany) return;
+        const room = Math.max(0, Math.floor((Math.floor(FRAME_AREA / (width * height)) - (totalFrames - 3 * count)) / 3));
+        fail('fx.effects', `the effects make ${totalFrames} frames (an effect drawn behind a character also makes its -back and -front parts): ${tooMany}${split ? `; ${name} draws behind a character, so it makes three frames for each of its own, and ${room ? `${room} of its own fit` : 'not one of its own fits'}` : ''}`);
       };
       budget(count);
       if (typeof loop !== 'boolean') fail(`${path}.loop`, 'expected a boolean');
@@ -1134,7 +1142,7 @@ export function compileEffects(source, { stats = false } = {}) {
           if (seen.has(part.toLowerCase())) fail(path, `${name} draws something behind a character, so it also makes the animation ${part}; another effect has that name, so rename one`);
           seen.set(part.toLowerCase(), name);
         }
-        budget(count * 2);
+        budget(count * 2, true);
       }
       const empty = () => Array.from({ length: count }, () => []);
       const run = emitters.length ? simulate({ frames: count, loop, seed, emitters, view, solid: shine?.solid }, context)

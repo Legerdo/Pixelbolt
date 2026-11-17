@@ -91,7 +91,7 @@ test('a size is two whole sides within an animation frame: 1024 a side and 262,1
   assert.deepEqual(readSize('320x180'), [320, 180]);
   assert.deepEqual(readSize('1024x256'), [1024, 256]);
   for (const bad of ['32', '0x8', '32x1025', '32 by 32', [32], [1.5, 2], 32, null]) assert.throws(() => readSize(bad), /expected a canvas size such as "32x32"/);
-  assert.throws(() => readSize('1024x512'), { message: 'size: a 1024×512 canvas is 524,288 pixels; a frame holds at most 262,144 (320×180, 640×360 and 512×512 fit)' });
+  assert.throws(() => readSize('1024x512'), { message: 'size: a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit)' });
 });
 
 test('a smaller canvas is the window with the most drawing, and a larger one centres or keeps a touched edge', () => {

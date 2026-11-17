@@ -13,7 +13,9 @@ const CANVAS = ['paint', 'grid', 'move', 'recolor', 'cleanup'], VERBS = ['set', 
 
 // A canvas change reaches across an animation frame: grid rows and moves up to its side, paint up to its area, and a
 // move or recolour up to twice that (a clear and a write for every pixel).
-const ROWS = `expected 1–${CANVAS_SIDE} equal-width rows`, PAINT = 'paint needs 1–262,144 pixels with x, y and color';
+// A frame's pixel corrections, merged, hold at most an animation frame's area too (core reads frame.pixels so).
+const FRAME_LIST = FRAME_PIXELS.toLocaleString('en-US');
+const ROWS = `expected 1–${CANVAS_SIDE} equal-width rows`, PAINT = `paint needs 1–${FRAME_LIST} pixels with x, y and color`;
 const hex = data => '#' + [...data].map(v => v.toString(16).padStart(2, '0')).join('');
 function regionPixels(recipe, frameIndex, verb, value, where) {
   if (!isObject(value)) fail(where, 'expected a region object');
@@ -232,6 +234,7 @@ export function patchRecipe(recipe, changes) {
         parseColor(pixel.color, next.palette ?? {}, `${pp}.color`);
         pixels.set(`${pixel.x},${pixel.y}`, structuredClone(pixel));
       });
+      if (pixels.size > FRAME_PIXELS) fail(`${where}.value`, `with this ${verb}, frame ${JSON.stringify(frame.name)} would have ${pixels.size.toLocaleString('en-US')} pixel corrections, and a frame holds at most ${FRAME_LIST}: split the region into smaller changes, or redraw a large area with the frame's operations`);
       if (pixels.size) frame.pixels = [...pixels.values()];
       edit.pixels = entries.length;
       if (cleaned) Object.assign(edit, cleaned.summary);

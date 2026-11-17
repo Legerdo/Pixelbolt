@@ -8,6 +8,8 @@ import { patchRecipe } from '../src/patch.js';
 import { compilePoses, compileNormals } from '../src/authoring.js';
 import { compileBodies } from '../src/bodies.js';
 import { compileCrystals } from '../src/crystal.js';
+import { compilePowder } from '../src/powder.js';
+import { compileWaves } from '../src/wave.js';
 
 // An animation frame is at most 1024 a side and 262,144 pixels: the standard pixel-game screens (320x180, 480x270,
 // 640x360) are one recipe, and so is a full-screen overlay such as rain.
@@ -76,8 +78,8 @@ test('a PNG imports as frames up to 1024 a side and 262,144 pixels, each one gri
   assert.equal(renderProject(recipe).width, 320);
   const sheet = importPNG(png(1280, 360), { frame: [640, 360], padding: 0 }).recipe;
   assert.deepEqual([sheet.width, sheet.height, sheet.frames.length], [640, 360, 2]);
-  assert.throws(() => importPNG(png(1024, 512)), { message: 'import: a 1024×512 frame is past what one imported frame holds, at most 1024 a side and 262,144 pixels (320×180, 640×360 and 512×512 fit); give frame, the size of one frame in a sheet' });
-  assert.throws(() => importPNG(png(1280, 360), { frame: [1280, 360] }), { message: 'import: frame: expected the size of one frame, [width, height], at most 1024 a side and 262,144 pixels (320×180, 640×360 and 512×512 fit)' });
+  assert.throws(() => importPNG(png(1024, 512)), { message: 'import: a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and an imported frame is one; give frame, the size of one frame in a sheet' });
+  assert.throws(() => importPNG(png(1280, 360), { frame: [1280, 360] }), { message: 'import: frame: a 1280×360 frame is 460,800 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and an imported frame is one' });
 });
 
 test('sources that keep 256 a side still refuse 257 with the messages they always gave', () => {
@@ -86,7 +88,20 @@ test('sources that keep 256 a side still refuse 257 with the messages they alway
   refused(() => describeStampRecipe({ version: 1, name: 'p', width: 257, height: 8, palette: {}, frames: [{ name: 'f' }] }), 'project.width: expected an integer from 1 to 256');
   refused(() => describeStampRecipe({ version: 1, name: 'p', width: 8, height: 8, palette: { k: '#000' }, symbols: { s: ['k'.repeat(257)] }, frames: [{ name: 'f' }] }), 'project.symbols.s[0]: row must contain 1–256 characters');
   const colour = { version: 1, name: 'r', width: 257, height: 8, palette: { k: '#000' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 257, h: 8, color: 'k' }] }] };
-  refused(() => compileNormals({ format: 'pixelforge-normals', version: 1, name: 'n', recipe: colour }), 'normals.recipe: the colour recipe is 257×8; a normal pass is at most 256×256 (it lights scene assets, which keep that limit), so derive normals from a recipe of at most 256 a side');
+  refused(() => compileNormals({ format: 'pixelforge-normals', version: 1, name: 'n', recipe: colour }), 'normals.recipe: the colour recipe is 257×8; a pass made by the normals compiler keeps 256 pixels a side, so derive normals from a recipe of at most 256 a side; a larger scene asset takes a normal pass drawn as a recipe of its own size');
   refused(() => compileBodies({ format: 'pixelforge-bodies', version: 1, name: 'b', width: 257, height: 64, palette: { k: '#000' }, effects: { drop: { frames: 4, bodies: [] } } }), 'bodies.width: expected an integer from 4 to 256');
   refused(() => compileCrystals({ format: 'pixelforge-crystal', version: 1, name: 'c', width: 257, height: 64, palette: { k: '#000' }, effects: {} }), 'crystal.width: expected an integer from 1 to 256');
+  // A compiled powder grid, the rows under or over a wave or a crystal, and a bodies canvas drawn finer.
+  refused(() => compilePowder({ format: 'pixelforge-powder', version: 1, name: 'g', base: 'sandbox', width: 257, height: 16, scene: [{ material: 'sand', rect: [4, 2, 8, 4] }], clips: { fall: { frames: 4 } } }),
+    'powder.width: a compiled powder grid is an animation, at most 256 pixels a side; use a smaller grid, write a larger one as numbered video frames (pixelbolt sequence), or run it live in a page or game (createLivePowder)');
+  const wave = { format: 'pixelforge-wave', version: 1, name: 'w', width: 8, height: 4, palette: { a: '#fff', b: '#f00' }, effects: { loop: { frames: 16, duration: 60,
+    sources: [{ kind: 'directional', at: [0, 0], angle: 0, wavelength: 8, amplitude: 0.1, cycles: 1 }], look: { colors: ['a'], thresholds: [0.15], negative: ['b'] }, underlay: Array(257).fill('aaaaaaaa') } } };
+  refused(() => compileWaves(wave), 'wave.effects.loop.underlay: expected an array with at most 256 items');
+  const gems = { k: '#101018', a: '#40306a', b: '#7050b0', c: '#a080e0', d: '#e0d0ff', w: '#ffffff' };
+  const crystal = { format: 'pixelforge-crystal', version: 1, name: 'c', width: 48, height: 40, palette: gems, looks: { gem: { colors: ['a', 'b', 'c', 'd'], outline: 'k', glint: 'w' } },
+    effects: { e: { frames: 4, crystals: [{ at: [24, 30], look: 'gem', habit: 'prism', length: 12, width: 6 }], underlay: Array(257).fill('a'.repeat(48)) } } };
+  refused(() => compileCrystals(crystal), 'crystal.effects.e.underlay: expected an array with at most 256 items');
+  const bodies = { format: 'pixelforge-bodies', version: 1, name: 'b', width: 72, height: 24, subpixels: 4, palette: { s: '#888', w: '#fff', k: '#000' }, symbols: { post: ['ss', 'ss'] },
+    effects: { e: { frames: 24, gravity: [0, 0], obstacles: [{ symbol: 'post', x: 2, y: 2 }], bodies: [{ shape: 'box', size: [8, 8], at: [16, 12], fixed: true, fill: 'w', outline: 'k' }] } } };
+  refused(() => compileBodies(bodies), 'bodies.subpixels: a 72×24 canvas drawn 4 times finer is 288×96; an animation is at most 256 a side, so use subpixels of at most 3');
 });

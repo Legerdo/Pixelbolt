@@ -1231,7 +1231,7 @@ export function compileNormals(source) {
   if (spec.format !== undefined) fail('normals.recipe', `expected a recipe, not a ${spec.format} source; compile it first and derive normals from the result`);
   // A normal pass is at most NORMALS_SIDE a side, so a larger recipe is refused here rather than as an error in a grid
   // the user never wrote.
-  if ([spec.width, spec.height].some(side => typeof side === 'number' && side > NORMALS_SIDE)) fail('normals.recipe', `the colour recipe is ${spec.width}×${spec.height}; a normal pass is at most ${NORMALS_SIDE}×${NORMALS_SIDE} (it lights scene assets, which keep that limit), so derive normals from a recipe of at most ${NORMALS_SIDE} a side`);
+  if ([spec.width, spec.height].some(side => typeof side === 'number' && side > NORMALS_SIDE)) fail('normals.recipe', `the colour recipe is ${spec.width}×${spec.height}; a pass made by the normals compiler keeps ${NORMALS_SIDE} pixels a side, so derive normals from a recipe of at most ${NORMALS_SIDE} a side; a larger scene asset takes a normal pass drawn as a recipe of its own size`);
   if (source.bevel !== undefined && (!Number.isInteger(source.bevel) || source.bevel < 1 || source.bevel > 64)) fail('normals.bevel', 'expected 1–64 pixels from the edge to the flat top; omit it to round each shape up to its thickest point');
   const detail = source.detail ?? 0;
   if (typeof detail !== 'number' || !Number.isFinite(detail) || detail < 0 || detail > 1) fail('normals.detail', 'expected 0 (shape only) to 1');

@@ -31,7 +31,7 @@ test('larger stills, animation frames past 1024 a side or 262,144 pixels and sid
   assert.throws(() => renderProject(animation), { message: 'project.width: expected an integer from 1 to 1024; only a single-frame still may be larger (up to 4096), and this recipe has 2 frames' });
   assert.throws(() => renderProject({ ...animation, width: 64, height: 1025 }), /^PixelError: project\.height: expected an integer from 1 to 1024; only a single-frame still/);
   // Within the side, a frame's area: 1024×512 is twice what an animation frame holds.
-  assert.throws(() => renderProject({ ...animation, width: 1024, height: 512 }), { message: 'project: a 1024×512 frame is 524,288 pixels; an animation frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale; only a single-frame still may be larger' });
+  assert.throws(() => renderProject({ ...animation, width: 1024, height: 512 }), { message: 'project: a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale; only a single-frame still may be larger' });
   // The screen sizes of pixel games, and the widest strip, render as animations.
   for (const [w, h] of [[320, 180], [384, 216], [480, 270], [640, 360], [512, 512], [1024, 256], [300, 64], [64, 257]]) assert.deepEqual([renderProject({ ...animation, width: w, height: h }).frames.length, w, h], [2, w, h]);
   assert.throws(() => renderProject({ ...animation, width: 5000 }), { message: 'project.width: expected an integer from 1 to 1024' });
@@ -77,8 +77,8 @@ test('shapes and regions may overhang a large still by up to twice its side, and
 
 test('scenes keep their assets to an animation frame, 1024 a side and 262,144 pixels', () => {
   const scene = asset => ({ format: 'pixelforge-scene', version: 1, name: 's', width: 64, height: 64, assets: { big: asset }, instances: [{ asset: 'big', at: [0, 0] }] });
-  assert.throws(() => prepareScene(scene(still(1025, 10))), { message: 'scene.assets.big: a scene asset is at most 1024 pixels a side and 262,144 pixels (320×180, 640×360 and 512×512 fit), and this one is 1025×10; a larger still renders on its own, not in a scene' });
-  assert.throws(() => prepareScene(scene(still(1024, 512))), /this one is 1024×512; a larger still renders on its own/);
+  assert.throws(() => prepareScene(scene(still(1025, 10))), { message: 'scene.assets.big: a 1025×10 frame is past 1024 pixels a side; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and a scene asset is one; a larger still renders on its own, not in a scene' });
+  assert.throws(() => prepareScene(scene(still(1024, 512))), /a 1024×512 frame is 524,288 pixels; .*, and a scene asset is one; a larger still renders on its own/);
   assert.equal(prepareScene(scene(still(300, 10))).instances.length, 1);
   // A full-screen animation is an asset: a 320×180 rain overlay of two frames.
   const rain = { ...still(320, 180), frames: [{ name: 'a', ops: [{ op: 'dither', color: 's', density: 0.1 }] }, { name: 'b', translate: [0, 4], wrap: true, from: 'a' }] };
@@ -104,7 +104,7 @@ test('the render check offers a still at the asked size, and keeps its advice fo
   // detail, never 960x540 at scale 2 (518,400 pixels).
   const pair = { ...icon, frames: [{ name: 'a', ops: icon.frames[0].ops }, { name: 'b', from: 'a' }] };
   const paired = check(pair, { width: 1920, height: 1080 }).problems[0].fix;
-  assert.match(paired, /^an animation frame is at most 1024 px a side and 262,144 pixels, so 1920x1080 is a 128x72 canvas at sheet\.scale 15,[^;]*\(or \[[^\]]*\], a 640x360 canvas at sheet\.scale 3, for the most detail\), fit the drawing to the new canvas, pixel_inspect, then render again$/);
+  assert.match(paired, /^an animation frame is at most 1024 pixels a side and 262,144 in all, so 1920x1080 is a 128x72 canvas at sheet\.scale 15,[^;]*\(or \[[^\]]*\], a 640x360 canvas at sheet\.scale 3, for the most detail\), fit the drawing to the new canvas, pixel_inspect, then render again$/);
   const detail = JSON.parse(paired.slice(paired.indexOf('(or [') + 4, paired.indexOf(']', paired.indexOf('(or [')) + 1));
   assert.deepEqual(detail, [{ set: 'width', value: 640 }, { set: 'height', value: 360 }, { set: 'sheet', value: { scale: 3 } }]);
   assert.equal(check(patchRecipe(pair, detail).recipe, { width: 1920, height: 1080 }).ok, true);

@@ -38,7 +38,7 @@
           "additionalProperties": false
         }
       ],
-      "description": "The colour recipe, at most 256 pixels a side, so a scene asset lit by a normal pass is too: inline, a file resolved by the CLI relative to this source (or inside the MCP root), or {\"revision\": id} through MCP."
+      "description": "The colour recipe: inline, a file resolved by the CLI relative to this source (or inside the MCP root), or {\"revision\": id} through MCP. A pass made by the normals compiler keeps 256 pixels a side; a larger scene asset takes a normal pass drawn as a recipe of its own size."
     },
     "bevel": {
       "type": "integer",
@@ -1458,7 +1458,7 @@
               "items": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 256
+                "maximum": 1024
               },
               "maxItems": 2,
               "minItems": 2,

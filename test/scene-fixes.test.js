@@ -125,5 +125,5 @@ test('the skill\'s craft notes keep the 4096-pixel still apart from scene backdr
   assert.match(skill, /backdrop[^.]*\b(repeat|tilemap)\b/);
   // The limit the sentence describes: a scene refuses an asset larger than an animation frame, 1024 a side and 262,144
   // pixels.
-  assert.throws(() => prepareScene(scene({ width: 128, height: 64, assets: { sky: block('sky', 2048, 64, '#8090c0') }, instances: [{ asset: 'sky', at: [0, 0] }] })), /at most 1024 pixels a side and 262,144 pixels/);
+  assert.throws(() => prepareScene(scene({ width: 128, height: 64, assets: { sky: block('sky', 2048, 64, '#8090c0') }, instances: [{ asset: 'sky', at: [0, 0] }] })), /at most 1024 pixels a side and 262,144 in all/);
 });

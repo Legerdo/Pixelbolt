@@ -50,9 +50,9 @@ test('an effect follows the animation frame: 1024 a side, 262,144 pixels, and th
   assert.equal(compileEffects(source(1024, 256)).recipe.width, 1024);
   assert.equal(compileEffects(source(512, 512)).recipe.height, 512);
   refused(source(1025, 64), 'fx.width', /expected .*1 to 1024/);
-  refused(source(1024, 512), 'fx', 'a 1024×512 canvas is 524,288 pixels; an effect\'s frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale');
+  refused(source(1024, 512), 'fx', 'a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and an effect\'s canvas is one: draw it smaller or enlarge a smaller canvas with sheet.scale');
   // The total is checked before anything is simulated, and says how many frames of this size fit.
-  refused(source(320, 180, 73), 'fx.effects', "73 frames of 320×180 are 4,204,800 pixels; a recipe's frames hold at most 4,194,304 in all, so 72 frames of 320×180 fit: use fewer frames or a smaller canvas");
+  refused(source(320, 180, 73), 'fx.effects', "the effects make 73 frames (an effect drawn behind a character also makes its -back and -front parts): 73 frames of 320×180 are 4,204,800 pixels; a recipe's frames hold at most 4,194,304 in all, so 72 frames of 320×180 fit: use fewer frames or a smaller canvas");
   assert.equal(compileEffects(source(320, 180, 72)).recipe.frames.length, 72);
 });
 
@@ -69,5 +69,30 @@ test('spawn boxes, rings and grounds reach across a big canvas; a particle symbo
   // A sprite taken from a recipe spans that recipe's canvas, so it follows the frame; a larger still is refused.
   const still = (width, height) => ({ version: 1, name: 'still', width, height, palette: { d: '#9fb8d8' }, frames: [{ name: 'f', ops: [{ op: 'pixel', x: 1, y: 1, color: 'd' }] }] });
   assert.ok(compileEffects({ ...rain(), symbols: { drop: ['d'], splash: ['s'], screen: { recipe: still(320, 180) } } }));
-  refused({ ...rain(), symbols: { drop: ['d'], splash: ['s'], screen: { recipe: still(1024, 512) } } }, 'fx.symbols.screen.recipe', 'its canvas is 1024×512; a symbol or sprite taken from a recipe is at most 1024 pixels a side and 262,144 pixels, as an animation frame is');
+  refused({ ...rain(), symbols: { drop: ['d'], splash: ['s'], screen: { recipe: still(1024, 512) } } }, 'fx.symbols.screen.recipe', 'a 1024×512 frame is 524,288 pixels; an animation frame is at most 1024 pixels a side and 262,144 in all (320×180, 480×270, 640×360 and 512×512 fit), and a symbol or sprite taken from a recipe spans that recipe\'s canvas, so it is held to one');
+});
+
+test('an effect drawn behind a character makes three frames for each of its own, and the reply says how many of its own fit', () => {
+  // 512x512: 16 frames fit in all. A plain effect of 4 frames leaves 12, so one drawn behind a character (its frames,
+  // its -back and its -front) may have 4 of its own.
+  const dot = (frames, depth) => ({ frames, emitters: [{ at: [4, 4], burst: 1, shapes: ['drop'], ...(depth && { depth }) }] });
+  const source = frames => ({ ...rain(512, 512), effects: { plain: dot(4), behind: dot(frames, 'back') } });
+  const { recipe } = compileEffects(source(4));
+  assert.deepEqual([recipe.frames.length, Object.keys(recipe.animations)], [16, ['plain', 'behind', 'behind-back', 'behind-front']]);
+  refused(source(5), 'fx.effects', "the effects make 19 frames (an effect drawn behind a character also makes its -back and -front parts): 19 frames of 512×512 are 4,980,736 pixels; a recipe's frames hold at most 4,194,304 in all, so 16 frames of 512×512 fit: use fewer frames or a smaller canvas; behind draws behind a character, so it makes three frames for each of its own, and 4 of its own fit");
+  // With no room left, it says so.
+  refused({ ...rain(512, 512), effects: { plain: dot(15), behind: dot(1, 'back') } }, 'fx.effects', /: use fewer frames or a smaller canvas; behind draws behind a character, so it makes three frames for each of its own, and not one of its own fits$/);
+  // An effect that draws nothing behind keeps the plain total.
+  refused({ ...rain(512, 512), effects: { plain: dot(4), more: dot(13) } }, 'fx.effects', /^fx\.effects: the effects make 17 frames \(an effect drawn behind a character also makes its -back and -front parts\): 17 frames of 512×512 are 4,456,448 pixels; .*16 frames of 512×512 fit: use fewer frames or a smaller canvas$/);
+});
+
+test('a particle shape stays at most 256 a side: a canvas-sized sprite from a recipe belongs to a sprite emitter or an aura', () => {
+  const still = (width, height) => ({ version: 1, name: 'still', width, height, palette: { d: '#9fb8d8' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: width, h: height, color: 'd' }] }] });
+  const emitting = (screen, emitter) => ({ ...rain(640, 360, 2), symbols: { drop: ['d'], splash: ['s'], screen: { recipe: screen } }, effects: { e: { frames: 2, emitters: [{ at: [320, 180], burst: 2, ...emitter }] } } });
+  // As a particle's shape, a 320x180 frame would be stamped (and cropped at the canvas edge) for every particle.
+  refused(emitting(still(320, 180), { shapes: ['drop', 'screen'] }), 'fx.effects.e.emitters[0].shapes[1]', 'screen is 320×180; a particle\'s symbol is at most 256 a side, since every particle stamps it, so a sprite as large as the canvas belongs to a sprite emitter or an aura');
+  refused(emitting(still(257, 8), { shapes: [['drop'], ['screen']], spin: 30 }), 'fx.effects.e.emitters[0].shapes[1][0]', /^fx\.effects\.e\.emitters\[0\]\.shapes\[1\]\[0\]: screen is 257×8; a particle's symbol is at most 256 a side/);
+  // At 256 a side it is still a shape, and as a sprite emitter's sprite the whole frame is fine.
+  assert.ok(compileEffects(emitting(still(256, 16), { shapes: ['screen'] })).recipe.frames.length);
+  assert.ok(compileEffects(emitting(still(320, 180), { at: [0, 0], sprite: { symbol: 'screen' }, burst: 4, life: 2 })).recipe.frames.length);
 });

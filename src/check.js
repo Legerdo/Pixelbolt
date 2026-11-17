@@ -1,17 +1,13 @@
 // What a render delivered, and how it differs from what the user asked for (`expect`). Each problem names the file
 // and the call that fixes it, so an agent can correct an export before handing it on. Read-only: it never changes
 // the bundle.
-import { PixelError, isObject, renderProject, CANVAS_SIDE as CANVAS, FRAME_PIXELS, STILL_SIDE, FRAME_AREA, sheetColumns, stillsHaveNoAnimation, stillTileSet } from './core.js';
+import { PixelError, isObject, renderProject, CANVAS_SIDE as CANVAS, FRAME_LIMIT, frameFits, frameAreaProblem, STILL_SIDE, FRAME_AREA, sheetColumns, stillsHaveNoAnimation, stillTileSet } from './core.js';
 import { autotileFrames } from './autotile.js';
 
 // The format's limits, as core.js enforces them, so no fix asks for a recipe the renderer refuses: an animation
 // frame's side and area (from core.js), sheet.scale, source frames, their total area, and the names one animation
 // lists. A pingpong of n names (n > 2) plays 2n - 2 frames, so an animation plays at most 2,046.
 const SCALE = 16, SOURCE_FRAMES = 256, ATLAS = 16777216, NAMES = 1024, PLAYED = 2 * NAMES - 2;
-// What an animation frame holds, said where a size fix names it.
-const FRAME_LIMIT = `an animation frame is at most ${CANVAS} px a side and 262,144 pixels`;
-// Whether w x h is a canvas any recipe may have, an animation's frame included.
-const frameFits = (w, h) => w <= CANVAS && h <= CANVAS && w * h <= FRAME_PIXELS;
 // The pixels one export's APNG animations hold (export.js), and all of one render's GIFs (mcp.js, gif.js).
 const EXPORT_PIXELS = 67108864, GIF_PIXELS = 67108864;
 // The size asked of a frame file: at most a still's side, the most one PNG holds of a square.
@@ -63,7 +59,7 @@ const wholeScale = (pairs, max) => {
 // animations' pixels and the atlas. A trimmed atlas packs each frame's visible bounds, so the change is rendered
 // (with the current drawing) to measure it; an untrimmed one is a grid.
 function exportBudget({ width, frames, animations, sheet }, w, h, k, recipe) {
-  if (frames.length > 1 && w * h > FRAME_PIXELS) return `a ${w}x${h} frame passes the 262,144 pixels an animation frame holds`;
+  if (frames.length > 1 && !frameFits(w, h)) return frameAreaProblem(w, h);
   if (w * h * frames.length > FRAME_AREA) return `${frames.length} frames of ${w}x${h} pass the limit of 4,194,304 pixels of frames`;
   const played = Object.values(animations).reduce((sum, item) => sum + item.frames.length, 0);
   if (played * w * h * k * k > EXPORT_PIXELS) return `${played} played frames at ${w * k}x${h * k} pass the 67,108,864 animation pixels an export holds`;

@@ -190,7 +190,7 @@ export function readRows(rows, path, palette, side = CANVAS_SIDE) {
   const width = rows[0].length;
   rows.forEach((row, y) => { if (typeof row !== 'string') fail(`${path}[${y}]`, `all rows must be ${width} characters wide`); });
   sameWidth(rows, path);
-  if (width * rows.length > ROW_CELLS) fail(path, `a ${width}×${rows.length} grid is ${grouped(width * rows.length)} cells; a grid holds at most 262,144, as an animation frame does, so split it into several grids`);
+  if (width * rows.length > ROW_CELLS) fail(path, `a ${width}×${rows.length} grid is ${grouped(width * rows.length)} cells; a grid holds at most ${grouped(ROW_CELLS)}, as an animation frame does, so split it into several grids`);
   const unknown = new Map();
   rows.forEach((row, y) => {
     for (const char of row) if (char !== '.' && char !== ' ') {
@@ -218,12 +218,26 @@ export const POSE_SIDE = 256;
 // The most cells one grid or symbol holds: a whole animation frame.
 const ROW_CELLS = FRAME_PIXELS;
 const grouped = value => String(value).replace(/\B(?=(\d{3})+$)/g, ',');
+// Whether width × height is an animation frame: at most CANVAS_SIDE a side and FRAME_PIXELS in all. A compiled effect,
+// an imported frame, a resized canvas and a scene asset are held to it too, and say so with frameAreaProblem.
+export const frameFits = (width, height) => width <= CANVAS_SIDE && height <= CANVAS_SIDE && width * height <= FRAME_PIXELS;
+// The per-frame limit in words, without examples (check.js leads its size fixes with it).
+export const FRAME_LIMIT = `an animation frame is at most ${CANVAS_SIDE} pixels a side and ${grouped(FRAME_PIXELS)} in all`;
+// Screen sizes named as examples, those the limit holds.
+const FRAME_EXAMPLES = [[320, 180], [480, 270], [640, 360], [512, 512]].filter(([w, h]) => frameFits(w, h)).map(([w, h]) => `${w}×${h}`);
+// What the per-frame limit says of a width × height frame past it (its area, or else a side), with sizes that fit; null
+// when it fits. One wording for every recipe, source and asset held to an animation frame.
+export function frameAreaProblem(width, height) {
+  if (frameFits(width, height)) return null;
+  const past = width * height > FRAME_PIXELS ? `is ${grouped(width * height)} pixels` : `is past ${CANVAS_SIDE} pixels a side`;
+  return `a ${width}×${height} frame ${past}; ${FRAME_LIMIT} (${FRAME_EXAMPLES.slice(0, -1).join(', ')} and ${FRAME_EXAMPLES.at(-1)} fit)`;
+}
 // What the total says when `count` frames of width × height pass FRAME_AREA, with how many of that size fit; null
 // when they fit. One wording for every recipe and source that makes frames.
 export function frameTotalProblem(count, width, height) {
   if (width * height * count <= FRAME_AREA) return null;
   const fit = Math.floor(FRAME_AREA / (width * height));
-  return `${count} frames of ${width}×${height} are ${grouped(width * height * count)} pixels; a recipe's frames hold at most 4,194,304 in all, so ${fit ? `${fit} frame${fit === 1 ? '' : 's'} of ${width}×${height} fit` : `not one frame of ${width}×${height} fits`}: use fewer frames or a smaller canvas`;
+  return `${count} frames of ${width}×${height} are ${grouped(width * height * count)} pixels; a recipe's frames hold at most ${grouped(FRAME_AREA)} in all, so ${fit ? `${fit} frame${fit === 1 ? '' : 's'} of ${width}×${height} fit` : `not one frame of ${width}×${height} fits`}: use fewer frames or a smaller canvas`;
 }
 // The sheet's columns when the recipe gives none: up to 8, and as many frames as keep the sheet within 4096 pixels
 // wide at scale 1 (one column at least).
@@ -247,7 +261,7 @@ function readProject(spec, { stills = true, side: most = CANVAS_SIDE } = {}) {
   };
   const width = side(spec.width, 'project.width'), height = side(spec.height, 'project.height');
   if (still && width * height > FRAME_AREA) fail('project', `a ${width}×${height} still is ${grouped(width * height)} pixels; a still holds at most 4,194,304 (1920×1080, 2560×1440 and 2048×2048 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale`);
-  if ((frameCount > 1 || !stills) && width * height > FRAME_PIXELS) fail('project', `a ${width}×${height} frame is ${grouped(width * height)} pixels; an animation frame holds at most 262,144 (320×180, 480×270, 640×360 and 512×512 fit), so draw it smaller or enlarge a smaller canvas with sheet.scale${stills ? '; only a single-frame still may be larger' : ''}`);
+  if ((frameCount > 1 || !stills) && width * height > FRAME_PIXELS) fail('project', `${frameAreaProblem(width, height)}, so draw it smaller or enlarge a smaller canvas with sheet.scale${stills ? '; only a single-frame still may be larger' : ''}`);
   const palette = spec.palette ?? {};
   object(palette, 'project.palette');
   if (own(palette, '$ref')) fail('project.palette.$ref', 'palette files are resolved by the CLI, MCP or resolveRecipe(); inline the palette to render here');
@@ -641,7 +655,7 @@ export function renderProject(spec, options = {}) {
         // floor colours, rewrite rules at its corners, an outline around it.
         if (op.tile === undefined) fail(`${p}.tile`, 'expected [width, height]: the distance between cells in pixels');
         const tile = point(op.tile, `${p}.tile`);
-        if (tile.some(n => n < 1 || n > 256)) fail(`${p}.tile`, 'cells are 1–256 pixels wide and tall');
+        if (tile.some(n => n < 1 || n > CANVAS_SIDE)) fail(`${p}.tile`, `cells are 1–${CANVAS_SIDE} pixels wide and tall, as a scene tilemap's are`);
         // An iso map lays cells on a 2:1 diamond grid, back to front; each symbol stands on its diamond, bottoms aligned
         // and centred across, so a block taller than the tile rises above its cell.
         if (op.layout !== undefined && op.layout !== 'square' && op.layout !== 'iso') fail(`${p}.layout`, 'expected square or iso');

@@ -3,7 +3,7 @@
 // offset (a layer's by its own x and y as well), and the result renders exactly as that window of the original does:
 // a margin shows the background, or nothing. With fewer frames (`keepFrames`): evenly spaced frames of each
 // animation, playing as long as before. Browser-compatible.
-import { CANVAS_SIDE, FRAME_PIXELS, frameTotalProblem, parseColor, renderProject, fail } from './core.js';
+import { CANVAS_SIDE, frameAreaProblem, frameTotalProblem, parseColor, renderProject, fail } from './core.js';
 
 
 // "32x32", "32×32" or [32, 32]: an animation frame's size, at most CANVAS_SIDE a side and FRAME_PIXELS in all.
@@ -12,7 +12,8 @@ export function readSize(value, path = 'size') {
   if (!Array.isArray(parts) || parts.length !== 2 || parts.some(side => !Number.isInteger(side) || side < 1 || side > CANVAS_SIDE)) {
     fail(path, `expected a canvas size such as "32x32", each side from 1 to ${CANVAS_SIDE}`);
   }
-  if (parts[0] * parts[1] > FRAME_PIXELS) fail(path, `a ${parts[0]}×${parts[1]} canvas is ${(parts[0] * parts[1]).toLocaleString('en-US')} pixels; a frame holds at most 262,144 (320×180, 640×360 and 512×512 fit)`);
+  const problem = frameAreaProblem(parts[0], parts[1]);
+  if (problem) fail(path, problem);
   return parts;
 }
 

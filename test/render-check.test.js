@@ -164,7 +164,7 @@ test('the render check\'s fixes stay inside the format\'s limits, and applying t
   // Past an animation frame's 262,144 pixels: a smaller canvas at a whole sheet.scale, the one nearest the drawing and
   // the most detailed.
   const big = check(spirit, { expect: { width: 1024, height: 1024 } }).problems[0].fix;
-  assert.match(big, /^an animation frame is at most 1024 px a side and 262,144 pixels, so 1024x1024 is a 64x64 canvas at sheet\.scale 16, the nearest to the current 24x24: .*a 512x512 canvas at sheet\.scale 2, for the most detail\)/);
+  assert.match(big, /^an animation frame is at most 1024 pixels a side and 262,144 in all, so 1024x1024 is a 64x64 canvas at sheet\.scale 16, the nearest to the current 24x24: .*a 512x512 canvas at sheet\.scale 2, for the most detail\)/);
   for (const changes of [changesAfter(big, 'pixel_patch ['), changesAfter(big, '(or [')]) {
     assert.equal(check(patchRecipe(spirit, changes).recipe, { expect: { width: 1024, height: 1024 } }).ok, true, JSON.stringify(changes));
   }
@@ -212,7 +212,7 @@ test('the render check\'s fixes stay inside the format\'s limits, and applying t
   const forty = { ...dots, frames: dots.frames.slice(0, 40) }, roomy = check(forty, { expect: { width: 512, height: 512 } }).problems[0].fix;
   assert.equal(check(patchRecipe(forty, changesAfter(roomy, '(or [')).recipe, { expect: { width: 512, height: 512 } }).ok, true);
   // No whole scale: say so and offer the nearest size that exists.
-  assert.match(check(spirit, { expect: { width: 4093 } }).problems[0].fix, /^an animation frame is at most 1024 px a side and 262,144 pixels, sheet\.scale at most 16, and no whole scale exports a width of 4093 exactly from 6 frames: tell the user, and offer 4092x96 \(a 1023x24 canvas at sheet\.scale 4\) instead$/);
+  assert.match(check(spirit, { expect: { width: 4093 } }).problems[0].fix, /^an animation frame is at most 1024 pixels a side and 262,144 in all, sheet\.scale at most 16, and no whole scale exports a width of 4093 exactly from 6 frames: tell the user, and offer 4092x96 \(a 1023x24 canvas at sheet\.scale 4\) instead$/);
   // Asked both sides, the nearest canvas also keeps a frame's area: 1021x1021 is a 511x511 canvas at scale 2, not
   // 1021x1021 at scale 1 (1,042,441 pixels).
   assert.match(check(spirit, { expect: { width: 1021, height: 1021 } }).problems[0].fix, /exactly from 6 frames: tell the user, and offer 1022x1022 \(a 511x511 canvas at sheet\.scale 2\) instead$/);

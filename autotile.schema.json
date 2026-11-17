@@ -71,7 +71,14 @@
       "description": "Symbols the ops may stamp; not copied into the compiled recipe."
     },
     "template": {
-      "$ref": "#/$defs/rows",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "minItems": 1,
       "description": "tile × 3 rows of tile × 2 characters. Tiles are stitched from its quarters, so it has to repeat every tile."
     },
     "terrain": {
@@ -615,7 +622,14 @@
             "description": "This layer's terrain, merged into the set's terrain (if any) field by field."
           },
           "template": {
-            "$ref": "#/$defs/rows",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "maxItems": 256,
+            "minItems": 1,
             "description": "This layer's template rows instead of a terrain."
           },
           "ops": {
@@ -820,7 +834,14 @@
             "description": "How often this variant is picked against the others for a cell, in the test map and Godot; default 1. Give common variants 10 and a rare one 1."
           },
           "template": {
-            "$ref": "#/$defs/rows",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "maxItems": 256,
+            "minItems": 1,
             "description": "Redraw this variant from its own template of the same size (compiled as the symbol template-<name>): cracked or mossy stone with the base set's edges."
           },
           "terrain": {
@@ -2042,7 +2063,7 @@
               "items": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 256
+                "maximum": 1024
               },
               "maxItems": 2,
               "minItems": 2,
