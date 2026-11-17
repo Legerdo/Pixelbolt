@@ -911,6 +911,7 @@ export function renderProject(spec, options = {}) {
   if (clipping.length) warnings.push(`Some drawing falls outside the canvas and is clipped: ${clipping[0].path} (${clipping[0].pixels} px)${clipping.length > 1 ? ` and ${clipping.length - 1} more location${clipping.length > 2 ? 's' : ''}` : ''}.`);
   return {
     name: projectName, width, height, frames, animations, palette, ramps,
+    ...(isStills(spec) && { stills: true }),
     ...(options.stats && { work: { pixels: work, layerPixels, operations: operationCount } }),
     ...(ownerNames && { ownerNames }),
     sheet,
@@ -1008,10 +1009,20 @@ export function describeStampRecipe(spec) {
   return { frames, animations, sheet };
 }
 
+// Whether a recipe's frames are stills (its "animations" is an empty map), and whether it names animations of its own
+// (neither stills nor the field left out, which plays every frame in order).
+export const isStills = spec => isObject(spec?.animations) && !Object.keys(spec.animations).length;
+export const namesAnimations = spec => isObject(spec?.animations) && Object.keys(spec.animations).length > 0;
+// What a GIF, video frames or a check say of stills: there is no animation to play, and how to make one.
+export const stillsHaveNoAnimation = what => `the frames are stills ("animations": {} in the recipe), so there is no animation to ${what}: list the frames to play under "animations", such as { "loop": { "frames": ["a", "b"] } }, or remove the field to play every frame in order`;
+
 function readAnimations(spec, frames) {
   const animations = Object.create(null), animationNames = new Set();
   object(spec.animations ?? {}, 'project.animations');
-  for (const [key, animation] of Object.entries(spec.animations ?? { default: { frames: frames.map(f => f.name) } })) {
+  // No animations field plays every frame in order. An empty map says the frames are stills (icons, UI states, tiles):
+  // they keep that flipbook, so a viewer can still step through them, and renderProject marks the project `stills`,
+  // which no export, reply or GIF animates.
+  for (const [key, animation] of Object.entries(namesAnimations(spec) ? spec.animations : { default: { frames: frames.map(f => f.name) } })) {
     const p = `project.animations.${key}`;
     name(key, p);
     if (animationNames.has(key.toLowerCase())) fail(p, 'animation names must also be unique ignoring case');
@@ -1027,7 +1038,6 @@ function readAnimations(spec, frames) {
     const loop = boolean(animation.loop ?? true, `${p}.loop`);
     animations[key] = { frames: indices, loop, duration: indices.reduce((sum, i) => sum + frames[i].duration, 0) };
   }
-  if (!Object.keys(animations).length) fail('project.animations', 'at least one animation is required; omit this field for a default animation');
   return animations;
 }
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import { encodePNG, encodeAPNG } from '../src/png.js';
-import { createBundle, writeBundle, createZip, formatJSON } from '../src/export.js';
+import { createBundle, writeBundle, createZip, formatJSON, describeAnimations } from '../src/export.js';
 import { renderProject } from '../src/core.js';
 import { createSequence } from '../src/sequence.js';
 import { compileAutotile } from '../src/authoring.js';
@@ -347,4 +347,43 @@ test('formatJSON keeps short records on one line and grids one row per line, and
 `);
   assert.equal(formatJSON({ a: [], b: {}, c: undefined }), '{ "a": [], "b": {} }\n');
   assert.ok(formatJSON({ frames: Array.from({ length: 40 }, (_, i) => `frame-${i}`) }).split('\n').every(line => line.length <= 120));
+});
+
+// Six 4x4 icons on an opaque background, as an icon set, UI states or a 9-slice panel's pieces are drawn.
+const icons = { version: 1, name: 'icons', width: 4, height: 4, palette: { r: '#ff0000', b: '#0000ff' }, background: 'r',
+  frames: ['sword', 'shield', 'potion', 'key', 'gem', 'scroll'].map((name, i) => ({ name, ops: [{ op: 'pixel', x: i % 4, y: 1, color: 'b' }] })),
+  sheet: { columns: 3, padding: 0 }, animations: {} };
+test('"animations": {} makes the frames stills: no SpriteFrames, CSS, animated PNGs or player, and an atlas of frames alone', async () => {
+  const project = renderProject(icons);
+  assert.equal(project.stills, true);
+  assert.equal(renderProject({ ...icons, animations: undefined }).stills, undefined);
+  assert.deepEqual(describeAnimations(project, icons), {});
+  const bundle = await createBundle(icons), files = [...bundle.files.keys()];
+  assert.deepEqual(files.filter(file => !file.startsWith('frames/')), ['icons.png', 'icons.atlas.json', 'icons.pixel.json', 'preview.html', 'README.txt']);
+  assert.deepEqual(files.filter(file => file.startsWith('frames/')), icons.frames.map(frame => `frames/${frame.name}.png`));
+  const atlas = JSON.parse(bundle.files.get('icons.atlas.json'));
+  assert.deepEqual(Object.keys(atlas), ['frames', 'meta']); assert.equal(atlas.meta.frameTags, undefined);
+  assert.deepEqual(Object.keys(atlas.frames), icons.frames.map(frame => frame.name));
+  const readme = bundle.files.get('README.txt').toString();
+  assert.match(readme, /^icons\.png: opaque RGBA sheet of 6 stills$/m);
+  assert.match(readme, /^frames\/: one PNG per still, named by frame \(frames\/sword\.png\)$/m);
+  assert.match(readme, /Sprite2D the texture icons\.png with Region Enabled/);
+  assert.doesNotMatch(readme, /AnimatedSprite2D|play\(|player\.js|\.css|animations\/|Timing/);
+  const preview = bundle.files.get('preview.html').toString();
+  assert.match(preview, /<p>Sheet of 6 stills\.<\/p><figure><img src="icons\.png"/); assert.doesNotMatch(preview, /tileset|animations\//);
+  // A forced export of the same recipe as a flipbook, then back as stills, removes what only the flipbook wrote.
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-stills-'));
+  try {
+    await writeBundle(await createBundle({ ...icons, animations: undefined }), dir);
+    await writeBundle(bundle, dir, { force: true });
+    assert.deepEqual((await readdir(dir)).sort(), ['README.txt', 'frames', 'icons.atlas.json', 'icons.pixel.json', 'icons.png', 'preview.html']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test('README.txt calls the sheet transparent only when it holds a pixel that is not fully opaque', async () => {
+  const readme = async recipe => (await createBundle(recipe)).files.get('README.txt').toString();
+  assert.match(await readme({ ...icons, animations: { all: { frames: ['sword', 'gem'] } } }), /^icons\.png: opaque RGBA sprite sheet$/m);
+  // Padding round each frame is see-through, and so is a transparent background.
+  assert.match(await readme({ ...icons, animations: undefined, sheet: { padding: 1 } }), /^icons\.png: transparent RGBA sprite sheet$/m);
+  assert.match(await readme({ ...icons, background: 'transparent' }), /^icons\.png: transparent RGBA sheet of 6 stills$/m);
+  assert.match(await readme(tiny), /^sample\.png: transparent RGBA sprite sheet$/m);
 });

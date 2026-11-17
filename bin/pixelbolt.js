@@ -7,6 +7,7 @@ import { compileWaves } from '../src/wave.js';
 import { readExpect, checkDelivery, briefCheck } from '../src/check.js';
 import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepAnimations } from '../src/resize.js';
 import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from '../src/export.js';
+import { STILLS_GIF_NOTE } from '../src/gif.js';
 import { shareLink, readEmbeddedRecipe, recipeKind } from '../src/share.js';
 import { PRESET_FOLDER, listPresets, briefListing, findListing, namedLike, presetWords, presetEntries, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from '../src/presets.js';
 import { renderProject, animationGIF, asGIFShows, parseColor, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
@@ -775,7 +776,10 @@ try {
         const lit = options.normal === undefined ? null : await readResolved(options.normal, '--normal');
         const normal = !lit ? undefined : lit.document?.format === 'pixelforge-normals' ? COMPILERS['pixelforge-normals'](lit.document).recipe : lit.document;
         const bundle = await createBundle(input.document, { normal }), scale = options['gif-scale'] === undefined ? undefined : Number(options['gif-scale']);
-        const gifs = options.gif || scale !== undefined ? Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, { ...(scale !== undefined && { scale }) })) : undefined;
+        // Stills have no animation to make a GIF of: none is written, with one note.
+        const asked = options.gif || scale !== undefined;
+        if (asked && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
+        const gifs = asked && !bundle.project.stills ? Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, { ...(scale !== undefined && { scale }) })) : undefined;
         if (gifs && gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new Error('--gif-scale: all animations at this scale exceed 67,108,864 pixels; use a lower scale');
         const check = checkDelivery(bundle.project, { recipe: input.document, gifs, expect, animation: options.animation });
         if (options['embed-recipe']) await embedBundleRecipe(bundle, input.document, await engineVersion());

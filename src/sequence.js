@@ -1,7 +1,7 @@
 // Image sequences for video editors: one numbered PNG per video frame at a constant frame rate, on a canvas of the
 // video's size. Editors read these directly and keep the alpha; nothing here encodes video. Timing is exact integer
 // arithmetic on the frame rate as a fraction, so 29.97 means 30000/1001 and a sequence is the same on every machine.
-import { parseColor, fail, isObject } from './core.js';
+import { parseColor, fail, isObject, stillsHaveNoAnimation } from './core.js';
 import { renderScene, SCENE_SIDE, SCENE_AREA } from './scene.js';
 import { bodiesFrames } from './bodies.js';
 import { powderFrames } from './powder.js';
@@ -254,6 +254,7 @@ function common(options, allowed) {
 // One animation of a rendered project as a sequence: { info, files }, where files maps names to bytes.
 export function createSequence(project, options = {}) {
   const rate = common(options, KEYS), names = Object.keys(project.animations), animation = options.animation ?? names[0];
+  if (project.stills) fail('sequence', stillsHaveNoAnimation('make video frames of'));
   if (!Object.hasOwn(project.animations, animation)) fail('sequence.animation', `no animation named "${animation}"; choose one of: ${names.join(', ')}`);
   const sequence = project.animations[animation], frames = sequence.frames.map(index => project.frames[index]);
   const plan = planSequence(frames.map(frame => frame.duration), { fps: rate, loop: sequence.loop, loops: options.loops ?? 1, seconds: options.seconds, step: options.step ?? 1 });

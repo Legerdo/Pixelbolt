@@ -11,7 +11,7 @@ import { encodePNG } from './png.js';
 import { createBundle, writeBundle, embedBundleRecipe, outputSummary, describeAnimations } from './export.js';
 import { spriteFrames, retexture } from './godot.js';
 import { shareLink } from './share.js';
-import { animationGIF } from './gif.js';
+import { animationGIF, STILLS_GIF_NOTE } from './gif.js';
 import { readExpect, checkDelivery, briefCheck } from './check.js';
 import { createSequence, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, frameGrid } from './sequence.js';
 import { compilePoses, draftViews } from './authoring.js';
@@ -437,7 +437,9 @@ export function createToolRunner({ directory, root, version }) {
         const bundle = await createBundle(recipe, { normal }), view = inspectProject(bundle.project, { ...(animation !== undefined && { animation }), maxCells: 256 });
         // GIFs are encoded before anything is written, so a refused GIF leaves no folder behind.
         if (gif !== undefined && (gif === null || typeof gif !== 'object' || Array.isArray(gif))) throw new PixelError('gif', 'expected an object such as {} or { "scale": 8 }');
-        const gifs = gif === undefined ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
+        // Stills have no animation to make a GIF of: none is written, with one note.
+        if (gif !== undefined && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
+        const gifs = gif === undefined || bundle.project.stills ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
         if (gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) throw new PixelError('gif', 'all animations at this scale exceed 67,108,864 pixels; lower gif.scale');
         const frames = sequence === undefined ? null : checkSequenceSize(createSequence(bundle.project, { ...(animation !== undefined && { animation }), ...(sequence !== null && typeof sequence === 'object' ? sequence : { fps: undefined }) }));
         let shared;
@@ -467,7 +469,7 @@ export function createToolRunner({ directory, root, version }) {
           error.message += `. The export itself was written to ${out}: use its files, or send revision "${savedRevision}" with saveAs paths that can be written`;
           throw Object.assign(error, { made: { revision: savedRevision, directory: out } });
         }
-        const check = checkDelivery(bundle.project, { recipe, gifs, expect, animation });
+        const check = checkDelivery(bundle.project, { recipe, gifs: bundle.project.stills ? undefined : gifs, expect, animation });
         return { content: [textContent(withResolved({ ok: true, revision: savedRevision, directory: out, ...outputSummary(out, files, listFiles === true), frames: bundle.project.frames.length, ...describeAnimations(bundle.project, recipe), playback: path.join(out, 'preview.html'), ...(gifs.length && { gifs: { directory: 'gifs', count: gifs.length, scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(gifs.length <= 16 && { files: gifs.map(item => `gifs/${item.animation}.gif`) }), notes: gifs.flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16) } }), ...(frames && { sequence: sequenceSummary(frames.info) }), ...(saves.length && { saved: saves.map(item => ({ file: item.file, path: item.destination, ...(item.replaced && { replaced: true }) })) }), check: briefCheck(check), preview: viewSummary(view), warnings: bundle.project.warnings, ...(shared && { share: shared }) }, resolved)), imageContent(view.sheet)], ...(preview && preview(bundle.project, {
           animation, files: [...new Set([
             ...files.filter(file => path.dirname(file) === out && /\.(?:png|atlas\.json|pixel\.json|tres|tsx)$/.test(file)),
