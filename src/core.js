@@ -1447,7 +1447,8 @@ function cellsThatFit(count, w, h, scale, room = NO_ROOM) {
   while (low < high) { const mid = Math.ceil((low + high) / 2); if (fits(mid)) low = mid; else high = mid - 1; }
   return low;
 }
-function drawSheet(sources, width, region, { scale, background = null, columns, where = 'inspect', room = NO_ROOM } = {}) {
+// `layoutOnly`: the layout with no pixels (data null), for stackEvery's search.
+function drawSheet(sources, width, region, { scale, background = null, columns, where = 'inspect', room = NO_ROOM, layoutOnly = false } = {}) {
   const measure = (c, s) => {
     const rows = Math.ceil(sources.length / c), gap = Math.max(2, s);
     return { columns: c, rows, scale: s, gap, width: c * region.w * s + (c + 1) * gap, height: rows * region.h * s + (rows + 1) * gap };
@@ -1487,6 +1488,7 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
     fail(where, `the contact sheet would be ${w}×${h} pixels, ${sides ? `past the ${grouped(PNG_PIXELS)} one PNG holds${room.legend ? ' with the parts legend' : ''}`
       : `above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters${gap > 2 ? `; the ${gap}-pixel gutters at scale ${layout.scale} count their other ${gap - 2} pixel${gap === 3 ? '' : 's'} against the 4096` : ''})`}; select fewer frames, a smaller region or a lower scale`);
   }
+  if (layoutOnly) return { ...layout, data: null };
   const data = new Uint8ClampedArray(layout.width * layout.height * 4), square = Math.max(2, Math.ceil(8 / layout.scale)), composed = new Map();
   // The gutter colour is written once and doubled with copyWithin; each cell pixel's source colour is read into one
   // reused buffer for blend, rather than a new view of the frame a pixel.
@@ -1616,6 +1618,7 @@ function drawPartLegend(sheet, legend) {
   const { columns, width: added, height: tall } = legendSize(texts.map(text => text.width), t, perColumn);
   const width = sheet.width + added, height = Math.max(sheet.height, tall);
   if (width > SHEET_SIDE * 2 || height > SHEET_SIDE * 2 || width * height > PNG_PIXELS) fail('inspect.view', `the parts legend would make the sheet ${width}×${height} pixels, past the ${grouped(PNG_PIXELS)} one PNG holds; select fewer frames, a smaller region or a lower scale`);
+  if (!sheet.data) return { ...sheet, width, height };
   const data = new Uint8ClampedArray(width * height * 4);
   data.set(gutterColor, 0);
   for (let filled = 4; filled < data.length; filled *= 2) data.copyWithin(filled, 0, Math.min(filled, data.length - filled));
@@ -1793,27 +1796,44 @@ function refitted(views) {
 // The sheets alone that cannot hold the cells `every` makes (inspectProject leaves their refusal to the stack), as
 // the one asking the largest every.
 const shortest = views => views.filter(view => view[REFIT].short).map(view => bySheet(view[REFIT].short, view.name)).reduce((most, next) => (!most || next.every > most.every ? next : most), null);
-// An `every` that a sheet, alone or refitted into the stack, cannot hold is refused once for the whole stack: the views
-// are inspected again at the every the refusals ask for and the stack refitted, until one holds every cell (each round
-// asks more, so a few settle it). The refusal names the sheet that asked most, the bound it met and the every that
-// held, so following it is not refused again by another sheet.
+// An `every` that a sheet, alone or refitted into the stack, cannot hold is refused once for the whole stack, naming
+// the smallest every above it that holds every cell of every sheet. The views are inspected again (laid out, not
+// drawn) at the every the refusals ask for and the stack refitted until one holds (each round asks more, so a few
+// settle it); then the gap between the last every refused and that one is halved until they are one apart. A
+// sheet's own bound (`alone`: 256 cells, or one 4096-pixel sheet) is never passed below the every it needs, so the
+// search starts there. The refusal names the sheet refused just below that every, and says what it holds in the
+// stack drawn at it, so following it is not refused again by another sheet. It says no "or more": a larger every
+// usually holds too, but not always, since fewer cells can let a small sheet keep a larger scale and crowd the rest.
 function stackEvery(views, first) {
   const asked = views[0].sampling.every;
-  for (let need = first, round = 0; round < 8 && need.every <= 60000; round++) {
-    const every = need.every, again = views.map(view => ({ ...view[REFIT].every(every), name: view.name }));
+  const check = every => {
+    const again = views.map(view => ({ ...view[REFIT].every(every), name: view.name }));
     try {
       const short = shortest(again);
       if (short) throw short;
-      refitted(again);
-    } catch (next) {
-      if (next.every === undefined) throw next;
-      need = next.every > every ? next : Object.assign(next, { every: every + 1 });
-      continue;
+      return { every, views: refitted(again) };
+    } catch (error) {
+      if (error.every === undefined) throw error;
+      return { every: error.alone ? Math.max(every, error.every - 1) : every, error };
     }
-    const cells = Math.ceil(need.duration / asked), held = Math.min(need.held, Math.ceil(need.duration / every));
-    return new PixelError('inspect.every', `${need.sheet}: ${need.duration} ms at one cell per ${asked} ms is ${cells} cells, and ${need.why} ${held}; choose every ${every} or more`);
+  };
+  let low = { every: first.alone ? Math.max(asked, first.every - 1) : asked, error: first }, high = null;
+  for (let round = 0; round < 8 && !high; round++) {
+    const next = Math.max(low.error.every, low.every + 1);
+    if (next > 60000) return first;
+    const tried = check(next);
+    if (tried.views) high = tried; else low = tried;
   }
-  return first;
+  if (!high) return first;
+  while (high.every - low.every > 1) {
+    const tried = check(Math.floor((low.every + high.every) / 2));
+    if (tried.views) high = tried; else low = tried;
+  }
+  const { sheet, duration, alone } = low.error, drawn = high.views.find(view => view.name === sheet);
+  // The sheet's own bound holds what it says at any every; one the stack sets is said as the stack drawn at the every
+  // advised holds it.
+  const held = alone || !drawn ? low.error.held : drawn.cells.length, why = alone ? low.error.why : drawn?.[REFIT].inStack ?? low.error.why;
+  return new PixelError('inspect.every', `${sheet}: ${duration} ms at one cell per ${asked} ms is ${Math.ceil(duration / asked)} cells, and ${why} ${held}; choose every ${high.every}`);
 }
 function fitStack(views) {
   if (!views.every(view => view[REFIT])) {
@@ -1868,8 +1888,8 @@ function laidOver(bottom, top) {
 // cells as frames. under: { width, height, data } (RGBA), a picture from elsewhere (a ground tile of another recipe)
 // repeated from the top left under every cell, so a sprite is seen on what it will lie on.
 // `share` is stackViews' own: the room a sheet stacked beside others is refitted to ({ maxHeight, maxWidth, stack, why },
-// and `others`, the least each other sheet takes).
-export function inspectProject(project, options = {}, share) {
+// and `others`, the least each other sheet takes). `measure` is stackEvery's: the sheet laid out with no pixels drawn.
+export function inspectProject(project, options = {}, share, measure = false) {
   object(options, 'inspect', ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'view', 'native', 'diagnostics', 'maxCells', 'step', 'offset', 'every', 'guides', 'stack', 'under', 'sheets']);
   // The project as given: stack and under replace `project` with their composites, and a refit starts again from this.
   const source = project, { width, height } = project;
@@ -1950,12 +1970,20 @@ export function inspectProject(project, options = {}, share) {
   // A cell per `every` milliseconds of playback: a frame fills as many cells as it is held, so the sheet reads as
   // the animation plays, holds and fast steps included.
   const every = options.every === undefined ? undefined : integer(options.every, 'inspect.every', 10, 60000);
+  // `sheets`: how many sheets beside draws in one image (1 to 9); stackViews refits the tallest when they pass it.
+  const sheets = options.sheets === undefined ? 1 : integer(options.sheets, 'inspect.sheets', 1, 9);
+  // A sheet stacked beside others that cannot hold the cells `every` makes (past 256, or past what one sheet holds) is
+  // refused by stackViews, which knows the whole stack: the every this sheet alone needs could be refused again by
+  // another sheet or when the stack is refitted. Such a sheet is drawn with one cell, only to be measured.
+  let short;
+  const defer = error => { if (sheets === 1 || share || options.scale !== undefined) throw error; short = error; };
   if (every !== undefined) {
     if (options.animation === undefined) fail('inspect.every', 'every samples playback, so it needs an animation');
     if (options.step !== undefined || options.offset !== undefined) fail('inspect.every', 'every picks positions by time; omit step and offset');
-    const a = project.animations[options.animation], count = Math.ceil(a.duration / every);
-    if (count > 256) fail('inspect.every', `${a.duration} ms at one cell per ${every} ms is ${count} cells; at most 256, so choose every ${Math.ceil(a.duration / 256)} or more`);
-    positions = Array.from({ length: count }, (_, n) => animationPosition(project, a, n * every));
+    const a = project.animations[options.animation], count = Math.ceil(a.duration / every), most = Math.ceil(a.duration / 256);
+    if (count > 256) defer(Object.assign(new PixelError('inspect.every', `${a.duration} ms at one cell per ${every} ms is ${count} cells; at most 256, so choose every ${most} or more`),
+      { every: most, cells: count, held: 256, duration: a.duration, why: 'a sheet holds at most', alone: true }));
+    positions = Array.from({ length: short ? 1 : count }, (_, n) => animationPosition(project, a, n * every));
     methods.push(`one cell per ${every} ms of playback`);
   }
   if (step > 1 || offset > 0) {
@@ -1967,14 +1995,13 @@ export function inspectProject(project, options = {}, share) {
   // Cells by time read as playback only while every one is shown: where a sheet of big frames (over 256 a side) or a
   // share of a beside image cannot hold the cells `every` makes, it is refused with the `every` that fits, as more
   // than 256 is. A maxCells the caller gives thins them evenly instead, as it thins frames. The refusal carries what
-  // stackEvery reads: the every needed, the cells the sheet holds and the bound it met.
+  // stackEvery reads: the every needed, the cells the sheet holds, the bound it met and whether that bound is the
+  // sheet's own (`alone`: no every below the one needed holds, whatever the stack does).
   const thinEvery = (count, why) => {
     const { duration } = project.animations[options.animation];
     throw Object.assign(new PixelError('inspect.every', `${duration} ms at one cell per ${every} ms is ${positions.length} cells, and ${why} ${count}; choose every ${Math.ceil(duration / count)} or more`),
-      { every: Math.ceil(duration / count), cells: positions.length, held: count, duration, why });
+      { every: Math.ceil(duration / count), cells: positions.length, held: count, duration, why, alone: !share });
   };
-  // `sheets`: how many sheets beside draws in one image (1 to 9); stackViews refits the tallest when they pass it.
-  const sheets = options.sheets === undefined ? 1 : integer(options.sheets, 'inspect.sheets', 1, 9);
   const box = mode === 'tile' ? { w: width * 3, h: height * 3 } : region;
   if (options.maxCells !== undefined) {
     const requested = integer(options.maxCells, 'inspect.maxCells', 1, 256);
@@ -1992,14 +2019,11 @@ export function inspectProject(project, options = {}, share) {
     room = { pixels: PNG_PIXELS, height: sheets > 1 ? STACK_BAND : 0, maxHeight: sheets > 1 ? STACK_SIDE : Infinity, maxWidth: Infinity, sheets, stack: STACK_SIDE, why: `${grouped(STACK_SIDE)} pixels tall at most`,
       legend: mode === 'parts' ? legendRoom(project.ownerNames) : null, ...(sheets > 1 && share) };
   }
-  // A sheet stacked beside others that cannot hold the cells `every` makes is refused by stackViews, which knows the
-  // whole stack: the every this sheet alone needs could be refused again when the stack is refitted.
-  let short;
+  const inStack = `the height left to it in an image of ${sheets} sheets stacked (${room.why}) holds`;
   if (options.scale === undefined) {
     const count = Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1, room));
     if (count < positions.length && every !== undefined) {
-      const why = share ? `the height left to it in an image of ${sheets} sheets stacked (${room.why}) holds` : `one 4096-pixel sheet${sheets > 1 ? ` (one of ${sheets} in the image)` : ''} of ${box.w}×${box.h} cells holds`;
-      try { thinEvery(count, why); } catch (error) { if (sheets === 1 || share) throw error; short = error; }
+      try { thinEvery(count, share ? inStack : `one 4096-pixel sheet${sheets > 1 ? ` (one of ${sheets} in the image)` : ''} of ${box.w}×${box.h} cells holds`); } catch (error) { defer(error); }
     }
     // A sheet stackViews will refuse is only measured again, so it is drawn with one cell.
     if (short) positions = spread(positions, 1);
@@ -2010,23 +2034,23 @@ export function inspectProject(project, options = {}, share) {
   if (grid && unique.length * region.w * region.h > 16384) fail('inspect.grid', `grids are limited to 16,384 pixels, not ${unique.length} × ${region.w}×${region.h}; select fewer frames or a smaller region`);
   let view;
   if (mode === 'tile') {
-    const repeats = new Map(unique.map(i => [i, tileRepeat(frames[i].data, width, height)]));
+    const repeats = new Map(unique.map(i => [i, measure ? null : tileRepeat(frames[i].data, width, height)]));
     const tiled = { x: 0, y: 0, w: width * 3, h: height * 3 };
-    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale, background, room }), mode };
-    view.tiles = unique.map(i => ({ frame: frames[i].name, ...tileReport(frames[i].data, width, height) }));
-    if (native && view.sheet.scale > 1) view.nativeSheet = drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale: 1, background });
+    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale, background, room, layoutOnly: measure }), mode };
+    if (!measure) view.tiles = unique.map(i => ({ frame: frames[i].name, ...tileReport(frames[i].data, width, height) }));
+    if (native && !measure && view.sheet.scale > 1) view.nativeSheet = drawSheet(cells.map(i => repeats.get(i)), width * 3, tiled, { scale: 1, background });
   } else {
     const parts = mode === 'parts' ? partColors(project, unique, region) : null;
-    const sources = cells.map((i, n) => mode === 'onion' ? onionPixels(project, project.animations[options.animation], positions[n]) : parts ? parts.pixels.get(i) : reviewPixels(frames[i].data, mode));
-    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(sources, width, region, { scale, background, room }) };
-    if (guides) {
+    const sources = cells.map((i, n) => measure ? null : mode === 'onion' ? onionPixels(project, project.animations[options.animation], positions[n]) : parts ? parts.pixels.get(i) : reviewPixels(frames[i].data, mode));
+    view = { cells: cells.map(i => ({ frame: frames[i].name, duration: frames[i].duration })), region, sheet: drawSheet(sources, width, region, { scale, background, room, layoutOnly: measure }) };
+    if (guides && !measure) {
       // Over every cell of the enlarged sheet; the native sheet keeps its exact pixels.
       const { sheet } = view, w = region.w * sheet.scale, h = region.h * sheet.scale;
       cells.forEach((_, n) => drawGuides(sheet.data, sheet.width, { left: sheet.gap + (n % sheet.columns) * (w + sheet.gap), top: sheet.gap + Math.floor(n / sheet.columns) * (h + sheet.gap), w, h }, sheet.scale, region, guides));
       view.guides = guides;
     }
     if (mode !== 'color') view.mode = mode;
-    if (native && (view.sheet.scale > 1 || guides)) view.nativeSheet = drawSheet(sources, width, region, { scale: 1, background });
+    if (native && !measure && (view.sheet.scale > 1 || guides)) view.nativeSheet = drawSheet(sources, width, region, { scale: 1, background });
     if (parts) {
       view.parts = parts.legend.map(({ name, color, pixels }) => ({ name, color: toHex(color), pixels }));
       view.sheet = drawPartLegend(view.sheet, parts.legend);
@@ -2041,17 +2065,17 @@ export function inspectProject(project, options = {}, share) {
     // A refit redraws the sheet; what does not depend on it (diagnostics, timing) is kept rather than measured again.
     const redraw = { ...options, diagnostics: undefined };
     view[REFIT] = Object.assign(share => {
-      const again = inspectProject(source, redraw, share);
+      const again = inspectProject(source, redraw, share, measure);
       delete again.timing;
       return Object.assign(again, view.diagnostics && { diagnostics: view.diagnostics }, view.timing && { timing: view.timing });
-    }, { narrow: one.width + legend.width, low: Math.max(one.height, legend.height), short,
+    }, { narrow: one.width + legend.width, low: Math.max(one.height, legend.height), short, ...(share && { inStack }),
       // The sheet inspected afresh at another every, for stackEvery.
-      ...(every !== undefined && { every: next => inspectProject(source, { ...redraw, every: next }) }) });
+      ...(every !== undefined && { every: next => inspectProject(source, { ...redraw, every: next }, undefined, true) }) });
   }
   if (every !== undefined) view.sampling = { total, shown: cells.length, every, positions, method: `${methods.join(', then ')}; a frame fills a cell for each ${every} ms it is held` };
   else if (total !== cells.length) view.sampling = { total, shown: cells.length, omitted: total - cells.length, positions, ...((step > 1 || offset > 0) && { step, offset }), method: `${methods.join(', then ')}; durations are original, not playback timing` };
   if (diagnostics) view.diagnostics = analyzeProject(project);
-  if (options.animation !== undefined && (diagnostics || mode === 'onion' || every !== undefined)) {
+  if (options.animation !== undefined && !measure && (diagnostics || mode === 'onion' || every !== undefined)) {
     const a = project.animations[options.animation], fps = animationFps(project, options.animation); let start = 0;
     view.timing = { animation: options.animation, duration: a.duration, loop: a.loop, ...(fps !== undefined && { fps }), entries: a.frames.map((index, position) => {
       const entry = { position, frame: frames[index].name, start, duration: frames[index].duration, ...animationNeighbors(a, position) };
@@ -2182,19 +2206,21 @@ export function analyzeProject(project) {
     const nonzero = deltas.filter(n => n).sort((a, b) => a - b), median = nonzero[Math.floor(nonzero.length / 2)] ?? 0;
     const boundary = difference(frames[a.frames.at(-1)].data, frames[a.frames[0]].data);
     if (a.loop && boundary.pixels > Math.max(4, median * 3)) findings.push({ code: 'loop-jump', animation: name, from: frames[a.frames.at(-1)].name, to: frames[a.frames[0]].name, ...boundary, note: 'Loop boundary changes over three times the median nonzero adjacent change. Intentional cuts are exempt.' });
-    return { animation: name, duration: a.duration, entries: a.frames.length, repeatedAdjacent: deltas.filter(n => !n).length, boundary };
+    // A one-shot never plays its last frame into its first, so it has no boundary to read as a seam.
+    return { animation: name, duration: a.duration, entries: a.frames.length, repeatedAdjacent: deltas.filter(n => !n).length, ...(a.loop && { boundary }) };
   });
   return { advisory: true, frames: stats, ...(!project.stills && { animations }), findings };
 }
 
 // Diagnostics as a reply carries them. Up to DIAGNOSTIC_ROWS frames keep a row each; past that the rows are added up
 // (`frameTotals`: ranges of visible pixels and colours, cleanup counts summed) and `frames` keeps only three rows,
-// since thirty rows of near-equal counts tell a reader nothing a total does not: frames with findings first (other
-// than off-palette colours, which are added up by colour), then the most corners and strays. Findings follow the
-// rows: those of the frames kept are listed, those of the other frames added up by code (`findingTotals`: "isolated":
-// "129 pixels in 16 frames"), since a particle overlay has strays in every frame and a block of coordinates each would
-// be most of the reply; a code in eight frames or fewer names them ("8 pixels in resonate-5, resonate-25"). Off-palette
-// colours are added up by colour ("#123456 in 7 frames"), as one colour in many frames is one colour to fix. A finding with no coordinates (`empty`) costs a line,
+// since thirty rows of near-equal counts tell a reader nothing a total does not: frames with findings first (then
+// those whose only finding is off-palette colours), then the most corners and strays. Findings follow the rows: those
+// of the frames kept are listed, those of the other frames added up by code (`findingTotals`: "isolated": "129 pixels
+// in 16 frames"), since a particle overlay has strays in every frame and a block of coordinates each would be most of
+// the reply; a code in eight frames or fewer names them ("8 pixels in resonate-5, resonate-25"). Off-palette colours
+// are added up by colour ("#123456 in 7 frames"), as one colour in many frames is one colour to fix, followed by the
+// frames when eight or fewer ("; in smoke-3 … smoke-5"). A finding with no coordinates (`empty`) costs a line,
 // so it stays listed, once for every frame it names. Animations and their findings are kept whole. `duplicate` is
 // left out: a pose a cycle passes twice, or a hold, is no finding to act on, and two cold runs read the list as noise
 // (`--full` keeps everything). `analyzeProject` still measures every frame.
@@ -2204,10 +2230,13 @@ export function briefDiagnostics(diagnostics) {
   rest.findings = rest.findings.filter(finding => finding.code !== 'duplicate');
   if (frames.length <= DIAGNOSTIC_ROWS) return { advisory: rest.advisory, frames, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
   const range = key => [Math.min(...frames.map(row => row[key])), Math.max(...frames.map(row => row[key]))], sum = key => frames.reduce((total, row) => total + row[key], 0);
-  const flagged = new Set(rest.findings.filter(finding => finding.coordinates && finding.code !== 'palette').map(finding => finding.frame));
-  const most = frames.map((row, index) => ({ row, index, flagged: flagged.has(row.frame), count: row.corners + row.strays })).filter(entry => entry.flagged || entry.count)
+  // 2 for a frame with a finding to place, 1 for one whose only finding is off-palette colours.
+  const flagged = new Map();
+  for (const finding of rest.findings) if (finding.coordinates) flagged.set(finding.frame, Math.max(flagged.get(finding.frame) ?? 0, finding.code === 'palette' ? 1 : 2));
+  const most = frames.map((row, index) => ({ row, index, flagged: flagged.get(row.frame) ?? 0, count: row.corners + row.strays })).filter(entry => entry.flagged || entry.count)
     .sort((a, b) => b.flagged - a.flagged || b.count - a.count || a.index - b.index).slice(0, 3).map(entry => entry.row);
   const kept = new Set(most.map(row => row.frame)), totals = new Map(), named = new Map(), colours = new Map(), plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const paletteFrames = [];
   let unlisted = false;
   const findings = rest.findings.filter(finding => {
     if (finding.frame === undefined) return true;
@@ -2219,7 +2248,7 @@ export function briefDiagnostics(diagnostics) {
     if (kept.has(finding.frame)) return true;
     if (finding.code === 'palette') {
       for (const { color } of finding.coordinates) colours.set(color, (colours.get(color) ?? 0) + 1);
-      unlisted ||= finding.omitted > 0;
+      unlisted ||= finding.omitted > 0; paletteFrames.push(finding.frame);
     } else {
       const total = totals.get(finding.code) ?? { count: 0, frames: [] };
       total.count += finding.count ?? 0; total.frames.push(finding.frame); totals.set(finding.code, total);
@@ -2237,7 +2266,7 @@ export function briefDiagnostics(diagnostics) {
     const listed = [...colours].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)), shown = listed.slice(0, 8).map(([color, frames]) => `${color} in ${plural(frames, 'frame')}`), more = listed.length - shown.length;
     // A frame lists its first 32 colours, so one with more may hold colours no frame names.
     if (more || unlisted) shown.push(`${more ? `${more}${unlisted ? ' or more' : ''} ` : ''}other colour${more === 1 && !unlisted ? '' : 's'}`);
-    findingTotals.palette = shown.join(', ');
+    findingTotals.palette = `${shown.join(', ')}${paletteFrames.length <= DIAGNOSTIC_ROWS ? `; in ${nameRuns(paletteFrames).join(', ')}` : ''}`;
   }
   return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, ...(rest.animations && { animations: rest.animations }), findings, ...(Object.keys(findingTotals).length && { findingTotals }) };
 }
