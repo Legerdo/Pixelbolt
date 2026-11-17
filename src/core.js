@@ -1366,8 +1366,23 @@ const readRegion = (data, width, region, namer) => Array.from({ length: region.h
 // Cells run left to right, top to bottom. The largest scale that keeps cells within 256px and the sheet within 1024px
 // wins, then fewer rows, then less area. Checker squares span whole source pixels so transparency never reads as dithering.
 // A sheet holds at most 4096 pixels of cells a side; their 2-pixel gutters may take it past that, so a still 4096
-// pixels wide shows whole. Wider gutters (above scale 2) count against the limit.
+// pixels wide shows whole. Wider gutters (above scale 2) count against the limit. In all it is one PNG, at most
+// 16,777,216 pixels (png.js), which 64 cells of 512x512 with their gutters would pass.
 const SHEET_SIDE = 4096;
+const withinSheet = layout => layout.width <= SHEET_SIDE + 2 * (layout.columns + 1) && layout.height <= SHEET_SIDE + 2 * (layout.rows + 1) && layout.width * layout.height <= 16777216;
+// The most of `count` cells of w×h one sheet holds at `scale` in some number of columns (fewer cells always fit).
+function cellsThatFit(count, w, h, scale) {
+  const gap = Math.max(2, scale), fits = n => {
+    for (let c = 1; c <= n; c++) {
+      const rows = Math.ceil(n / c);
+      if (withinSheet({ columns: c, rows, width: c * w * scale + (c + 1) * gap, height: rows * h * scale + (rows + 1) * gap })) return true;
+    }
+    return false;
+  };
+  let low = 0, high = count;
+  while (low < high) { const mid = Math.ceil((low + high) / 2); if (fits(mid)) low = mid; else high = mid - 1; }
+  return low;
+}
 function drawSheet(sources, width, region, { scale, background = null, columns, where = 'inspect' } = {}) {
   const measure = (c, s) => {
     const rows = Math.ceil(sources.length / c), gap = Math.max(2, s);
@@ -1381,11 +1396,12 @@ function drawSheet(sources, width, region, { scale, background = null, columns, 
       if (m.width <= 1024 && m.height <= 1024 && (!layout || m.rows < layout.rows || (m.rows === layout.rows && m.width * m.height < layout.width * layout.height))) layout = m;
     }
   }
+  // Otherwise the squarest layout within the limit, if any is.
   if (!layout) for (const c of choices) {
-    const m = measure(c, scale ?? 1);
-    if (!layout || Math.max(m.width, m.height) < Math.max(layout.width, layout.height)) layout = m;
+    const m = measure(c, scale ?? 1), better = !layout || (withinSheet(m) === withinSheet(layout) ? Math.max(m.width, m.height) < Math.max(layout.width, layout.height) : withinSheet(m));
+    if (better) layout = m;
   }
-  if (layout.width > SHEET_SIDE + 2 * (layout.columns + 1) || layout.height > SHEET_SIDE + 2 * (layout.rows + 1)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters); select fewer frames, a smaller region or a lower scale`);
+  if (!withinSheet(layout)) fail(where, `the contact sheet would be ${layout.width}×${layout.height} pixels, above the 4096-pixel limit (4096 pixels of frames and 2-pixel gutters, 16,777,216 pixels in all); select fewer frames, a smaller region or a lower scale`);
   const data = new Uint8ClampedArray(layout.width * layout.height * 4), square = Math.max(2, Math.ceil(8 / layout.scale)), composed = new Map();
   // The gutter colour is written once and doubled with copyWithin; each cell pixel's source colour is read into one
   // reused buffer for blend, rather than a new view of the frame a pixel.
@@ -1741,11 +1757,19 @@ export function inspectProject(project, options = {}) {
     const suffix = step % 100 >= 11 && step % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][step % 10] ?? 'th';
     methods.push(step === 1 ? `every position from ${offset}` : `every ${step}${suffix} position from ${offset}`);
   }
+  const spread = (chosen, count) => Array.from({ length: count }, (_, i) => chosen[count === 1 ? 0 : Math.floor(i * (chosen.length - 1) / (count - 1))]);
   if (options.maxCells !== undefined) {
     const requested = integer(options.maxCells, 'inspect.maxCells', 1, 256);
     const side = mode === 'tile' ? Math.max(width, height) * 3 : Math.max(region.w, region.h);
     const count = Math.min(positions.length, requested, Math.max(1, Math.floor(4094 / (side + 2)) ** 2));
-    if (count < positions.length) { const chosen = positions; positions = Array.from({ length: count }, (_, i) => chosen[count === 1 ? 0 : Math.floor(i * (chosen.length - 1) / (count - 1))]); methods.push('evenly spaced, including endpoints'); }
+    if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced, including endpoints'); }
+  }
+  // Big frames (an animation's are up to 1024 a side) or a long play order may not fit one sheet at scale 1; with no
+  // scale asked for, the sheet shows as many evenly spaced cells as it holds rather than refusing. A scale asked for
+  // that does not fit is still refused, with what to lower.
+  if (options.scale === undefined) {
+    const box = mode === 'tile' ? { w: width * 3, h: height * 3 } : region, count = Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1));
+    if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced to fit the 4096-pixel sheet, including endpoints'); }
   }
   cells = positions.map(i => cells[i]);
   const unique = [...new Set(cells)];

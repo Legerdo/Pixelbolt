@@ -751,11 +751,12 @@ try {
       // them (blended onto --background, or with 1-bit transparency) so what is judged is what is delivered.
       const under = gifBackground(options.background, project.palette);
       const shown = { ...project, frames: project.frames.map(frame => ({ ...frame, data: asGIFShows(frame.data, under) })) };
-      const sheet = options.sheet !== undefined ? inspectProject(shown, { animation: gif.animation }).sheet : null;
+      // A long play order of big frames is evenly sampled to fit the sheet, as a scene's is.
+      const view = options.sheet !== undefined ? inspectProject(shown, { animation: gif.animation }) : null, sheet = view?.sheet;
       const written = await writeOutputs({ file: [options.out, data, '--out'], ...(sheet && { sheet: [options.sheet, encodePNG(sheet.data, sheet.width, sheet.height), '--sheet'] }) }, options.force, inputsOf(input));
       // The cut is already said once: the clipping it causes is not a second problem.
       const margins = resized && resizeMargins(resized, [project.width, project.height]);
-      print({ ok: true, name: project.name, ...gif, ...(names.length > 1 && { animations: names }), ...(margins && { margins }), ...(kept && { kept }), ...written, warnings: [...warnings, ...project.warnings.filter(text => !(resized?.cut && text.startsWith('Some drawing falls outside the canvas')))], ...(options.preset === undefined && referenced(input)) });
+      print({ ok: true, name: project.name, ...gif, ...(names.length > 1 && { animations: names }), ...(margins && { margins }), ...(kept && { kept }), ...written, ...(view?.sampling && { sheetShows: `${view.sampling.shown} of the ${view.sampling.total} frames, ${view.sampling.method}` }), warnings: [...warnings, ...project.warnings.filter(text => !(resized?.cut && text.startsWith('Some drawing falls outside the canvas')))], ...(options.preset === undefined && referenced(input)) });
     } else if (command === 'gif-frames') {
       if (!positional[0] || positional[0] === '-') throw new Error('gif-frames requires a folder of numbered PNG frames');
       if (!options.out || !/\.gif$/i.test(options.out)) throw new Error('gif-frames requires --out <new.gif>');
@@ -802,11 +803,12 @@ try {
         for (const item of gifs ?? []) bundle.files.set(`gifs/${item.animation}.gif`, Buffer.from(item.data));
         // --look: look.png in the folder, the frames enlarged as a contact sheet. The sprite sheet is drawn at its own
         // size for a game, too small to judge by eye.
-        if (options.look) { const sheet = inspectProject(bundle.project, options.animation !== undefined ? { animation: options.animation } : {}).sheet; bundle.files.set('look.png', encodePNG(sheet.data, sheet.width, sheet.height)); }
+        const look = options.look ? inspectProject(bundle.project, options.animation !== undefined ? { animation: options.animation } : {}) : null;
+        if (look) bundle.files.set('look.png', encodePNG(look.sheet.data, look.sheet.width, look.sheet.height));
         const expectFile = options.expect !== undefined && !String(options.expect).trimStart().startsWith('{') ? filesRead(options.expect) : [];
         const files = await writeBundle(bundle, options.out, { force: options.force, inputs: [...inputsOf(input), ...expectFile, ...(lit ? inputsOf(lit) : [])] });
         const notes = (gifs ?? []).flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16);
-        print({ ok: true, ...summary(bundle.project, input.document), ...bundleFiles(path.resolve(options.out), files, options), ...(gifs?.length && { gifs: { scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(notes.length && { notes }) } }), ...(options.look && { look: shown(path.join(path.resolve(options.out), 'look.png')) }), check: briefCheck(check), ...referenced(input) });
+        print({ ok: true, ...summary(bundle.project, input.document), ...bundleFiles(path.resolve(options.out), files, options), ...(gifs?.length && { gifs: { scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(notes.length && { notes }) } }), ...(look && { look: shown(path.join(path.resolve(options.out), 'look.png')), ...(look.sampling && { lookShows: `${look.sampling.shown} of the ${look.sampling.total} frames, ${look.sampling.method}` }) }), check: briefCheck(check), ...referenced(input) });
       }
     }
   }
