@@ -94,7 +94,7 @@ test('beside refits the sheets to the one image, and a stack that would still pa
   // Inspected each on its own, two 3600x4114 sheets stack past the PNG.
   const alone = [1, 2].map(n => ({ ...inspectProject(big, { animation: 'run' }), name: `v${n}` }));
   assert.throws(() => stackViews(alone), error => error instanceof PixelError && error.path === 'beside' && /the 2 sheets stacked would be 3600×\d+ pixels, past the 16,777,216 one PNG holds; compare fewer recipes/.test(error.message));
-  const shared = stackViews([1, 2, 3].map(n => ({ ...inspectProject(big, { animation: 'run', sheets: 3 }), name: `v${n}` })));
+  const shared = stackViews([1, 2, 3].map(n => ({ ...inspectProject(big, { animation: 'run' }, { sheets: 3 }), name: `v${n}` })));
   encodes(shared.sheet);
   assert.equal(shared.stack.length, 3);
   // The CLI and MCP pass the share themselves.
@@ -161,7 +161,7 @@ test('the parts legend reserves the columns it is drawn in beside the fitted she
 
 test('views stacked beside one another stay within 8,000 pixels tall, the tallest refitted', async t => {
   // n copies of one recipe's view, inspected once.
-  const views = (recipe, n, options = {}) => { const view = inspectProject(renderProject(recipe), { ...options, sheets: n }); return Array.from({ length: n }, (_, i) => ({ ...view, name: `v${i}` })); };
+  const views = (recipe, n, options = {}) => { const view = inspectProject(renderProject(recipe), { ...options }, { sheets: n }); return Array.from({ length: n }, (_, i) => ({ ...view, name: `v${i}` })); };
   for (const [w, h, count, n] of [[512, 512, 16, 9], [640, 360, 18, 4]]) {
     const stacked = stackViews(views(screen(w, h, count, { plays: 4 }), n, { animation: 'run' }));
     // 4096 pixels of cells and 2-pixel gutters a side.
@@ -170,7 +170,7 @@ test('views stacked beside one another stay within 8,000 pixels tall, the talles
     encodes(stacked.sheet);
   }
   // Small frames take a smaller scale rather than nine sheets of 1024 pixels.
-  const small = renderProject(screen(64, 64, 16)), nine = scale => Array.from({ length: 9 }, (_, i) => ({ ...inspectProject(small, { scale, sheets: 9 }), name: `v${i}` }));
+  const small = renderProject(screen(64, 64, 16)), nine = scale => Array.from({ length: 9 }, (_, i) => ({ ...inspectProject(small, { scale }, { sheets: 9 }), name: `v${i}` }));
   assert.ok(stackViews(nine()).sheet.height <= 8000);
   // A scale asked for is drawn as asked, as before beside had shares: only the one PNG bounds the stack.
   const asked = stackViews(nine(4));
@@ -179,14 +179,14 @@ test('views stacked beside one another stay within 8,000 pixels tall, the talles
   // A frame whose one row is too tall for the height left to it is refused with how many recipes fit, naming the
   // sheet. In a stack within 8,000 pixels the same sheet is drawn as alone.
   assert.equal(stackViews(views(screen(256, 1024, 4), 7)).sheet.height, 7 * (1028 + 12));
-  assert.throws(() => stackViews(views(screen(256, 1024, 4), 9)), { path: 'inspect.sheets',
-    message: 'inspect.sheets: v0: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
+  assert.throws(() => stackViews(views(screen(256, 1024, 4), 9)), { path: 'beside',
+    message: 'beside: v0: one row of 256×1024 cells is 1052 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
   // So is a tile of one (this was a sheet "above the 4096-pixel limit", which neither side is), and a wide tile
   // whose stack the one PNG holds less than 8,000 pixels tall.
-  assert.throws(() => stackViews(views(screen(256, 1024, 4), 8, { view: 'tile' })), { path: 'inspect.sheets',
-    message: 'inspect.sheets: v0: one row of 768×3072 cells is 3100 pixels tall with its gutters and label, past the 1012 left to it in an image of 8 sheets stacked (8,000 pixels tall at most); compare at most 1 other recipe, or show a smaller region' });
-  assert.throws(() => stackViews(views(screen(1024, 256, 4), 9, { view: 'tile' })), { path: 'inspect.sheets',
-    message: 'inspect.sheets: v0: one row of 3072×768 cells is 796 pixels tall with its gutters and label, past the 618 left to it in an image of 9 sheets stacked (5,454 pixels tall at most at 3076 wide, 16,777,216 in all); compare at most 5 other recipes, or show a smaller region' });
+  assert.throws(() => stackViews(views(screen(256, 1024, 4), 8, { view: 'tile' })), { path: 'beside',
+    message: 'beside: v0: one row of 768×3072 cells is 3100 pixels tall with its gutters and label, past the 1012 left to it in an image of 8 sheets stacked (8,000 pixels tall at most); compare at most 1 other recipe, or show a smaller region' });
+  assert.throws(() => stackViews(views(screen(1024, 256, 4), 9, { view: 'tile' })), { path: 'beside',
+    message: 'beside: v0: one row of 3072×768 cells is 796 pixels tall with its gutters and label, past the 618 left to it in an image of 9 sheets stacked (5,454 pixels tall at most at 3076 wide, 16,777,216 in all); compare at most 5 other recipes, or show a smaller region' });
   const six = stackViews(views(screen(1024, 256, 4), 6, { view: 'tile' }));
   assert.deepEqual([six.cells.length, six.sheet.width * six.sheet.height <= PNG_PIXELS], [1, true]);
   // The CLI passes the count, and replies with the cells and diagnostics of the first sheet as stacked.
@@ -205,7 +205,7 @@ test('views stacked beside one another stay within 8,000 pixels tall, the talles
 test('a beside stack is measured whole: within 8,000 pixels it is drawn as each sheet alone, past it only the tallest shrink', () => {
   // The sheets of each recipe inspected alone, stacked: what beside drew before it measured the stack.
   const alone = recipes => stackViews(recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe)), name: `v${i}` })));
-  const stacked = recipes => stackViews(recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { sheets: recipes.length }), name: `v${i}` })));
+  const stacked = recipes => stackViews(recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), {}, { sheets: recipes.length }), name: `v${i}` })));
   // The pixels of one stacked sheet, `width` wide from the left: the whole image by default.
   const bytes = (s, entry = { y: 0, height: s.sheet.height }, width = s.sheet.width) => Buffer.concat(Array.from({ length: entry.height }, (_, row) =>
     Buffer.from(s.sheet.data.subarray((entry.y + row) * s.sheet.width * 4, ((entry.y + row) * s.sheet.width + width) * 4))));
@@ -373,7 +373,7 @@ test('beside refits a stack of composites from the recipe given, so stack and a 
   // refit laid stack's composites again (unknown frame "b0") and under's ground a second time.
   const pal = { k: '#102030', r: '#e04030' }, square = i => ({ op: 'rect', x: i * 8, y: 4, w: 8, h: 8, color: 'r' }), ground = { op: 'rect', x: 0, y: 0, w: 256, h: 256, color: 'k' };
   const recipe = frames => ({ version: 1, name: 'cells', width: 256, height: 256, palette: pal, frames });
-  const nine = (project, options) => { const view = inspectProject(project, { ...options, sheets: 9 }); return stackViews(Array.from({ length: 9 }, (_, i) => ({ ...view, name: `v${i}` }))); };
+  const nine = (project, options) => { const view = inspectProject(project, { ...options }, { sheets: 9 }); return stackViews(Array.from({ length: 9 }, (_, i) => ({ ...view, name: `v${i}` }))); };
   const pieces = renderProject(recipe([...Array.from({ length: 24 }, (_, i) => ({ name: `b${i}`, ops: [ground] })), ...Array.from({ length: 24 }, (_, i) => ({ name: `t${i}`, ops: [square(i)] }))]));
   const drawnTogether = renderProject(recipe(Array.from({ length: 24 }, (_, i) => ({ name: `c${i}`, ops: [ground, square(i)] }))));
   const stacked = nine(pieces, { stack: Array.from({ length: 24 }, (_, i) => [`b${i}`, `t${i}`]) }), expected = nine(drawnTogether, {});
@@ -391,13 +391,14 @@ test('beside refits a stack of composites from the recipe given, so stack and a 
 
 test('every beside other recipes is refused once, with the every that holds the whole stack', async t => {
   // Nine 1024x256 loops of 16 frames at one cell per 10 ms. The first refusal named the every one 4096-pixel sheet
-  // holds (22), which the stack then refused again (214).
+  // holds (22), which the stack then refused again (214). The refusal says what the sheet holds at the every asked,
+  // and that the stack moves the advice past it.
   const project = renderProject(screen(1024, 256, 16)), names = ['a.json', 'b.json', 'c.json', 'd.json', 'e.json', 'f.json', 'g.json', 'h.json', 'i.json'];
-  const nine = every => names.map(name => ({ ...inspectProject(project, { animation: 'run', every, sheets: 9 }), name }));
+  const nine = every => names.map(name => ({ ...inspectProject(project, { animation: 'run', every }, { sheets: 9 }), name }));
   let advised;
   assert.throws(() => stackViews(nine(10)), error => {
     assert.equal(error.path, 'inspect.every');
-    assert.match(error.message, /^inspect\.every: a\.json: 1280 ms at one cell per 10 ms is 128 cells, and the height left to it in an image of 9 sheets stacked \([^)]*\) holds \d+; choose every (\d+)$/);
+    assert.match(error.message, /^inspect\.every: a\.json: 1280 ms at one cell per 10 ms is 128 cells, and one 4096-pixel sheet \(one of 9 in the image\) of 1024×256 cells holds 60; stacked with the others, choose every (\d+)$/);
     advised = Number(/choose every (\d+)/.exec(error.message)[1]);
     return true;
   });
@@ -416,8 +417,8 @@ test('every beside other recipes past 256 cells a sheet is refused once, with th
   // A 64x64 loop of 48 frames beside a 256x256 one of 64, at one cell per 10 ms: each sheet's 256-cell cap was refused
   // on its own before the stack was looked at (choose every 15, then at 15 every 20), and then the stack (27).
   const recipes = [screen(64, 64, 48), screen(256, 256, 64)];
-  const views = every => recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { animation: 'run', every, sheets: 2 }), name: `v${i}` }));
-  const refusal = 'inspect.every: v1: 5120 ms at one cell per 10 ms is 512 cells, and the height left to it in an image of 2 sheets stacked (4,332 pixels tall at most at 3872 wide, 16,777,216 in all) holds 205; choose every 25';
+  const views = every => recipes.map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { animation: 'run', every }, { sheets: 2 }), name: `v${i}` }));
+  const refusal = 'inspect.every: v1: 5120 ms at one cell per 10 ms is 512 cells, and a sheet holds at most 256; stacked with the others, choose every 25';
   assert.throws(() => stackViews(views(10)), { path: 'inspect.every', message: refusal });
   // The values the old chain named get the same advice, and following it shows every cell of both.
   for (const every of [15, 20]) assert.throws(() => stackViews(views(every)), { message: /choose every 25$/ });
@@ -436,19 +437,84 @@ test('every beside other recipes past 256 cells a sheet is refused once, with th
   assert.equal(made.status, 0, made.stdout + made.stderr);
 });
 
-test('every beside other recipes names the smallest every the stack holds, and what the sheet holds there', () => {
+test('how many sheets beside stacks is never a caller option: one recipe past 256 cells is refused as on its own', async t => {
+  // MCP pixel_inspect passes its options to inspectProject. With `sheets` an option, a call with sheets and no beside
+  // left the 256-cell refusal to a stack that never came, and showed one cell with ok: true.
+  const recipe = screen(64, 64, 64), project = renderProject(recipe), cap = 'inspect.every: 5120 ms at one cell per 10 ms is 512 cells; at most 256, so choose every 20 or more';
+  assert.throws(() => inspectProject(project, { animation: 'run', every: 10, sheets: 2 }), { path: 'inspect.sheets', message: /^inspect\.sheets: unknown field; fields here: frames, .*, under$/ });
+  assert.throws(() => inspectProject(project, { animation: 'run', every: 10 }), { path: 'inspect.every', message: cap });
+  const dir = await folder(t, 'sheets-option'), run = createToolRunner({ directory: dir, root: dir, version: '0.0.0' });
+  const sent = await run('pixel_inspect', { project: recipe, animation: 'run', every: 10, sheets: 2 });
+  assert.ok(sent.isError);
+  assert.match(sent.content[0].text, /inspect\.sheets: unknown field/);
+  const alone = await run('pixel_inspect', { project: recipe, animation: 'run', every: 10 });
+  assert.ok(alone.isError);
+  assert.ok(alone.content[0].text.includes(cap.slice('inspect.every: '.length)), alone.content[0].text);
+  // Following the refusal shows every cell, and beside still gathers the stack's one refusal through MCP.
+  const followed = await run('pixel_inspect', { project: recipe, animation: 'run', every: 20 });
+  assert.ok(!followed.isError, followed.content[0].text);
+  const { revision, sampling } = JSON.parse(followed.content[0].text);
+  assert.deepEqual([sampling?.shown ?? 256, sampling?.every], [256, 20]);
+  const stacked = await run('pixel_inspect', { revision, animation: 'run', every: 10, beside: [revision] });
+  assert.ok(stacked.isError);
+  assert.match(stacked.content[0].text, /choose every 20\b/);
+  assert.ok(!(await run('pixel_inspect', { revision, animation: 'run', every: 20, beside: [revision] })).isError);
+});
+
+test('every beside other recipes names the smallest every the stack holds, and what the sheet holds at the every asked', () => {
   // Nine mixed loops at one cell per 15 ms. The refusal named the first every that held (640), and "holds 1" from the
-  // try that failed, though every value from 256 holds and the 256x1024 sheet shows 3 cells there.
+  // try that failed, though every value from 256 holds and the 256x1024 sheet shows 3 cells there. The 1024x128 sheet
+  // alone holds 124 of the 171 cells asked; the stack moves the every past its own 21.
   const sizes = [[64, 64, 48], [320, 180, 40], [1024, 128, 32], [640, 360, 16], [512, 512, 12], [320, 180, 40], [64, 64, 48], [1024, 256, 8], [256, 1024, 8]];
   const projects = sizes.map(([w, h, n]) => renderProject(screen(w, h, n)));
-  const views = every => projects.map((project, i) => ({ ...inspectProject(project, { animation: 'run', every, sheets: 9 }), name: `v${i}` }));
+  const views = every => projects.map((project, i) => ({ ...inspectProject(project, { animation: 'run', every }, { sheets: 9 }), name: `v${i}` }));
   assert.throws(() => stackViews(views(15)), { path: 'inspect.every',
-    message: 'inspect.every: v8: 640 ms at one cell per 15 ms is 43 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 3; choose every 256' });
+    message: 'inspect.every: v2: 2560 ms at one cell per 15 ms is 171 cells, and one 4096-pixel sheet (one of 9 in the image) of 1024×128 cells holds 124; stacked with the others, choose every 256' });
   const advised = views(256), followed = stackViews(advised);
   assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
   assert.equal(advised[8].cells.length, 3);
   encodes(followed.sheet);
-  assert.throws(() => stackViews(views(255)), { path: 'inspect.every' });
+  // One less: the 256x1024 sheet's 3 cells, which it holds at 256, are more than the 1 the other sheets' cells at 255
+  // leave it room for. Said so, never "is 3 cells, and … holds 3".
+  assert.throws(() => stackViews(views(255)), { path: 'inspect.every',
+    message: "inspect.every: v8: 640 ms at one cell per 255 ms is 3 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 1 beside the other sheets' cells at that every; choose every 256" });
+});
+
+test('every beside other recipes climbs from the every asked, so a run that holds just above it is named', () => {
+  // A stack is not monotone in every: fewer cells can let a small sheet keep a larger scale and crowd the rest. These
+  // nine loops hold at 214 to 280, are refused at 290 to 319 and hold again from 320. The search jumped to what the
+  // refused sheet asked for (640), halved down to 320, and named it to an agent asking 213.
+  const mixE = [[256, 256, 64], [256, 256, 24], [256, 256, 64], [256, 1024, 8], [256, 256, 24], [128, 128, 32], [256, 256, 24], [1024, 256, 16], [1024, 128, 32]];
+  // The second holds at 60 to 75, is refused at 80 to 100 and holds again from 110; asked 55 or 109 it was told 110.
+  const nine = [[64, 64, 48], [512, 512, 12], [64, 64, 48], [64, 64, 48], [256, 256, 24], [512, 512, 2], [1024, 256, 2], [128, 128, 32], [64, 64, 48]];
+  const stackOf = sizes => {
+    const projects = sizes.map(([w, h, n]) => renderProject(screen(w, h, n)));
+    return every => projects.map((project, i) => ({ ...inspectProject(project, { animation: 'run', every }, { sheets: projects.length }), name: `a${sizes[i].join('x')}` }));
+  };
+  const refusal = (views, every) => {
+    let message;
+    assert.throws(() => stackViews(views(every)), error => { message = error.message; return error.path === 'inspect.every'; });
+    // What the sheet holds at the every asked is fewer than the cells that every makes.
+    const [, cells, held] = /is (\d+) cells, and .* holds (\d+)/.exec(message);
+    assert.ok(Number(held) < Number(cells), message);
+    return { message, advised: Number(/choose every (\d+)$/.exec(message)[1]) };
+  };
+  const follow = (views, every) => {
+    const shown = views(every), followed = stackViews(shown);
+    assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
+    shown.forEach(view => assert.equal(view.cells.length, Math.ceil(view.timing.duration / every)));
+    encodes(followed.sheet);
+  };
+  const e = stackOf(mixE), first = refusal(e, 213);
+  assert.equal(first.message, "inspect.every: a256x1024x8: 640 ms at one cell per 213 ms is 4 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 1 beside the other sheets' cells at that every; choose every 214");
+  follow(e, first.advised);
+  const n = stackOf(nine);
+  assert.equal(refusal(n, 55).message, "inspect.every: a512x512x12: 960 ms at one cell per 55 ms is 18 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 16 beside the other sheets' cells at that every; choose every 60");
+  follow(n, 60);
+  // Asked 109, the 512x512 sheet's 9 cells are 9 at 110 too, where it holds them: at 109 the other sheets' cells leave
+  // it room for 8, and the reply says that, not "is 9 cells, and … holds 9".
+  assert.equal(refusal(n, 109).message, "inspect.every: a512x512x12: 960 ms at one cell per 109 ms is 9 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 8 beside the other sheets' cells at that every; choose every 110");
+  follow(n, 110);
 });
 
 test('diagnostics of a long recipe whose only findings are off-palette colours name the frames they are in', () => {
@@ -470,9 +536,9 @@ test('diagnostics of a long recipe whose only findings are off-palette colours n
 test('a beside row too tall for its share counts the other recipes by the least each takes', () => {
   // One 256x900 recipe above eight 256x1024 ones: one row of 900 is refused, and as many others as tall as it would
   // be 7, which with taller neighbours is refused again.
-  const views = (n, sheets) => [screen(256, 900, 4), ...Array(n).fill(screen(256, 1024, 4))].map((recipe, i) => ({ ...inspectProject(renderProject(recipe), { sheets }), name: `v${i}` }));
-  assert.throws(() => stackViews(views(8, 9)), { path: 'inspect.sheets',
-    message: 'inspect.sheets: v0: one row of 256×900 cells is 928 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
+  const views = (n, sheets) => [screen(256, 900, 4), ...Array(n).fill(screen(256, 1024, 4))].map((recipe, i) => ({ ...inspectProject(renderProject(recipe), {}, { sheets }), name: `v${i}` }));
+  assert.throws(() => stackViews(views(8, 9)), { path: 'beside',
+    message: 'beside: v0: one row of 256×900 cells is 928 pixels tall with its gutters and label, past the 900 left to it in an image of 9 sheets stacked (8,000 pixels tall at most); compare at most 6 other recipes, or show a smaller region' });
   const six = stackViews(views(6, 7));
   assert.ok(six.stack.length === 7 && six.sheet.height <= 8000, `${six.sheet.height}`);
 });
