@@ -188,3 +188,53 @@ test('motion review keeps both sides of its strip within 4096, in the squarest g
   // Travel wider than the image is said as travel.
   assert.equal(inspectMotion(renderProject(screen(64, 64, 32)), { animation: 'run', speed: 4000 }).trajectory.reason, 'Travel exceeds the 4096-pixel width: 9920 pixels of travel beside a 64-pixel frame.');
 });
+
+test('motion review of tall frames keeps the arcs and the trajectory it can, and names what crowds a trajectory out', () => {
+  // One foot marker per frame, so the review has arcs to draw.
+  const foot = (w, h, count) => ({ format: 'pixelforge-pose-metadata', version: 1,
+    poses: Object.fromEntries(Array.from({ length: count }, (_, i) => [`f${i}`, { markers: [{ name: 'foot', at: [(i * 3) % w, h - 1 - (i % 5)] }] }])) });
+  const review = (w, h, count) => inspectMotion(renderProject(screen(w, h, count)), { animation: 'run', metadata: foot(w, h, count), speed: 20, ground: h - 1 });
+  const crowded = (w, h, count, by) => `The trajectory panel (${Math.round(20 * (count - 1) * 80 / 1000) + w + 8} pixels wide, lanes of ${w}×${h} frames) does not fit beside ${by} within the 4,194,304-pixel image.`;
+  // [w, h, frames, arcs, trajectory]: the wide timing grid of tall frames once left no room for arcs at magnification 8,
+  // and the trajectory, dropped first, was never tried again. Now the arcs come down to 3 and take another grid, and a
+  // trajectory left out beside them says so; one that fits once the arcs are left out is drawn.
+  for (const [w, h, count, arcs, trajectory] of [
+    [128, 512, 32, true, crowded(128, 512, 32, 'the timing cells and arcs')],
+    [96, 520, 32, true, 6],
+    [200, 400, 32, true, crowded(200, 400, 32, 'the timing cells and arcs')],
+    [256, 600, 24, false, 2],
+    [640, 360, 18, false, crowded(640, 360, 18, 'the timing cells')]]) {
+    const r = review(w, h, count), { width, height } = r.nativeSheet;
+    assert.deepEqual([r.arcs.shown, r.trajectory.lanes ?? r.trajectory.reason], [arcs, trajectory], `${w}x${h}x${count}`);
+    if (arcs) assert.ok(r.arcs.magnification >= 3 && r.arcs.origin[1] + r.arcs.height <= height, `${w}x${h}x${count}`);
+    else assert.equal(r.arcs.reason, 'The arcs, magnified at least 3 times, would take the image past 4,194,304 pixels or 8192 a side.');
+    assert.ok(width * height <= 4194304 && width <= 8192 && height <= 8192, `${w}x${h}x${count}: ${width}x${height}`);
+    encodes(r.sheet);
+  }
+  // 128x512: eight columns of four rows leave room for the arcs at 3 times.
+  const tall = review(128, 512, 32);
+  assert.deepEqual([tall.arcs.magnification, tall.cells[8].timing[1] > tall.cells[7].timing[1], tall.cells.length], [3, true, 32]);
+});
+
+test('the motion review moves pose metadata from a resized canvas onto it: ground, contacts and the ground line', async t => {
+  const dir = await folder(t, 'motion-resized'), cli = cliIn(dir);
+  const review = (name, size) => {
+    const made = cli('compile', '--preset', 'hero', ...size, '--animation', 'walk', '--out', `${name}.json`, '--metadata', `${name}.meta.json`);
+    assert.equal(made.status, 0, made.stderr);
+    const seen = cli('inspect', `${name}.json`, '--metadata', `${name}.meta.json`, '--motion', 'walk', '--speed', '40', '--out', `${name}.png`);
+    assert.equal(seen.status, 0, seen.stderr);
+    return JSON.parse(seen.stdout);
+  };
+  const before = review('small', []), after = review('big', ['--size', '640x360']);
+  const { offset } = JSON.parse(await readFile(path.join(dir, 'big.meta.json'), 'utf8')).resized;
+  // The figure stands 162 rows lower on the new canvas, and so do its ground and contacts; what they measure is unchanged.
+  assert.deepEqual(offset, [-304, -162]);
+  assert.equal(after.motion.ground, before.motion.ground + 162);
+  assert.deepEqual(after.motion.slide.map(s => s.samples.map(x => x.at)), before.motion.slide.map(s => s.samples.map(x => x.at.map((v, i) => v - offset[i]))));
+  assert.deepEqual([after.motion.groundErrors, after.motion.checks], [before.motion.groundErrors, before.motion.checks]);
+  assert.equal(after.motion.checks.ground, true);
+  // The ground line runs under the figure in each cell, not at the old row near the top.
+  const image = decodePNG(await readFile(path.join(dir, 'big.native.png'))), [x, y] = after.cells[0].timing;
+  const at = row => [...image.data.slice(((y + row) * image.width + x + 10) * 4, ((y + row) * image.width + x + 10) * 4 + 3)];
+  assert.deepEqual([at(after.motion.ground + 1), at(before.motion.ground + 1)], [[80, 100, 115], [24, 33, 43]]);
+});
