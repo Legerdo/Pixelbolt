@@ -59,8 +59,11 @@ export async function mockServer(text) {
     const topics = listed(JSON.parse(await reply('pixel_help', { topic: 'unknown' })).error, 'expected one of ');
     // A word that is a topic in the other number, or an alias, is answered as that topic: each probe must be.
     const answer = async args => { const result = await request('tools/call', { name: 'pixel_help', arguments: args }); return result.isError ? null : JSON.stringify(result.content); };
+    // The topic a word stands for must answer: two errors are equal, and would pass for the same answer.
     const same = async (word, topic, name) => {
-      if (await answer({ topic: word }) !== await answer({ topic, ...(name && { name }) })) throw new Error(`pixel_help topic ${word} no longer answers as ${topic}${name ? ` ${name}` : ''}: update the facts in scripts/eval-mock.mjs`);
+      const meant = await answer({ topic, ...(name && { name }) });
+      if (meant === null) throw new Error(`pixel_help topic ${topic}${name ? ` name ${name}` : ''} is refused, so ${word} cannot answer as it: update the facts in scripts/eval-mock.mjs`);
+      if (await answer({ topic: word }) !== meant) throw new Error(`pixel_help topic ${word} no longer answers as ${topic}${name ? ` ${name}` : ''}: update the facts in scripts/eval-mock.mjs`);
     };
     const numbers = [['scene', 'scenes'], ['pose', 'poses'], ['body', 'bodies'], ['examples', 'example'], ['guides', 'guide']];
     for (const [word, topic] of numbers) await same(word, topic);

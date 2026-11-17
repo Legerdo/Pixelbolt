@@ -452,7 +452,8 @@ async function helpTopic([asked, ...words]) {
   }
   if (!TOPICS.includes(topic)) throw new Error(`Unknown help topic "${topic}"; topics: quickstart, ${TOPICS.join(', ')}`);
   if (topic === 'presets' || topic === 'preset') {
-    const full = topic === 'presets' && name === '--full';
+    // `help preset --full` is `help presets --full`, as `help preset` alone is `help presets`.
+    const full = name === '--full';
     if (topic === 'presets' && name !== undefined && !full) throw new Error('help presets lists every preset (--full adds every animation and file); for one preset\'s source run pixelbolt help preset <name>');
     return `${await presetsText(full ? undefined : name, full)}\n`;
   }
