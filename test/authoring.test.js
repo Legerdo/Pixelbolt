@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { patchRecipe } from '../src/patch.js';
-import { renderProject, buildAtlas } from '../src/core.js';
+import { renderProject, buildAtlas, describeStampRecipe } from '../src/core.js';
 import { compilePoses, compileAutotile } from '../src/authoring.js';
 import { createOverlay, applyOverlay } from '../src/overlays.js';
 import { encodePNG } from '../src/png.js';
@@ -45,6 +45,33 @@ test('mirrored poses reflect parts, points and markers around the origin corner 
   assert.deepEqual([recipe.anchor, recipe.frames[1].points], [[5, 6], { hit: [1, 5] }]);
   assert.throws(() => compilePoses(actor([{ name: 'left', mirror: 'right' }, { name: 'right', origin: [0, 0], parts: [] }])), /earlier pose/);
   assert.throws(() => compilePoses(actor([{ name: 'right', parts: [] }, { name: 'left', mirror: 'right', origin: [1, 1] }])), /its origin/);
+});
+
+test('a pose palette recolours its compiled frame: a hit flash survives recompiles, mirrors keep it and tweens keep a shared one', () => {
+  const parts = [{ name: 'torso', part: 'body' }, { name: 'held', part: 'blade', attach: { part: 'torso', point: 'hand' } }];
+  const source = actor([
+    { name: 'still', origin: [5, 6], parts },
+    { name: 'hit', origin: [5, 6], parts, palette: { a: '#fff' } },
+    { name: 'hit-left', mirror: 'hit' },
+    { name: 'still-left', mirror: 'still', palette: { b: 'a' } },
+    { name: 'half', tween: { from: 'still', to: 'hit', t: 0.5 } },
+    { name: 'held-flash', tween: { from: 'hit', to: 'hit', t: 0.5 } },
+    { name: 'own', tween: { from: 'still', to: 'hit', t: 0.5 }, palette: { a: '#0f0' } },
+    { name: 'hidden', origin: [5, 6], parts, palette: { b: 'transparent' } }
+  ]);
+  const { recipe } = compilePoses(source), palettes = Object.fromEntries(recipe.frames.map(frame => [frame.name, frame.palette]));
+  assert.deepEqual(palettes, { still: undefined, hit: { a: '#fff' }, 'hit-left': { a: '#fff' }, 'still-left': { b: 'a' }, half: undefined, 'held-flash': { a: '#fff' }, own: { a: '#0f0' }, hidden: { b: 'transparent' } });
+  // The frame palette is the recipe's own, so the renderer draws the flash, and the atlas the compiler measured
+  // (frames drawn alike share a cell) is the renderer's: a recoloured frame is a cell of its own.
+  const project = renderProject(recipe), at = (frame, x, y) => pixelsOf(project, frame).slice((y * 12 + x) * 4, (y * 12 + x) * 4 + 4);
+  assert.deepEqual([at('still', 5, 5), at('hit', 5, 5), at('hit', 7, 5)], [[255, 0, 0, 255], [255, 255, 255, 255], [0, 0, 255, 255]]);
+  // A mirror with its own palette: the blade's blue end, reflected to column 2, is drawn in "a".
+  assert.deepEqual([at('still-left', 2, 5), at('hit-left', 4, 5)], [[255, 0, 0, 255], [255, 255, 255, 255]]);
+  assert.deepEqual(describeStampRecipe(recipe).sheet, project.sheet);
+  // Errors name the pose's path, as a recipe frame's palette names its own.
+  assert.throws(() => compilePoses(actor([{ name: 'p', parts, palette: { z: '#fff' } }])), { message: /^poses\.poses\[0\]\.palette\.z: a pose palette recolours keys declared in poses\.palette/ });
+  assert.throws(() => compilePoses(actor([{ name: 'p', parts }, { name: 'q', mirror: 'p', palette: { a: 'white' } }])), { message: /^poses\.poses\[1\]\.palette\.a: unknown color "white"/ });
+  assert.throws(() => compilePoses(actor([{ name: 'p', parts, palette: ['#fff'] }])), { message: /^poses\.poses\[0\]\.palette: expected an object/ });
 });
 
 test('pose origins become recipe or frame anchors and markers become atlas points', () => {

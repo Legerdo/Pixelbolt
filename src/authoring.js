@@ -1,5 +1,5 @@
 // Optional authoring compilers. All output is ordinary, editable version-1 recipe data.
-import { PixelError, CANVAS_SIDE, parseColor, renderProject, describeStampRecipe, readRows, pictureSheet, fail, sameWidth } from './core.js';
+import { PixelError, CANVAS_SIDE, parseColor, paletteOverride, renderProject, describeStampRecipe, readRows, pictureSheet, fail, sameWidth } from './core.js';
 import { AUTOTILE_MODES, MODE_MASKS, MODE_BITS, tilePieces, templatePiece } from './autotile.js';
 import { terrainTemplate, mergeTerrain, normalTerrain, readTerrain, templateSeams, seamWarnings, testMapRecipe, layeredTestMapRecipe } from './terrain.js';
 import { slopeTiles, slopeCollision, slopeLegend, SLOPE_MAP } from './slopes.js';
@@ -158,6 +158,11 @@ function stampsOutside(frames, symbols, width, height) {
 const nameList = (names, limit = 3) => names.slice(0, limit).join(', ') + (names.length > limit ? ` and ${names.length - limit} more` : '');
 const span = (low, high) => low === high ? `${low}` : `${low} to ${high}`;
 
+// A pose's (or a motion's) palette as written, with its exact colours to compare by; empty, it is none.
+function posePalette(value, path, palette) {
+  const hex = paletteOverride(value, palette, path, 'a pose palette recolours keys declared in poses.palette');
+  return Object.keys(hex).length ? { authored: value, hex: Object.fromEntries(Object.entries(hex).sort(([a], [b]) => a < b ? -1 : 1)) } : undefined;
+}
 export function compilePoses(source, within) {
   // `within` is this module's own (see expandPoses): a compile made during motion expansion, and whether it is a probe.
   const mode = within?.[WITHIN]?.probe ? PROBE : undefined;
@@ -294,9 +299,12 @@ export function compilePoses(source, within) {
   };
   const posed = source.poses.map((pose, index) => {
     const writtenAs = written?.get(pose?.name), path = writtenAs?.path ?? `poses.poses[${index}]`, motion = writtenAs?.motion;
-    fields(pose, ['name', 'duration', 'origin', 'parts', 'markers', 'contacts', 'mirror', 'relight', 'tween'], path);
+    fields(pose, ['name', 'duration', 'origin', 'parts', 'markers', 'contacts', 'mirror', 'relight', 'tween', 'palette'], path);
     identifier(pose.name, `${path}.name`);
     if (Object.hasOwn(compiled, pose.name)) fail(`${path}.name`, 'duplicate pose');
+    // A pose's palette recolours its frame, as a recipe frame's palette does (a hit flash). A mirror without one takes
+    // its source pose's; a tween without one takes the palette both its poses share, and none if they differ.
+    const tone = pose.palette === undefined ? undefined : posePalette(pose.palette, `${path}.palette`, source.palette ?? {});
     let origin, placed, layers, markers, inputs = null, mirrorInputs = null, tween = null;
     if (pose.relight !== undefined && (typeof pose.relight !== 'boolean' || pose.mirror === undefined)) fail(`${path}.relight`, 'expected a boolean on a mirror pose');
     let mirroredFrom;
@@ -518,13 +526,15 @@ export function compilePoses(source, within) {
       });
     }
     const duration = pose.duration ?? (pose.mirror !== undefined ? compiled[pose.mirror].duration : undefined);
+    const [from, to] = tween ? [compiled[tween.from].tone, compiled[tween.to].tone] : [];
+    const palette = tone ?? (pose.mirror !== undefined ? mirroredFrom.tone : from && to && JSON.stringify(from.hex) === JSON.stringify(to.hex) ? from : undefined);
     const contacts = pose.mirror !== undefined ? mirroredFrom.contacts : pose.contacts;
     if (contacts !== undefined && (!Array.isArray(contacts) || contacts.length > 64 || new Set(contacts).size !== contacts.length || contacts.some(name => !markers.some(marker => marker.name === name)))) fail(`${path}.contacts`, 'expected up to 64 unique marker names from this pose');
-    compiled[pose.name] = { origin, placed, layers, markers, contacts, duration, inputs, mirrorInputs };
+    compiled[pose.name] = { origin, placed, layers, markers, contacts, duration, inputs, mirrorInputs, tone: palette };
     metadata.poses[pose.name] = { origin, ...(pose.mirror !== undefined && { mirror: pose.mirror }), ...(pose.relight !== undefined && { relight: pose.relight }), ...(tween && { tween }), parts: placed, markers, ...(contacts !== undefined && { contacts }) };
     // The pose origin becomes the frame anchor; marker positions become named frame points in the atlas.
     const lines = mode === PROBE ? [] : innerLinePixels(layers);
-    return { name: pose.name, ...(duration !== undefined && { duration }), anchor: origin, ...(markers.length && { points: Object.fromEntries(markers.map(m => [m.name, m.at])) }), layers, ...(lines.length && { pixels: lines }) };
+    return { name: pose.name, ...(duration !== undefined && { duration }), ...(palette && { palette: palette.authored }), anchor: origin, ...(markers.length && { points: Object.fromEntries(markers.map(m => [m.name, m.at])) }), layers, ...(lines.length && { pixels: lines }) };
   });
   if (mode === PROBE) return { metadata: { poses: metadata.poses } };
   // A rig's rest pose is what the motions are made from. It is a frame only when an animation plays it: left in the
@@ -595,7 +605,13 @@ export function compilePoses(source, within) {
     if (!clip.outside) return;
     const name = clip.name, writtenAs = written?.get(name), origin = compiled[name].origin, gone = clip.outside === clip.total;
     if (gone && written && name === rig?.rest) restGone = true;
-    const message = `${gone ? `Pose "${name}" draws nothing inside the ${canvas}: all ${clip.total} of its pixels fall outside` : `Pose "${name}" draws ${clip.outside} of its ${clip.total} pixels outside the ${canvas}, where they are clipped`} (its parts cover ${cover(clip.box)}). A part without attach stands at the pose origin [${origin.join(', ')}] plus its at.${gone && written && name === rig?.rest ? ' The motion templates move this pose, so the poses they make fall outside too.' : ''}`;
+    // A pose with its own origin is moved whole by it, reach targets aside, so say where the origin would bring the
+    // parts inside, when they fit the canvas at all. A mirror or a tween takes its origin from other poses.
+    const box = clip.box, pose = source.poses[index], shift = (low, high, side) => high - low >= side ? null : low < 0 ? -low : high >= side ? side - 1 - high : 0;
+    const by = pose.mirror === undefined && pose.tween === undefined && writtenAs?.motion === undefined ? [shift(box[0], box[2], width), shift(box[1], box[3], height)] : [null];
+    const reaches = (pose.parts ?? []).some(part => part?.reach !== undefined);
+    const move = by.includes(null) ? '' : ` Moving the origin by [${by.join(', ')}], to [${origin[0] + by[0]}, ${origin[1] + by[1]}]${reaches ? ', and its reach targets with it' : ''}, brings it all inside.`;
+    const message = `${gone ? `Pose "${name}" draws nothing inside the ${canvas}: all ${clip.total} of its pixels fall outside` : `Pose "${name}" draws ${clip.outside} of its ${clip.total} pixels outside the ${canvas}, where they are clipped`} (its parts cover ${cover(box)}). A part without attach stands at the pose origin [${origin.join(', ')}] plus its at.${move}${gone && written && name === rig?.rest ? ' The motion templates move this pose, so the poses they make fall outside too.' : ''}`;
     const warning = { path: writtenAs?.path ?? `poses.poses[${index}]`, message, outside: clip.outside, pixels: clip.total };
     clipped.push(warning);
     if (writtenAs?.motion !== undefined) generated.set(warning, { kind: 'canvas', motion: writtenAs.motion, pose: name, outside: clip.outside, total: clip.total, box: clip.box });

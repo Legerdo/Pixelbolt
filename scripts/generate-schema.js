@@ -150,6 +150,8 @@ const massPart = object({ ...structuralColor, size: { ...pairOf(int(2, 64)), des
   flat: { type: 'boolean', description: 'Draw the top half of the ellipse: a dome with a flat base, anchored at the middle of its base row, which squash and rotation keep in place (slimes, mounds). Default false.' } }, ['size', 'ramp', 'base']);
 // How far a motion template swings rig.tail as it follows through.
 const follow = num(0, 2, 'How far rig.tail swings as it follows through the motion: 0 holds it as drawn, 1 by default, 2 twice as far. Needs rig.tail.');
+const posePalette = { type: 'object', maxProperties: 256, additionalProperties: color, description: "Recolor palette keys in this pose's frame (a hit flash), as a recipe frame palette. A mirror without one keeps its pose's; a tween keeps one only when both poses have the same." };
+const motionPalette = { ...posePalette, description: 'Recolor palette keys in every pose this motion makes (a hurt flash).' };
 const poses = {
   $schema: schema.$schema, title: 'Pixelbolt authored poses',
   ...object({ format: { const: 'pixelforge-poses' }, version: { const: 1 }, name: id, width: int(1, 256), height: int(1, 256), palette: schema.properties.palette,
@@ -164,13 +166,13 @@ const poses = {
       // The rig's legs are legs (two legs) or fore and hind (four), and chest and neck belong to four legs.
       dependentRequired: { fore: ['hind'], hind: ['fore'], chest: ['fore'], neck: ['fore'] }, not: { required: ['legs', 'fore'] } },
     motions: { type: 'object', maxProperties: 16, propertyNames: id, additionalProperties: { oneOf: [
-      ...['walk', 'trot', 'run'].map(template => object({ template: { const: template, ...(template === 'trot' && { description: 'A four-legged trot: diagonal pairs of feet.' }) }, frames: { ...int(template === 'run' ? 6 : 4, 64), multipleOf: 2 }, duration: int(1, 60000), follow, speed: num(-1024, 1024), stride: num(1, 64), lift: num(0, 32), bob: num(0, 8), lean: int(-45, 45), swapDepth: { type: 'boolean', description: 'Exchange the draw order of paired limbs in the second half-cycle, for front or back views where the stepping limb comes nearer the camera. Default false: side views keep near limbs in front.' },
+      ...['walk', 'trot', 'run'].map(template => object({ template: { const: template, ...(template === 'trot' && { description: 'A four-legged trot: diagonal pairs of feet.' }) }, frames: { ...int(template === 'run' ? 6 : 4, 64), multipleOf: 2 }, duration: int(1, 60000), follow, palette: motionPalette, speed: num(-1024, 1024), stride: num(1, 64), lift: num(0, 32), bob: num(0, 8), lean: int(-45, 45), swapDepth: { type: 'boolean', description: 'Exchange the draw order of paired limbs in the second half-cycle, for front or back views where the stepping limb comes nearer the camera. Default false: side views keep near limbs in front.' },
         ...(template === 'run' && { flex: int(0, 30, 'Four-legged gallop: degrees the spine curls and stretches each way (the body rocks half as far); default 10.') }) }, ['template'])),
-      object({ template: { const: 'idle' }, frames: int(2, 16), duration: int(1, 60000), follow, breath: num(0, .5),
+      object({ template: { const: 'idle' }, frames: int(2, 16), duration: int(1, 60000), follow, palette: motionPalette, breath: num(0, .5),
         squash: num(.05, .5, 'Instead of breath: the body stretches, then squashes, by this share over the loop while its lowest drawn pixel stays on rig.ground. Not with breath or legs.') }, ['template']),
-      object({ template: { const: 'jump' }, frames: { const: 7 }, duration: int(1, 60000), follow, crouch: num(.5, 1), stretch: num(1, 2), apex: int(1, 32) }, ['template']),
-      object({ template: { const: 'attack' }, frames: { const: 4 }, duration: int(1, 60000), follow, arm: int(0, 7), windup: int(-360, 360), strike: int(-360, 360), hold: int(1, 16) }, ['template']),
-      object({ template: { const: 'hurt' }, frames: { const: 2 }, duration: int(1, 60000), follow, recoil: int(-90, 90), squash: num(.5, 2) }, ['template'])
+      object({ template: { const: 'jump' }, frames: { const: 7 }, duration: int(1, 60000), follow, palette: motionPalette, crouch: num(.5, 1), stretch: num(1, 2), apex: int(1, 32) }, ['template']),
+      object({ template: { const: 'attack' }, frames: { const: 4 }, duration: int(1, 60000), follow, palette: motionPalette, arm: int(0, 7), windup: int(-360, 360), strike: int(-360, 360), hold: int(1, 16) }, ['template']),
+      object({ template: { const: 'hurt' }, frames: { const: 2 }, duration: int(1, 60000), follow, palette: motionPalette, recoil: int(-90, 90), squash: num(.5, 2) }, ['template'])
     ] } },
     motionInfo: { type: 'object', propertyNames: id, additionalProperties: object({ template: { enum: ['walk', 'trot', 'run', 'idle', 'jump', 'attack', 'hurt'] }, speed: num(-1024, 1024), keyPoses: { ...array(id, 256), minItems: 1, uniqueItems: true } }, ['template', 'speed', 'keyPoses']),
       description: 'Expansion annotations: generated animation speed and key poses. Retain these when editing --expand output; do not combine with motions.' },
@@ -186,6 +188,7 @@ const poses = {
     poses: { ...array({ ...object({ name: id, duration: int(1, 60000), origin: { ...point, description: 'The canvas point the pose stands on (often where the feet meet the ground), exported as the frame anchor. Parts without attach are placed from it. Default [0, 0].' },
       mirror: { ...id, description: 'Reflect an earlier pose (parts, points and markers) around its origin corner: pixel column c becomes 2 × originX − 1 − c, as drawFrame\'s flipX does. Omit parts, markers and origin.' },
       relight: { type: 'boolean', description: 'Mirror poses only: redraw structural parts with the source light unchanged; false/omitted preserves exact runtime-flipped pixels.' },
+      palette: posePalette,
       tween: { ...object({ from: id, to: id, t: num(0, 1, 'Position between the two poses.'), ease }, ['from', 'to', 't']), description: 'An in-between of two earlier authored or tweened poses with the same part instances: origin, offsets and angles interpolate and round; part definitions and flips switch at the eased halfway point. Omit parts and origin; markers are not inherited.' },
       parts: array(object({ name: id, part: id, at: { ...point, description: 'Offset [x, y] of the part anchor from the pose origin, or with attach from the named point; not a canvas position. Default [0, 0].' }, attach: object({ part: id, point: id }, ['part', 'point']), flipX: { type: 'boolean', description: 'Mirror this part, its anchor and its points inside the part.' },
         rotate: int(-360, 360, 'Whole degrees clockwise around the part anchor pixel, after any flip. The rotated grid is baked into an editable symbol named <part>-r<degrees> (-fr when flipped); points turn with it; right angles are exact.'),
