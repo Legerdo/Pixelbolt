@@ -667,6 +667,22 @@ test('a one-shot that still draws on its last frame is warned about, with what c
   assert.match(named({ emitters: [{ at: [12, 12], burst: 1, speed: 0, shapes: ['dot'] }] }), /What can be there: emitters\[0\], whose particles have no life and never end\./);
   assert.match(named({ looks: warm, layers: [{ kind: 'ring', at: [12, 12], radius: 6 }] }), /What can be there: layers\[0\], a ring whose frames run to the effect's end\./);
   assert.equal(named({ looks: warm, layers: [{ kind: 'ring', at: [12, 12], radius: 6, frames: [0, 5] }] }), 'no warning');
+  // A child spawning where its parent's particles land, or while they live, is born no later than the last frame they
+  // are drawn in: a particle that ends in a step neither moves nor lands in it. Each parent here is drawn through
+  // frame 3 (the one that falls lands in the step after frame 2), so its child living 3 frames is drawn through frame
+  // 5, the last, and one living 2 through frame 4: where the pixels of the child's colour are last drawn. Before, both
+  // kinds were named a frame late, as if born the frame after their parent's last like a child spawning where it
+  // ends: "drawn through frame 6" of six frames, and the child that ends on frame 4 among what can be on frame 5.
+  const lastDrawn = (recipe, [r, g, b]) => renderProject(recipe).frames.reduce((last, { data }, k) => { for (let i = 0; i < data.length; i += 4) if (data[i + 3] && data[i] === r && data[i + 1] === g && data[i + 2] === b) return k; return last; }, -1);
+  const lasting = { at: [20, 20], burst: 1, speed: 0, life: 6, shapes: ['cool'] }, other = 'emitters\\[2\\], born in frame 0 and living up to 6 frames, so drawn through frame 5';
+  for (const [when, event, parent, child] of [['floor', 'land', { at: [12, 11.5], angle: 90, speed: 1, floor: 14 }, { burst: 1 }], ['life', 'live', { at: [12, 12], speed: 0 }, { rate: 1 }]]) {
+    const family = life => compileEffects(effects({ frames: 6, emitters: [{ name: 'shell', burst: 1, life: 4, shapes: ['dot'], ...parent }, { from: 'shell', when, at: [4, 0], speed: 0, life, shapes: ['warm'], ...child }, lasting] }));
+    const reaches = family(3), ends = family(2);
+    assert.deepEqual([lastDrawn(reaches.recipe, [0xff, 0xff, 0xff]), lastDrawn(reaches.recipe, [0xff, 0xdd, 0x66]), lastDrawn(ends.recipe, [0xff, 0xdd, 0x66])], [3, 5, 4], when);
+    assert.deepEqual([reaches.warnings.length, ends.warnings.length], [1, 1], when);
+    assert.match(reaches.warnings[0], new RegExp(`What can be there: emitters\\[1\\], born when its parent's particles ${event} and living up to 3 frames, so drawn through frame 5; ${other}\\. End them `), when);
+    assert.match(ends.warnings[0], new RegExp(`What can be there: ${other}\\. End it `), when);
+  }
 
   // A sprite the effect draws (a prop standing through it, a stand-in) is not something left over; a particle still
   // there beside it is.

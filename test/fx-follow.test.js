@@ -256,3 +256,50 @@ test('where one loop\'s frames are prime, so no count divides every loop, the lo
     even(followed.compiled);
   }
 });
+
+test('a refusal confirms its route by compiling the source again six times at most, however the counts it tries are turned down', () => {
+  // How often a refusal compiles the source is counted, never timed: a one-frame effect goes first, and its duration is
+  // read the same number of times by every compile of the source, the refused one and each trial of a route.
+  let reads = 0;
+  const probe = () => Object.defineProperty({ frames: 1, residue: true, emitters: [{ at: [4, 4], burst: 1, life: 1, shapes: ['drop'] }] }, 'duration', { enumerable: true, get() { reads++; return 60; } });
+  compileEffects(fx({ probe: probe() }, 64, 64));
+  const once = reads;
+  const refused = source => {
+    let reply = null;
+    reads = 0;
+    assert.throws(() => compileEffects(source), error => { assert.equal(error.name, 'PixelError'); reply = error.message; return true; });
+    return { reply, compiles: reads / once };
+  };
+  const looks = { ring: { colors: ['l', 'd'], thresholds: [0.3, 0.6] } }, ring = frames => ({ kind: 'ring', look: 'ring', at: [32, 32], radius: [4, 20], width: 3, frames });
+  // A one-shot and a 239-frame loop that fill a recipe's 256 frames and pass its 20,000 drawing operations by a little.
+  // 239 is prime, so every count tried gives the loop fewer frames.
+  const full = layer => fx({ probe: probe(),
+    a: { frames: 16, residue: true, edges: sides, emitters: [{ at: [32, 32], area: [60, 60], burst: 1000, life: [16, 16], speed: [0.2, 0.6], angle: [0, 359], shapes: ['drop'] }] },
+    b: { frames: 239, loop: true, edges: sides, looks, layers: [layer], emitters: [{ at: [32, 32], area: [60, 10], rate: 2, life: [10, 10], speed: 0.5, angle: [0, 359], shapes: ['drop'] }] } }, 64, 64);
+  // The loop's ring is drawn on its frames 200 to 239, which no shorter loop has: that is read from the source, as an
+  // emitter's start is, so no count costs a compile. Before: each of the 108 counts from the most that fit down to half
+  // of it was turned down by compiling the source again, the one-shot simulated and painted every time (39 s for the
+  // source a review brought, past the 50 s an MCP call may take with heavier layers), since a count turned down on a
+  // field was not counted as a trial wherever the field was found.
+  const windowed = refused(full(ring([200, 239])));
+  assert.match(windowed.reply, /^fx\.effects: the 256 frames the effects make need about [\d,]+ drawing operations .* and a recipe makes at most 20,000: lower burst, rate or trail$/);
+  assert.equal(windowed.compiles, 1, windowed.reply);
+  // A trail with a place for each of the loop's 239 frames is too long for a shorter loop too, but only a compile finds
+  // that out, so each count tried is a trial: six, and the refusal's own compile. Before: 104 trials.
+  const placed = refused(full({ kind: 'trail', look: 'ring', at: [32, 32], width: 3, points: Array.from({ length: 239 }, (_, i) => [(i % 20) - 10, 0]) }));
+  assert.match(placed.reply, /and a recipe makes at most 20,000: lower burst, rate or trail$/);
+  assert.ok(placed.compiles > 1 && placed.compiles <= 7, `${placed.compiles} compiles`);
+  // Counts turned down before anything is compiled are still passed freely, as many as there are, so the route past
+  // them is found: a 59-frame loop turned two ways beside a 60-frame loop whose ring is drawn on its last ten frames.
+  // The first fourteen counts shorten that loop; the next gives both loops more frames, and holds. Before: fifteen
+  // trials. (Had the fourteen been trials, six would have ended the search with no route.)
+  const trail = { color: 'l', length: 2 }, drop = more => ({ name: 'drop', at: [32, -4], area: [64, 1], angle: [80, 100], speed: [1, 4], shapes: ['drop'], trail, ...more });
+  const two = fx({ probe: probe(), e0: { frames: 59, duration: 60, loop: true, seed: 12, turn: { angles: [0, 180] }, emitters: [drop({ rate: 0.5, life: [4, 9] })] },
+    e1: { frames: 60, duration: 60, loop: true, seed: 61, looks, layers: [ring([50, 60])], emitters: [drop({ rate: 11, life: [4, 27] })] } }, 64, 64);
+  const routed = refused(two);
+  assert.match(routed.reply, /, so frames (\d+) fits \(pixelbolt compile --frames \1\) once e0's loop has \d+ frames and e1's \d+: it keeps/);
+  assert.ok(routed.compiles <= 7, `${routed.compiles} compiles`);
+  const followed = follow(two);
+  assert.ok(followed.source.effects.e1.frames > 60 && followed.source.effects.e1.frames % followed.options.frames === 0, followed.reply);
+  even(followed.compiled);
+});

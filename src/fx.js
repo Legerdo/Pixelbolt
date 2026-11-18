@@ -9,10 +9,12 @@
 // (the flood of src/light.js), laid last on its sprites, on what else it draws and on the empty pixels. Each compile
 // reviews what it made and warns about what a game would show as a fault: a loop that jumps at its seam, a canvas side
 // drawn on (unless the effect lists it in `edges`), a one-shot that still draws on its last frame, where it is cut
-// off (unless the effect says `residue: true`), and compile --frames thinning a loop unevenly. A refusal names a route
-// checked against the limit it reports: a release's share and an effect's frames are confirmed by simulating them
-// again (shareHolds, framesRoute), a count for compile --frames thins every loop evenly or names the loop frames that
-// let it (evenFrames), and loop frames and counts past 256 frames are confirmed by compiling them (trialCompile).
+// off (unless the effect says `residue: true`), and compile --frames thinning a loop unevenly. The whole effect is
+// reviewed even where a compile keeps only its back or front part (compile --animation): the parts are what a game
+// draws. A refusal names a route checked against the limit it reports: a release's share and an effect's frames are
+// confirmed by simulating them again (shareHolds, framesRoute), a count for compile --frames thins every loop evenly or
+// names the loop frames that let it (evenFrames), and loop frames and counts past 256 frames are confirmed by
+// compiling them (trialCompile), ROUTE_TRIALS times at most.
 // Browser-compatible and deterministic: seeded hashing and polynomial trigonometry, no Math.random.
 import { PixelError, parseColor, renderProject, CANVAS_SIDE, FRAME_AREA, frameFits, frameAreaProblem, frameTotalProblem, joinErrors, fail, isObject, sameWidth } from './core.js';
 import { fields, point, compilePoses, number, integer, range, pair, pick, pickWhole } from './authoring.js';
@@ -930,9 +932,10 @@ function evenLoops(n, loops, within = () => true) {
 // (evenLoops: change lists them) is named instead, so following it gives no stutter warning, trying at most
 // ROUTE_TRIALS counts from most down to half of it; failing that, n when it is not crude, or null. A count the compile
 // was given (`given`) is the caller's own, never crude. A count whose change `holds` turns down on a field ('field':
-// a loop given fewer frames than an emitter's start or end needs) is not a trial: it fails at once, and the counts
-// below it may leave that loop alone (a loop of a prime count is changed only by counts that divide none of the
-// others' frames).
+// a loop given fewer frames than an emitter's start or end, or a layer's frames, need) is not a trial: `holds` says
+// so only where it compiled nothing to know it (trialCompile), and the counts below it may leave that loop alone (a
+// loop of a prime count is changed only by counts that divide none of the others' frames). Every other answer is a
+// trial, so one refusal compiles the source again at most ROUTE_TRIALS times.
 function evenFrames(most, loops, fits = () => true, within = () => true, holds = m => fits(m), given) {
   if (most < 1) return null;
   const rough = m => m !== given && crude(m, loops);
@@ -1342,8 +1345,9 @@ function followed(layer, path, frames) {
   return { ...rest, points, ...(follow.pivot !== undefined && { pivot: recipePoints(follow, `${path}.follow`, 'pivot') }) };
 }
 
-// The 20,000 drawing operations one render takes (core.js renderProject), for frameParts.
-const RENDER_OPERATIONS = 20000;
+// The 20,000 drawing operations one render takes (core.js renderProject), for frameParts, and the 2,048 one frame's
+// list of them holds there, which a whole reviewed without being kept must be within (compileEffects `unkept`).
+const RENDER_OPERATIONS = 20000, FRAME_OPERATIONS = 2048;
 // `frames` (of `area` pixels each) in runs that one render takes, in order: at most FRAME_AREA pixels and
 // RENDER_OPERATIONS drawing operations a run (a frame past them alone is a run of its own, refused by the render). An
 // effect compiled for fewer frames (compileEffects' `frames`) may make more of both than a recipe holds, and is read a
@@ -1361,20 +1365,24 @@ export function frameParts(frames, area) {
 }
 
 // Whether `source` compiles with its effects' frames changed (`change`: [name, frames, new frames]) and `options`
-// (compile --frames, the animations kept), thinning nothing unevenly: true, false, or 'field' when it is turned down
-// on a field the change leaves out of range (an emitter that starts or ends past the frames named, a duration list),
-// which is known at once, before any effect is simulated where it can be. A confirmation of a route a refusal names.
-const FIELD = /^fx\.effects\.[^.]+\.(?:emitters\[\d+\]\.(?:start|end)|layers\[\d+\]|duration)/;
+// (compile --frames, the animations kept), thinning nothing unevenly: true or false, each the answer of one whole
+// compile, or 'field' when the change leaves a field out of range that is read here, before anything is compiled (an
+// emitter that starts or ends past the frames named, a layer whose frames do). Only 'field' costs nothing: a compile
+// refused on a field has simulated and painted every effect before the one it names, so it is false like any other
+// refusal, and one of evenFrames' trials. A confirmation of a route a refusal names.
 function trialCompile(source, change, options) {
   const effects = { ...source.effects };
+  // A window written [first, end) that `to` frames leave out of range.
+  const past = (to, first, end) => (Number.isInteger(first) && first >= to) || (Number.isInteger(end) && end > to);
   for (const [name, , to] of change) {
     const effect = effects[name];
     if (!isObject(effect)) return false;
-    if (Array.isArray(effect.emitters) && effect.emitters.some(e => isObject(e) && ((Number.isInteger(e.start) && e.start >= to) || (Number.isInteger(e.end) && e.end > to)))) return 'field';
+    if (Array.isArray(effect.emitters) && effect.emitters.some(e => isObject(e) && past(to, e.start, e.end))) return 'field';
+    if (Array.isArray(effect.layers) && effect.layers.some(l => isObject(l) && Array.isArray(l.frames) && past(to, l.frames[0], l.frames[1]))) return 'field';
     effects[name] = { ...effect, frames: to, ...(Array.isArray(effect.duration) && { duration: Array.from({ length: to }, (_, i) => effect.duration[i % effect.duration.length]) }) };
   }
   try { return !(compileEffects({ ...source, effects }, { ...options, trial: true }).warnings ?? []).some(warning => warning.includes(' unevenly')); }
-  catch (error) { return error instanceof PixelError && (error.errors ?? [error]).some(each => FIELD.test(each.path)) ? 'field' : false; }
+  catch { return false; }
 }
 
 // With `stats`, the result also has `work`: the pixels its shape layers' painting visited (`painted`), every frame and
@@ -1384,7 +1392,8 @@ function trialCompile(source, change, options) {
 // made at a screen size may simulate more frames than fit and deliver fewer; the recipe returned still has them all.
 // `animation`: the animations a compile keeps (compile --animation, pixel_compile animation; resize.js keepAnimations
 // keeps them after), named at `animationPath`. Only the effects that make them are simulated, and only they are
-// charged, so one spell of a set authored at a screen size compiles on its own.
+// charged, so one spell of a set authored at a screen size compiles on its own. A part kept without its whole is
+// charged alone too, and the whole is still reviewed for its warnings (`unkept`).
 // `trial` (inside) is a compile that only confirms a route a refusal names (the delivered operations' loop changes):
 // its own refusals name routes without confirming them.
 export function compileEffects(source, { stats = false, frames: keep, animation, animationPath = 'animation', trial = false } = {}) {
@@ -1818,18 +1827,32 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
   }
   } catch (error) { throw noted.length && error instanceof PixelError && !error.errors ? joinErrors([...noted, error]) : error; }
   if (noted.length) throw joinErrors(noted);
-  // Only the animations a compile keeps go into the recipe, with their frames and seam probes: an effect drawn behind a
-  // character makes its whole and its parts together, and says which parts it delivers.
+  // Only the animations a compile keeps go into the recipe, with their frames: an effect drawn behind a character makes
+  // its whole and its parts together, and says which parts it delivers.
+  // reviewed: what the review below reads, in the order made: [name, animation, what the metadata says of it] for each
+  // animation kept and, where a part is kept without its whole, for that whole too (`unkept`). Its parts are what a
+  // game draws of it, so the compile warns of the whole's edges, residue, seam and uneven thinning as it does when
+  // everything is kept, each once. Nothing of an unkept whole is delivered: its frames (`aside`) and its seam probe are
+  // only rendered for the review, and what the review notes of it is dropped. A whole's frame draws what both its
+  // parts' do, so it can pass the drawing operations a frame holds (FRAME_OPERATIONS) where neither part's does: the
+  // render refuses such a frame, so that whole is left unreviewed rather than its parts' compile refused over it.
+  const made = Object.entries(animations).map(([name, animation]) => [name, animation, metadata.effects[name]]), unkept = new Set(), aside = [];
   if (wanted) {
-    for (const name of Object.keys(animations)) if (!wanted.has(name)) { delete animations[name]; delete metadata.effects[name]; }
+    const drawing = new Map([...frames, ...nextFrames].map(frame => [frame.name, frame.ops?.length ?? 0]));
+    for (const [name, animation, effect] of made) if (!wanted.has(name)) {
+      if (Object.values(effect.parts ?? {}).some(part => wanted.has(part)) && [...animation.frames, `${name}-next`].every(frame => (drawing.get(frame) ?? 0) <= FRAME_OPERATIONS)) unkept.add(name);
+      delete animations[name]; delete metadata.effects[name];
+    }
     for (const effect of Object.values(metadata.effects)) if (effect.parts) {
       const parts = Object.fromEntries(Object.entries(effect.parts).filter(([, part]) => wanted.has(part)));
       if (Object.keys(parts).length) effect.parts = parts; else delete effect.parts;
     }
-    const delivered = new Set(Object.values(animations).flatMap(animation => animation.frames));
+    const delivered = new Set(Object.values(animations).flatMap(animation => animation.frames)), read = new Set(made.flatMap(([name, animation]) => (unkept.has(name) ? animation.frames : [])));
+    aside.push(...frames.filter(frame => read.has(frame.name)));
     frames.splice(0, frames.length, ...frames.filter(frame => delivered.has(frame.name)));
-    nextFrames.splice(0, nextFrames.length, ...nextFrames.filter(frame => Object.hasOwn(animations, frame.name.slice(0, -'-next'.length))));
+    nextFrames.splice(0, nextFrames.length, ...nextFrames.filter(frame => { const name = frame.name.slice(0, -'-next'.length); return Object.hasOwn(animations, name) || unkept.has(name); }));
   }
+  const reviewed = made.filter(([name]) => Object.hasOwn(animations, name) || unkept.has(name));
   if (frames.length > 256) fail('fx.effects', `the effects make ${frames.length} frames; a recipe holds at most 256`);
   for (const { name, rows } of spun.values()) symbols[name] = rows;
   const recipe = { version: 1, name: source.name, width, height, palette, ...(Object.keys(symbols).length && { symbols }), ...(source.anchor !== undefined && { anchor: source.anchor }), frames, animations, ...(source.sheet !== undefined && { sheet: source.sheet }) };
@@ -1856,8 +1879,9 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
   // says its last frame stays (residue: true): whatever is there is cut off where a game ends the effect.
   // The frames are read in order, an animation at a time (eachFrame): rendered once, or, when the effects make more
   // frames or drawing operations than one render takes (compiled to be thinned, `frames`), a run at a time
-  // (frameParts), so no more is held.
-  const frameOf = new Map(recipe.frames.map(frame => [frame.name, frame])), warnings = [...loopNotes], area = width * height;
+  // (frameParts), so no more is held. An unkept whole's frames are not among the recipe's, so they are always read a
+  // run at a time.
+  const frameOf = new Map([...recipe.frames, ...aside].map(frame => [frame.name, frame])), warnings = [...loopNotes], area = width * height;
   const renderRuns = (list, visit) => {
     let i = 0;
     for (const part of frameParts(list, area)) renderProject({ ...recipe, frames: part, animations: { review: { frames: part.map(frame => frame.name) } } }).frames.forEach(frame => visit(frame.data, i++));
@@ -1865,7 +1889,7 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
   const at = new Map(), whole = frameParts(recipe.frames, area).length === 1;
   if (whole) renderRuns(recipe.frames, (data, i) => at.set(recipe.frames[i].name, data));
   const eachFrame = (names, visit) => {
-    if (whole) names.forEach((name, k) => visit(at.get(name), k));
+    if (whole && at.has(names[0])) names.forEach((name, k) => visit(at.get(name), k));
     else renderRuns(names.map(name => frameOf.get(name)), visit);
   };
   // The frame each loop should go on to after its last, drawn with the same palette and symbols.
@@ -1881,8 +1905,8 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
     return count;
   };
   const leftover = new Set();
-  for (const [name, animation] of Object.entries(animations)) {
-    const effect = metadata.effects[name], of = effect.turn?.of ?? name, length = animation.frames.length;
+  for (const [name, animation, effect] of reviewed) {
+    const of = effect.turn?.of ?? name, length = animation.frames.length;
     const end = ending.get(effect.part?.of ?? name), kept = end?.kept;
     // What the review keeps of the frames as they go by: the first and the last, a loop's largest step from one frame
     // to the next, and for a whole effect (not a part) each frame's light and what it draws on the canvas's edges.
@@ -1907,8 +1931,9 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
     }
     effect.light = light;
     // Frames are named per animation, so each frame takes its own light; a cue of the same name keeps its place. The
-    // parts' frames take the whole effect's light, so game code drawing them finds it too.
-    if (pointed.has(name)) animation.frames.forEach((frameName, k) => {
+    // parts' frames take the whole effect's light, so game code drawing them finds it too. An unkept whole writes
+    // none: the review of it changes nothing a compile delivers.
+    if (pointed.has(name) && !unkept.has(name)) animation.frames.forEach((frameName, k) => {
       if (!effect.light[k]) return;
       for (const target of [frameName, ...(effect.parts ? Object.values(effect.parts).map(part => `${part}-${k}`) : [])]) {
         const frame = frameOf.get(target);
@@ -1964,8 +1989,8 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
   // others and the loop stutters. Once per effect, not per turned copy or part.
   if (keep) {
     const told = new Set();
-    for (const [name, animation] of Object.entries(animations)) {
-      const effect = metadata.effects[name], of = effect.turn?.of ?? name, F = animation.frames.length;
+    for (const [name, animation, effect] of reviewed) {
+      const of = effect.turn?.of ?? name, F = animation.frames.length;
       if (effect.part || animation.loop === false || F <= keep || F % keep === 0 || told.has(of)) continue;
       told.add(of);
       // A count that would thin a long loop to almost nothing (crude) is not offered, as no route offers one.
@@ -1997,14 +2022,16 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
 }
 
 // What can still be drawn on a one-shot's last frame, by how the effect is written: an emitter whose last spawn and
-// longest life reach it (a particle born in frame t with a life of L is drawn through frame t + L − 1; a child is born
-// the frame after its parent's event at the latest), and a layer whose frames run to the end. Whether anything is drawn
+// longest life reach it (a particle born in frame t with a life of L is drawn through frame t + L − 1), and a layer
+// whose frames run to the end. A child spawning where its parent's particles end is born the frame after the last one
+// they are drawn in, at the latest; one spawning where they land or while they live, no later than that last frame: a
+// particle that ends in a step neither moves nor lands in it, and spawns nothing after it. Whether anything is drawn
 // there is measured (the residue); this names where to look, and through which frame each emitter can draw.
 function reaching(emitters, shapes, count) {
   const until = [], found = [];
   emitters.forEach((e, i) => {
     if (e.drawOnly) { until.push(-Infinity); return; }
-    const born = e.parent !== null ? until[e.parent] + 1 : e.burst !== null ? e.start : e.end - 1, last = e.life ? born + e.life[1] - 1 : Infinity;
+    const born = e.parent !== null ? until[e.parent] + (e.when === 'death' ? 1 : 0) : e.burst !== null ? e.start : e.end - 1, last = e.life ? born + e.life[1] - 1 : Infinity;
     until.push(last);
     if (last < count - 1) return;
     const who = `emitters[${i}]${e.name ? ` (${e.name})` : ''}`;

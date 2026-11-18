@@ -113,6 +113,49 @@ test('a light point and cues reach the back and front parts too', () => {
   }
 });
 
+test('parts compiled without their whole are warned of the whole effect\'s edges, residue, seam and uneven thinning, each once', () => {
+  // A one-shot ring cut by the bottom edge and still drawn on its last frame, and a loop whose keys don't close and
+  // that frames 5 thins unevenly; both lie round a character, so each has a back and a front.
+  const looks = { warm: { colors: ['y'], thresholds: [0.2] } };
+  const gone = { frames: 3, looks, layers: [{ kind: 'ring', at: [16, 24], radius: 12, width: 2, depth: 'split' }] };
+  const aura = { frames: 8, loop: true, looks, layers: [{ kind: 'ring', at: [16, 16], radius: [6, 10], width: 2, depth: 'split' }] };
+  const compile = animation => compileEffects(source({ gone, aura }), { frames: 5, animation });
+  const all = compile();
+  const kinds = [/^fx\.effects\.gone: gone draws on the canvas's bottom edge /, /^fx\.effects\.gone: gone still draws \d+ pixels on its last frame \(frame 2\)/, /^fx\.effects\.aura: aura jumps at its loop point: /, /^fx\.effects\.aura: frames 5 thins its 8-frame loop unevenly/];
+  assert.equal(all.warnings.length, kinds.length);
+  kinds.forEach((kind, i) => assert.match(all.warnings[i], kind));
+  // The parts are what a game draws, so compiled alone they say what the whole effect says, in the same words.
+  // Before: no warning at all, since the whole's frames were dropped before the review and a part gives none.
+  const parts = ['gone-back', 'gone-front', 'aura-back', 'aura-front'], only = compile(parts);
+  assert.deepEqual(only.warnings, all.warnings);
+  // What is delivered stays the parts alone, each frame and each part's metadata as when everything is compiled.
+  assert.deepEqual([Object.keys(only.recipe.animations), Object.keys(only.metadata.effects)], [parts, parts]);
+  const played = new Set(parts.flatMap(part => only.recipe.animations[part].frames));
+  assert.deepEqual(only.recipe.frames, all.recipe.frames.filter(frame => played.has(frame.name)));
+  for (const part of parts) assert.deepEqual(only.metadata.effects[part], all.metadata.effects[part], part);
+  // One part alone is warned of its own effect and no other; a whole kept beside a part is not warned of twice.
+  assert.deepEqual(compile(['aura-front']).warnings, all.warnings.filter(warning => warning.startsWith('fx.effects.aura: ')));
+  assert.deepEqual(compile(['gone', 'gone-back', 'aura-front']).warnings, all.warnings);
+  assert.deepEqual(compile(['gone', 'aura']).warnings, all.warnings);
+
+  // Only the parts are charged, as before: 100 frames behind a character are 300 of the recipe's with the whole and
+  // 200 as parts, which compile, and the whole's 100 are still reviewed.
+  const long = source({ long: { frames: 100, emitters: [{ at: [3, 16], rate: 0.25, speed: [0.3, 0.6], angle: [170, 190], life: [8, 12], shapes: ['dot'], depth: 'back' }, { at: [20, 20], rate: 0.25, speed: 0.2, life: [4, 6], shapes: ['warm'] }] } });
+  assert.throws(() => compileEffects(long), /the effects make 300 frames; a recipe holds at most 256/);
+  const halves = compileEffects(long, { animation: ['long-back', 'long-front'] });
+  assert.equal(halves.recipe.frames.length, 200);
+  assert.equal(halves.warnings.length, 2);
+  assert.match(halves.warnings[0], /^fx\.effects\.long: long draws on the canvas's left edge /);
+  assert.match(halves.warnings[1], /^fx\.effects\.long: long still draws \d+ pixels on its last frame \(frame 99\)/);
+  // A whole's frame draws what both its parts' do. Where each part's is within the 2,048 operations a frame holds and
+  // the two together are not, no render takes the whole's: it is left unreviewed, and its parts compile as before.
+  const pour = source({ pour: { frames: 3, residue: true, edges: ['top', 'bottom', 'left', 'right'], emitters: ['back', 'front'].map(depth => ({ at: [16, -2], area: [28, 1], burst: 500, angle: 90, speed: 2, life: 3, shapes: ['dot'], trail: { color: 'y', length: 16 }, depth })) } });
+  const poured = compileEffects(pour, { animation: ['pour-back', 'pour-front'] });
+  const last = ['pour-back-2', 'pour-front-2'].map(name => poured.recipe.frames.find(frame => frame.name === name).ops.length);
+  assert.ok(last.every(ops => ops <= 2048) && last[0] + last[1] > 2048, `${last}`);
+  assert.deepEqual([poured.recipe.frames.length, poured.warnings], [6, undefined]);
+});
+
 test('a loop is reviewed against the frame that should follow its last, so only a real jump is warned about', () => {
   const looks = { warm: { colors: ['y', 'w'], thresholds: [0.2, 0.6] } };
   const jumpOf = (effect, extra) => { const { metadata, warnings = [] } = compileEffects(source({ e: { frames: 8, loop: true, seed: 3, looks, ...effect } }, extra)); return { jump: metadata.effects.e.seam.jump, warnings }; };
