@@ -155,6 +155,11 @@ test('CLI help topics print what pixel_help returns, and one section of a long g
   assert.ok(Object.hasOwn(JSON.parse(help('terrain').stdout).properties, 'fill'));
   // (A part named after it is read as a path in the autotile schema, as after autotile itself.)
   assert.equal(help('terrain', 'terrain.fill').stdout, help('autotile', 'terrain.fill').stdout);
+  // A name after the alias is a path inside its part: the fill of what `help terrain` just printed. "all" is still the
+  // whole schema, and a path that is not there names what terrain holds.
+  assert.equal(help('terrain', 'fill').stdout, help('autotile', 'terrain.fill').stdout);
+  assert.equal(help('terrain', 'all').stdout, help('autotile', 'all').stdout);
+  assert.match(JSON.parse(help('terrain', 'tile').stderr).error, /the autotile schema has no "terrain\.tile"; terrain holds seed, fill, edges, round, inner/);
   assert.equal(help('tiles').stdout, help('autotile').stdout);
   assert.equal(help('tileset').stdout, help('autotile').stdout);
   assert.doesNotMatch(JSON.parse(help('nope').stderr).error, /terrain|tileset/);
@@ -468,6 +473,10 @@ test('CLI render --look writes the frames enlarged, and --gif a GIF of each anim
   const bare = JSON.parse(cli('render', coin, '--out', 'bare').stdout);
   assert.deepEqual([bare.gifs, bare.look, bare.files.some(file => file.startsWith('gifs/') || file === 'look.png')], [undefined, undefined, false]);
   assert.match(cli('render', coin, '--out', 'bad', '--gif-scale', 'big').stderr, /--gif-scale expects a whole number from 1 to 16/);
+  // A recipe named "look" exports its sprite sheet as look.png, which --look drew its contact sheet over.
+  await writeFile(path.join(dir, 'look.json'), JSON.stringify({ ...JSON.parse(await readFile(coin, 'utf8')), name: 'look' }));
+  assert.match(JSON.parse(cli('render', 'look.json', '--out', 'named', '--look').stderr).error, /--look writes look\.png, which this export already has \(the sprite sheet of a recipe named "look"\)/);
+  assert.equal(JSON.parse(cli('render', 'look.json', '--out', 'named').stdout).sheet, 'look.png');
   assert.match(cli('render', coin, '--out', 'bad', '--gif-scale', '40').stderr, /scale/);
   assert.match(cli('validate', coin, '--gif').stderr, /--gif is not supported by validate/);
 });

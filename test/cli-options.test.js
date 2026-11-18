@@ -97,6 +97,14 @@ test('an option given twice is refused by name; a flag given twice is taken', as
   assert.equal(refused(cli('inspect', 'examples/coin.json', '--frames', 'turn-0', '--frames', 'turn-1')).error, '--frames is given twice (turn-0 and turn-1); give it once, with the whole list in one value: --frames turn-0,turn-1');
   assert.match(refused(cli('inspect', 'examples/forest-spirit.json', '--layers', 'a', '--layers', 'b')).error, /^--layers is given twice .*: --layers a,b$/);
   assert.match(refused(cli('compile', 'examples/hero.poses.json', '--draft-views', 'nearBoot:30', '--draft-views', 'farBoot:330')).error, /: --draft-views nearBoot:30,farBoot:330$/);
+  // --frames names frames only for inspect: elsewhere it is a count, and "--frames 4,6" was advice the command then
+  // refused. --animation is several names for compile.
+  assert.equal(refused(cli('gif', 'examples/coin.json', '--frames', '4', '--out', at('a.gif'), '--frames', '6')).error, '--frames is given twice (4 and 6); give it once');
+  assert.equal(refused(cli('compile', '--preset', 'fire-spells', '--frames', '4', '--frames', '6', '--out', at('a.json'))).error, '--frames is given twice (4 and 6); give it once');
+  assert.equal(refused(cli('compile', '--preset', 'fire-spells', '--animation', 'impact', '--animation', 'area', '--out', at('a.json'))).error, '--animation is given twice (impact and area); give it once, with the whole list in one value: --animation impact,area');
+  // A command named like something every object has is no command (it answered "names.find is not a function").
+  assert.equal(refused(cli('constructor', '--bogus')).error, 'Unknown option: --bogus');
+  assert.equal(refused(cli('toString')).error, 'Unknown command: toString. Run pixelbolt help.');
   const listed = cli('inspect', 'examples/coin.json', '--frames', 'turn-0,turn-1', '--grid', '--grid');
   assert.equal(listed.status, 0, listed.stderr);
   const sheet = JSON.parse(listed.stdout);

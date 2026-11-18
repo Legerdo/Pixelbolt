@@ -115,6 +115,13 @@ test('MCP keeps what an agent reads small: brief tool schemas, a quick start, an
     const elsewhere = await mcp.call('pixel_help', { topic: 'schema', name: 'scenes' });
     assert.equal(elsewhere.result.isError, true); assert.match(elsewhere.info.error, /the recipe schema has no "scenes": scenes is a help topic of its own, so call pixel_help with topic "scenes"$/);
     assert.equal((await help('scene'))[0], (await help('scenes'))[0]);
+    // A word the server takes without listing it among the tool's topics is sent on by the topic and part it stands
+    // for, which every client can send; and a name that is no text is refused by its path, not as a TypeError.
+    const alias = await mcp.call('pixel_help', { topic: 'schema', name: 'terrain' });
+    assert.match(alias.info.error, /the recipe schema has no "terrain": terrain is a help topic of its own, so call pixel_help with topic "autotile" and name "terrain"$/);
+    assert.equal(await section('terrain', 'fill'), await section('autotile', 'terrain.fill'));
+    const number = await mcp.call('pixel_help', { topic: 'guide', name: 5 });
+    assert.equal(number.result.isError, true); assert.match(number.info.error, /^name: expected text/);
     // The quick start's recipe and the example topic are valid recipes that draw without warnings.
     const recipe = JSON.parse(quick.match(/```json\n([\s\S]*?)\n```/)[1]), example = JSON.parse((await help('example'))[0]);
     for (const project of [recipe, example]) {

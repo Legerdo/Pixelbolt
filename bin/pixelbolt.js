@@ -194,8 +194,11 @@ const OPTIONS = {
   skill: ['project', 'dir', 'force']
 };
 const KNOWN = new Set(Object.values(OPTIONS).flat());
-// The options whose one value is a list separated by commas.
-const LIST_OPTIONS = ['frames', 'layers', 'draft-views'];
+// The options whose one value is a list separated by commas, each with the commands that read it so (null: every
+// command that takes it). --frames names frames for inspect and is a count for compile, gif and import; --animation is
+// several names only for compile.
+const LIST_OPTIONS = { frames: ['inspect'], layers: null, 'draft-views': null, beside: null, stack: null, animation: ['compile'] };
+const takesList = (key, command) => Object.hasOwn(LIST_OPTIONS, key) && (LIST_OPTIONS[key]?.includes(command) ?? true);
 // Whether args[i] is an option that takes a value: one that is known and no flag.
 const takesValue = arg => arg.startsWith('--') && KNOWN.has(arg.slice(2)) && !FLAGS.has(arg.slice(2));
 // The argument after a value option is its value, whatever it says (--name -h, --offset -4,0), unless it is missing or
@@ -231,7 +234,7 @@ function commandHelp(command) {
   return [lines[0], '', ...usage, '', ...notes, 'pixelbolt help lists every command.', ''].join('\n');
 }
 // An option a command does not take, with the one of its own it most likely meant (--frame for --frames).
-const optionMiss = (key, command) => { const guess = meant(key, OPTIONS[command] ?? [...KNOWN]); return guess === undefined ? '' : `; did you mean --${guess}?`; };
+const optionMiss = (key, command) => { const guess = meant(key, Object.hasOwn(OPTIONS, command ?? '') ? OPTIONS[command] : [...KNOWN]); return guess === undefined ? '' : `; did you mean --${guess}?`; };
 function parseArgs(args, command) {
   const positional = [], options = {};
   for (let i = 0; i < args.length; i++) {
@@ -244,7 +247,7 @@ function parseArgs(args, command) {
     else {
       if (!valueFollows(args, i)) throw new Error(`--${key} requires a value`);
       const value = args[++i];
-      if (Object.hasOwn(options, key)) throw new Error(`--${key} is given twice (${options[key]} and ${value}); give it once${LIST_OPTIONS.includes(key) ? `, with the whole list in one value: --${key} ${options[key]},${value}` : ''}`);
+      if (Object.hasOwn(options, key)) throw new Error(`--${key} is given twice (${options[key]} and ${value}); give it once${takesList(key, command) ? `, with the whole list in one value: --${key} ${options[key]},${value}` : ''}`);
       options[key] = value;
     }
   }
@@ -327,8 +330,14 @@ function inspectOptions({ frames, animation, region, grid, scale, background, vi
 }
 // --under file.json[:frame]: that frame of another recipe (its first without a name), as the picture inspect lays
 // under every cell. (A colon after a drive letter is part of the path.)
+const underOf = value => {
+  const at = value.lastIndexOf(':'), named = at > 1 && !/[\\/]/.test(value.slice(at + 1));
+  return { file: named ? value.slice(0, at) : value, frameName: named ? value.slice(at + 1) : undefined };
+};
+// The file a JSON option names, when its value is not the JSON itself.
+const optionFile = value => (value === undefined || String(value).trimStart().startsWith('{') ? undefined : value);
 async function readUnder(value, layerOptions) {
-  const at = value.lastIndexOf(':'), named = at > 1 && !/[\\/]/.test(value.slice(at + 1)), file = named ? value.slice(0, at) : value, frameName = named ? value.slice(at + 1) : undefined;
+  const { file, frameName } = underOf(value);
   const { document } = await readResolved(file, '--under'), other = renderProject(Object.hasOwn(COMPILERS, document?.format ?? '') ? COMPILERS[document.format](document).recipe : document, layerOptions);
   const frame = frameName === undefined ? other.frames[0] : other.frames.find(f => f.name === frameName);
   if (!frame) throw new Error(`--under ${file} has no frame ${JSON.stringify(frameName)}; its frames: ${other.frames.slice(0, 12).map(f => f.name).join(', ')}${other.frames.length > 12 ? ` and ${other.frames.length - 12} more` : ''}`);
@@ -592,6 +601,8 @@ try {
         input = await readResolved(positional[0]);
         // A preset may be a plain recipe, which compiles to itself.
         const compile = command === 'autotile' ? compileAutotile : options.preset !== undefined ? compilePreset : COMPILERS[input.document?.format] ?? compilePoses;
+        // A tile set by what it is, since a preset of one compiles through compilePreset: its frames are its tiles.
+        const tileSet = compile === compileAutotile || input.document?.format === 'pixelforge-autotile';
         // An effect is budgeted for the frames --frames keeps and the animations --animation keeps (compilePreset).
         const compiled = compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation?.split(','), animationPath: '--animation' }) : compile(input.document);
         // A plain recipe preset compiles to itself and has no metadata to save.
@@ -599,19 +610,19 @@ try {
         metadata = compiled.metadata; warnings = compiled.warnings ?? []; preview = compiled.preview;
         // --animation: only the animations named (a,b for several), with the frames they play.
         if (options.animation !== undefined) {
-          if (compile === compileAutotile) throw new Error('--animation keeps animations, and a tile set has none to choose from');
+          if (tileSet) throw new Error('--animation keeps animations, and a tile set has none to choose from');
           compiled.recipe = keepAnimations(compiled.recipe, options.animation.split(','), '--animation').recipe;
         }
         // --frames: each animation down to that many evenly spaced frames, playing as long as before.
         if (options.frames !== undefined) {
-          if (compile === compileAutotile) throw new Error('--frames thins animations, and the frames of a tile set are its tiles');
+          if (tileSet) throw new Error('--frames thins animations, and the frames of a tile set are its tiles');
           const thinned = keepFrames(compiled.recipe, frameCount(options.frames), '--frames');
           compiled.recipe = thinned.recipe; kept = thinned.kept; warnings.push(...thinned.notes);
           if (metadata) metadata = { ...metadata, kept };
         }
         // --size: the compiled drawing on a canvas of another size (cut or given margins, never scaled).
         if (options.size !== undefined) {
-          if (compile === compileAutotile) throw new Error('--size: a tile set\'s size is its tile, set in the source');
+          if (tileSet) throw new Error('--size: a tile set\'s size is its tile, set in the source');
           const { recipe, resized: moved } = resizeRecipe(compiled.recipe, options.size, '--size'), cut = resizeWarning(moved, [recipe.width, recipe.height]);
           compiled.recipe = recipe; resized = moved;
           if (cut) warnings.push(cut);
@@ -674,7 +685,7 @@ try {
       const layerOptions = options.layers === undefined ? {} : { layers: options.layers.split(',') };
       if (!options.motion && ['speed', 'ground', 'metadata'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground and --metadata require --motion');
       if (options.full && !options.diagnostics) throw new Error('--full goes with --diagnostics: it lists the counts of every frame');
-      if (options.motion) for (const key of ['frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
+      if (options.motion) for (const key of ['frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
       recipeOnly('inspect', input.document, positional[0], ['pixelforge-poses', 'pixelforge-wave']);
       const compiled = input.document.format === 'pixelforge-poses' ? compilePoses(input.document) : input.document.format === 'pixelforge-wave' ? compileWaves(input.document) : null;
@@ -684,9 +695,11 @@ try {
       const comparison = options.reference ? compareProjects(renderProject((await readResolved(options.reference, '--reference')).document, layerOptions), project) : undefined;
       const { image: referenceImage, ...comparisonReport } = comparison ?? {};
       const besideFiles = options.beside === undefined ? [] : options.beside.split(',').filter(Boolean), share = besideFiles.length ? { sheets: Math.min(9, besideFiles.length + 1) } : undefined;
+      // What is drawn in every cell with the frames: in this recipe's cells and in the --beside recipes', the same view.
+      const drawnWith = { ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) };
       const view = options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
-        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) }, share);
+        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);
       // --beside: the same view of more recipes under this one, in one image.
       let drawn = view;
       if (options.beside !== undefined) {
@@ -696,14 +709,14 @@ try {
         for (const file of besideFiles) {
           const { document } = await readResolved(file, '--beside'), other = renderProject(Object.hasOwn(COMPILERS, document?.format ?? '') ? COMPILERS[document.format](document).recipe : document, layerOptions);
           let view;
-          try { view = inspectProject(other, inspectOptions(options), share); } catch (error) { throw Object.assign(new Error(`--beside ${file}: ${error.message}`), { path: error.path }); }
+          try { view = inspectProject(other, { ...inspectOptions(options), ...drawnWith }, share); } catch (error) { throw Object.assign(new Error(`--beside ${file}: ${error.message}`), { path: error.path }); }
           others.push({ ...view, name: path.basename(file) });
         }
         drawn = stackViews([{ ...view, name: positional[0] === '-' ? project.name : path.basename(positional[0]) }, ...others]);
       }
       const { data, ...sheet } = drawn.sheet;
       if (options.out && !/\.png$/i.test(options.out)) throw new Error('inspect --out must name a .png file');
-      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles)]);
+      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles, options.under === undefined ? undefined : underOf(options.under).file, optionFile(options.guides))]);
       if (drawn.diagnostics && !options.full) drawn.diagnostics = briefDiagnostics(drawn.diagnostics);
       // Grid rows line up for reading; a short row of a table (a cell, a frame's counts, a box) stays on one line.
       print({ ok: true, ...summary(project, recipe), ...drawn, cells: briefCells(drawn.cells), warnings: [...(compiled?.warnings ?? []), ...project.warnings], sheet, nativeSheet: view.nativeSheet ? { ...view.nativeSheet, data: undefined } : undefined, ...(options.palette && { palette: paletteUse(project) }), ...(comparison && { comparison: briefComparison(comparisonReport) }), ...written, ...referenced(input) });
@@ -855,6 +868,8 @@ try {
         // --look: look.png in the folder, the frames enlarged as a contact sheet. The sprite sheet is drawn at its own
         // size for a game, too small to judge by eye.
         const look = options.look ? inspectProject(bundle.project, options.animation !== undefined ? { animation: options.animation } : {}) : null;
+        // A recipe named "look" exports its sprite sheet as look.png: never drawn over.
+        if (look && bundle.files.has('look.png')) throw new Error('--look writes look.png, which this export already has (the sprite sheet of a recipe named "look"): rename the recipe, or get the enlarged sheet with pixelbolt inspect <file.json> --out <new.png>');
         if (look) bundle.files.set('look.png', encodePNG(look.sheet.data, look.sheet.width, look.sheet.height));
         const expectFile = options.expect !== undefined && !String(options.expect).trimStart().startsWith('{') ? filesRead(options.expect) : [];
         const files = await writeBundle(bundle, options.out, { force: options.force, inputs: [...inputsOf(input), ...expectFile, ...(lit ? inputsOf(lit) : [])] });

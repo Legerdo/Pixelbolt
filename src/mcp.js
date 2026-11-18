@@ -347,6 +347,7 @@ export function createToolRunner({ directory, root, version }) {
       const preview = ui && pictureTools.has(name) ? (await import('./mcp-preview.js')).previewMeta : null;
       const { project: spec, revision, changes, ...options } = args;
       if (name === 'pixel_help') {
+        if (args.name !== undefined && typeof args.name !== 'string') throw new PixelError('name', 'expected text: a preset\'s name, a section heading or a word to find, or a schema path such as effects.bodies');
         // (A word that is another topic's part, `terrain`, is read as that topic and part.)
         { const [topic, part] = resolveTopic(args.topic, args.name); if (topic !== args.topic) { args.topic = topic; if (part !== undefined) args.name = part; } }
         // Markdown topics come back as written (the guide and workflow with their sections listed first); JSON ones without the files' indentation.
@@ -455,11 +456,17 @@ export function createToolRunner({ directory, root, version }) {
         if (gif !== undefined && (gif === null || typeof gif !== 'object' || Array.isArray(gif))) throw new PixelError('gif', 'expected an object such as {} or { "scale": 8 }');
         // Stills have no animation to make a GIF of: none is written, with one note.
         if (gif !== undefined && bundle.project.stills) bundle.project.warnings.push(STILLS_GIF_NOTE);
-        const gifs = gif === undefined || bundle.project.stills ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
-        if (gifs.reduce((sum, item) => sum + item.frames * item.width * item.height, 0) > 67108864) {
-          const scale = gifs[0].scale, fits = largestScale(gifs.reduce((sum, item) => sum + item.frames, 0) * bundle.project.width * bundle.project.height, 67108864, scale);
-          throw new PixelError('gif', `the GIFs of every animation at scale ${scale} pass the 67,108,864 pixels one render's GIFs hold; ${fits ? `gif.scale ${fits} is the largest that fits` : 'shorten the animations'}`);
+        // One render's GIFs hold 67,108,864 pixels in all, a GIF frame per played frame: checked before any is encoded, as
+        // the CLI does, so the scale named fits them all. (One animation's own refusal knows only its GIF, and the scale
+        // it named was refused by the next call.) A scale that is no whole number is left to the encoder's own message.
+        if (gif !== undefined && !bundle.project.stills) {
+          const scale = gif.scale ?? 1, played = Object.values(bundle.project.animations).reduce((sum, item) => sum + item.frames.length, 0) * bundle.project.width * bundle.project.height;
+          if (Number.isInteger(scale) && scale >= 1 && played * scale * scale > 67108864) {
+            const fits = largestScale(played, 67108864, scale);
+            throw new PixelError('gif', `the GIFs of every animation at scale ${scale} pass the 67,108,864 pixels one render's GIFs hold; ${fits ? `gif.scale ${fits} is the largest that fits` : 'shorten the animations'}`);
+          }
         }
+        const gifs = gif === undefined || bundle.project.stills ? [] : Object.keys(bundle.project.animations).map(name => animationGIF(bundle.project, name, gif));
         const frames = sequence === undefined ? null : checkSequenceSize(createSequence(bundle.project, { ...(animation !== undefined && { animation }), ...(sequence !== null && typeof sequence === 'object' ? sequence : { fps: undefined }) }));
         let shared;
         if (share === true) {

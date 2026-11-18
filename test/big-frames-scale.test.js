@@ -101,6 +101,15 @@ test('GIF and export budgets name the largest scale that fits', async t => {
   const result = await run('pixel_render', { project: title, gif: { scale: 4 } });
   assert.equal(result.isError, true);
   assert.equal(JSON.parse(result.content[0].text).error, 'gif: the GIFs of every animation at scale 4 pass the 67,108,864 pixels one render\'s GIFs hold; gif.scale 3 is the largest that fits');
+  // At scale 6 one animation's GIF alone passes the budget, and that GIF's own refusal named scale 4, which the next
+  // call refused: the total is checked first, so the scale named fits them all.
+  assert.throws(() => animationGIF(renderProject(title), 'a', { scale: 6 }), /scale 4 is the largest that fits/);
+  const alone = await run('pixel_render', { project: title, gif: { scale: 6 } });
+  assert.equal(JSON.parse(alone.content[0].text).error, 'gif: the GIFs of every animation at scale 6 pass the 67,108,864 pixels one render\'s GIFs hold; gif.scale 3 is the largest that fits');
+  // A scale that is no whole number keeps the encoder's own refusal.
+  const broken = await run('pixel_render', { project: title, gif: { scale: 2.5 } });
+  assert.equal(broken.isError, true);
+  assert.doesNotMatch(JSON.parse(broken.content[0].text).error, /GIFs of every animation/);
 });
 
 test('small renders are byte for byte what they were before the refusal changed', async () => {

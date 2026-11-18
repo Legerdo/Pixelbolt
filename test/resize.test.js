@@ -323,6 +323,9 @@ test('compile --size and pixel_compile size put a preset on the canvas asked for
     [['compile', '--preset', 'campfire', '--frames', 'few'], /--frames expects how many frames each animation keeps, such as --frames 8/],
     [['compile', '--preset', 'campfire', '--frames', '0'], /--frames: expected how many frames each animation keeps, a whole number from 1 to 256/],
     [['compile', path.join(root, 'examples/meadow.autotile.json'), '--frames', '4'], /--frames thins animations, and the frames of a tile set are its tiles/],
+    // The same tile set as a preset, which compiled through another function and was thinned to 4 of its 188 tiles.
+    [['compile', '--preset', 'meadow', '--frames', '4'], /--frames thins animations, and the frames of a tile set are its tiles/],
+    [['compile', '--preset', 'meadow', '--size', '32x32'], /--size: a tile set's size is its tile, set in the source/],
     [['compile', '--preset', 'swing', '--frames', '4', '--expand'], /--size and --frames go with a compile that writes a recipe/]
   ]) {
     const refusal = cli(...args, '--out', path.join(dir, 'refused.json'));

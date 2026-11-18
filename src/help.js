@@ -18,16 +18,19 @@ export const unknownTopic = (topic, commands = []) => `Unknown help topic "${top
 // are taken wherever a topic is and are not listed among the topics, so the listing stays short. (Agents drawing
 // ground tiles from another project read terrain.js for the fills, where `help terrain` answered "unknown topic".)
 export const TOPIC_ALIASES = { terrain: ['autotile', 'terrain'], tiles: ['autotile'], tileset: ['autotile'], tilesets: ['autotile'] };
-// The topic and part a request means: an alias gives its topic, and its part unless the request names one. A word
-// that is neither, in the other number of one (scene, body, tile, examples), is that one: `help scene` cost a call.
-// `preset` without a name is `presets`, the listing that names them.
+// The topic and part a request means: an alias gives its topic and its part, and a name given with it is a path inside
+// that part (`help terrain fill` is the terrain's `fill`), unless the name starts at the part already or is "all". A
+// word that is neither, in the other number of one (scene, body, tile, examples), is that one: `help scene` cost a
+// call. `preset` without a name is `presets`, the listing that names them.
 const isTopic = topic => TOPICS.includes(topic) || Object.hasOwn(TOPIC_ALIASES, topic);
 const otherNumber = topic => [topic.endsWith('ies') && `${topic.slice(0, -3)}y`, topic.endsWith('y') && `${topic.slice(0, -1)}ies`, topic.endsWith('s') ? topic.slice(0, -1) : `${topic}s`].find(form => form && isTopic(form));
 export const resolveTopic = (topic, name) => {
   if (typeof topic === 'string' && !isTopic(topic)) topic = otherNumber(topic) ?? topic;
   if (topic === 'preset' && name === undefined) return ['presets', undefined];
   const to = Object.hasOwn(TOPIC_ALIASES, topic ?? '') ? TOPIC_ALIASES[topic] : null;
-  return to ? [to[0], name ?? to[1]] : [topic, name];
+  if (!to) return [topic, name];
+  const [target, part] = to, within = typeof name === 'string' && part !== undefined && name.trim().toLowerCase() !== 'all' && name.trim() !== part && !name.trim().startsWith(`${part}.`);
+  return [target, within ? `${part}.${name.trim()}` : name ?? part];
 };
 // Topics whose file is JSON (the schemas and the example), which MCP returns parsed.
 export const jsonTopic = topic => HELP_TOPICS[topic]?.endsWith('.json') ?? false;
@@ -143,8 +146,10 @@ export function helpSchema(topic, text, name, via = 'mcp', presets = []) {
     if (!properties || !Object.hasOwn(properties, segment)) {
       const missing = `the ${topic === 'schema' ? 'recipe' : topic} schema has no ${JSON.stringify(path ? `${path}.${segment}` : segment)}`;
       // A topic asked as a part (`help schema scenes`, where a source format's schema is its own topic) is sent there.
-      const own = path ? undefined : resolveTopic(segment)[0], word = Object.hasOwn(TOPIC_ALIASES, segment) ? segment : own;
-      if (TOPICS.includes(own) && own !== topic) throw new PixelError('name', `${missing}: ${word} is a help topic of its own, so ${via === 'mcp' ? `call pixel_help with topic "${word}"` : `run pixelbolt help ${word}`}`);
+      // (An alias is named by its word to a shell; over MCP by the topic and part it stands for, which the tool's own
+      // list of topics holds: a client that checks arguments against that list can't send the alias.)
+      const [own, part] = path ? [] : resolveTopic(segment), word = Object.hasOwn(TOPIC_ALIASES, segment) ? segment : own;
+      if (TOPICS.includes(own) && own !== topic) throw new PixelError('name', `${missing}: ${word} is a help topic of its own, so ${via === 'mcp' ? `call pixel_help with topic "${own}"${part === undefined ? '' : ` and name "${part}"`}` : `run pixelbolt help ${word}`}`);
       throw new PixelError('name', `${missing}; ${path || 'it'} holds ${properties ? Object.keys(properties).join(', ') : 'no named properties'}`);
     }
     node = properties[segment]; path = path ? `${path}.${segment}` : segment;

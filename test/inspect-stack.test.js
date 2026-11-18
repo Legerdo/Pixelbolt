@@ -66,3 +66,34 @@ test('P-167: the CLI takes --stack groups and --under a frame of another recipe'
   assert.match(JSON.parse(run('--under', `${ground}:moss`).stderr).error, /--under .*ground\.json has no frame "moss"; its frames: plain, stone/);
   assert.match(JSON.parse(run('--stack', 'body++plate').stderr).error, /--stack expects groups of frame names: body\+plate,body\+fin/);
 });
+
+test('--under is drawn under the --beside recipes too, never goes with --motion, and its file is never written over', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-under-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'parts.json'), twin = path.join(dir, 'twin.json'), ground = path.join(dir, 'ground.json');
+  await writeFile(file, JSON.stringify(recipe));
+  await writeFile(twin, JSON.stringify({ ...recipe, name: 'twin' }));
+  await writeFile(ground, JSON.stringify({ version: 1, name: 'ground', width: 2, height: 2, palette: { e: '#008000' }, frames: [{ name: 'plain', ops: [{ op: 'rect', x: 0, y: 0, w: 2, h: 2, color: 'e' }] }] }));
+  const run = (...args) => spawnSync(process.execPath, [path.join(root, 'bin/pixelbolt.js'), 'inspect', file, ...args], { encoding: 'utf8' });
+  // The ground's green shows wherever a frame is clear. The same recipe beside itself shows it twice as often: the
+  // other sheet was drawn without the ground.
+  const green = async out => { const png = decodePNG(await readFile(out)); let n = 0; for (let i = 0; i < png.data.length; i += 4) if (png.data[i] === 0 && png.data[i + 1] === 128 && png.data[i + 2] === 0 && png.data[i + 3] === 255) n++; return n; };
+  const one = path.join(dir, 'one.png'), two = path.join(dir, 'two.png');
+  assert.equal(run('--under', ground, '--scale', '1', '--out', one).status, 0);
+  const beside = run('--under', ground, '--scale', '1', '--beside', twin, '--out', two);
+  assert.equal(beside.status, 0, beside.stderr);
+  const alone = await green(one);
+  assert.ok(alone > 0);
+  assert.equal(await green(two), alone * 2);
+  // A motion review draws poses, not stacks or a ground: both are refused, where they were dropped without a word.
+  for (const [option, value] of [['--stack', 'body+plate'], ['--under', ground]]) assert.equal(JSON.parse(run('--motion', 'default', option, value).stderr).error, `${option} cannot be combined with --motion`);
+  // --out never writes over the file --under or --guides was read from, even with --force.
+  const groundPNG = path.join(dir, 'ground.png'), guides = path.join(dir, 'guides.png');
+  await writeFile(groundPNG, await readFile(ground));
+  await writeFile(guides, '{"horizon":2}');
+  for (const [option, read] of [['--under', groundPNG], ['--guides', guides]]) {
+    const before = await readFile(read), refused = run(option, read, '--out', read, '--force');
+    assert.match(JSON.parse(refused.stderr).error, /is a file this command reads; even --force never writes over it/, option);
+    assert.deepEqual(await readFile(read), before, option);
+  }
+});

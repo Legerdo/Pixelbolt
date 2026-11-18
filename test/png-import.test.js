@@ -361,6 +361,17 @@ test('exact RGBA imports omit only plain transparency, render identically and ke
   drawn.frames.forEach((frame, i) => assert.deepEqual(frame.data, data.slice(i * width * height * 4, (i + 1) * width * height * 4)));
 });
 
+test('a grid import\'s note names a frames count the frame total allows', () => {
+  // 17 cells of 1024×256, two of them drawn: a recipe's frames of that size hold 16, so "17 keeps them all" was a count
+  // the next call refused.
+  const width = 1024, height = 256, cells = 17, data = new Uint8ClampedArray(width * height * cells * 4);
+  data.set([255, 0, 0, 255], 0); data.set([0, 0, 255, 255], 3 * width * height * 4);
+  const sheet = encodePNG(data, width, height * cells), options = { name: 'tall', frame: [width, height], padding: 0 };
+  assert.deepEqual(importPNG(sheet, options).notes, ['15 of 17 cells are empty and were left out; frames N (--frames N) keeps the first N cells, empty ones included, up to 16']);
+  assert.equal(importPNG(sheet, { ...options, frames: 16 }).recipe.frames.length, 16);
+  assert.throws(() => importPNG(sheet, { ...options, frames: 17 }), /17 frames of 1024×256 are 4,456,448 pixels; a recipe's frames hold at most 4,194,304 in all, so 16 frames of 1024×256 fit/);
+});
+
 test('CLI import reports grid omissions once, accepts --frames and refuses it with --embedded', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pixelbolt-import-cli-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
