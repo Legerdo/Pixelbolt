@@ -4352,6 +4352,10 @@ const drawFrame = (run, width, height, drawn = null) => {
 // the light follows the fire a little late, steadier than the flame's own edge, and a loop's closing frames take it
 // back to the warm-up's (see simulate). Nothing here is a shape laid over the picture: where there is light is where
 // the flood got to. A frame's count of pixels is the fluid's own; its light is not counted.
+// A body is two things to the light. It drinks light in its solid cells, where the gas meets it. It is a surface on the
+// pixels it is drawn on (its trail and smear with it), which only the frame's own drawing of it tells: its picture is
+// turned as a sprite is, its drawn place holds as it passes a pixel's edge, a loop's closing frames draw it on its way
+// back to the warm-up's place, and with subpixels it is drawn finer than the cells (see bodiesOver and fineLight).
 const SHINE_MASKS = new WeakMap();
 // For a layout: the cells that are a surface the light shows on (the pixels of every obstacle that is drawn). The cells
 // that drink light are the layout's solid ones.
@@ -4361,7 +4365,7 @@ function shineMasks(effect, layout, width, height) {
     const surface = new Uint8Array(width * height);
     effect.obstacles.forEach((o, i) => {
       const at = layout.places[i];
-      if (!at.show || (o.draw === 'none' && o.body === undefined)) return;
+      if (!at.show || o.draw === 'none') return;
       o.rows.forEach((row, j) => {
         if (at.y + j < 0 || at.y + j >= height) return;
         for (let k = Math.max(0, -at.x); k < Math.min(row.length, width - at.x); k++) if (row[k] !== '.' && row[k] !== ' ') surface[(at.y + j) * width + at.x + k] = 1;
@@ -4384,17 +4388,51 @@ function stepShine(run, width, height) {
   const light = spreadLight(memory, power, drinks, reach, depth);
   for (let c = 0; c < N; c++) lit[c] += (light[c] - lit[c]) * ease;
 }
+// The light a frame is drawn with: the run's, in single precision, which is what a compile keeps of each frame until it
+// draws them. The live runner draws with the same numbers, so its bands are cut where a compiled frame's are. (It cut
+// them from the doubles: eight pixels along a row from a full light with a reach of 20 the light is 0.5999999999999996,
+// under a threshold of 0.6 as a double and at it as a single, and a whole band's edge was a pixel off the compiled one.)
+const frameLight = run => Float32Array.from(run.shine.lit);
 // A frame's light as palette codes (0 where none shows), or null if none shows anywhere. Every drawn obstacle's pixels
-// take `colors` by their light, or `dark` below the first of them; what the fluid drew in any colour but the shining
-// field's own takes `smoke`; the empty pixels take `wall`. Sparks and the shining gas itself take nothing, unless an
-// obstacle is drawn over them. `grid` is the frame as drawn, `sparks` marks its spark pixels (or null).
-function shineCodes(effect, layout, lit, grid, sparks, width, height) {
+// take `colors` by their light, or `dark` below the first of them, and so do the pixels the bodies are drawn on; what
+// the fluid drew in any colour but the shining field's own takes `smoke`; the empty pixels take `wall`. Sparks and the
+// shining gas itself take nothing, unless an obstacle or a body is drawn over them. `grid` is the frame as drawn,
+// `sparks` marks its spark pixels (or null) and `bodies` the pixels its bodies drew (from bodiesOver; or null).
+function shineCodes(effect, layout, lit, grid, sparks, bodies, width, height) {
   const { own } = effect.shine, N = width * height, { surface } = shineMasks(effect, layout, width, height), { front } = layout, kinds = new Uint8Array(N);
   for (let c = 0; c < N; c++) {
-    const ch = grid[c];
-    kinds[c] = (sparks && sparks[c]) || (own.has(ch) && !front[c]) ? SHINING : surface[c] ? SURFACE : ch ? DRAWN : EMPTY;
+    const ch = grid[c], body = bodies !== null && bodies[c] !== 0;
+    kinds[c] = (sparks && sparks[c]) || (own.has(ch) && !front[c] && !body) ? SHINING : surface[c] || body ? SURFACE : ch ? DRAWN : EMPTY;
   }
   return lightCodes(effect.shine, lit, kinds, width, height);
+}
+// The bodies painted over a frame's pixels (`chars`), at whole pixels. Returns the grid they were painted on, 0 wherever
+// they drew nothing: the pixels the bodies are drawn on, for the frame's light. Painted on a grid of their own and laid
+// over the frame's, they draw what painting them straight onto it does. (The light took a body's solid cells for the
+// pixels it is drawn on: `colors` and `dark` lay on empty pixels beside a turned crate and missed part of it.)
+function bodiesOver(bodies, chars, width, height, symbols) {
+  const own = new Uint16Array(chars.length);
+  paintBodies(bodies, own, width, height, symbols);
+  for (let c = 0; c < own.length; c++) if (own[c]) chars[c] = own[c];
+  return own;
+}
+// The light of a frame whose bodies are drawn finer than its cells (subpixels: `n` fine pixels to a cell's side), in the
+// cells the bodies are drawn in. There each fine pixel of a body takes what a surface takes by its cell's light, and the
+// cell's other fine pixels what the cell took (`codes`: the frame's light without its bodies, or null). `bodies` is the
+// grid operation the frame draws them with, so where it draws is where they are. Returns those cells, which the frame's
+// own light then leaves out, and their light as a grid operation at the fine pixels, or null if it draws nothing there.
+function fineLight(shine, lit, codes, bodies, width, height, n) {
+  const N = width * height, W = width * n, cells = new Uint8Array(N), on = new Uint8Array(W * height * n), fine = new Uint16Array(on.length);
+  bodies.rows.forEach((row, j) => {
+    for (let i = 0; i < row.length; i++) if (row[i] !== '.') { const x = bodies.x + i, y = bodies.y + j; on[y * W + x] = 1; cells[Math.floor(y / n) * width + Math.floor(x / n)] = 1; }
+  });
+  const surface = lightCodes(shine, lit, cells.map(cell => (cell ? SURFACE : SHINING)), width, height);
+  for (let c = 0; c < N; c++) {
+    if (!cells[c]) continue;
+    const x0 = c % width * n, y0 = Math.floor(c / width) * n;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const f = (y0 + j) * W + x0 + i; fine[f] = on[f] ? (surface ? surface[c] : 0) : codes ? codes[c] : 0; }
+  }
+  return { cells, op: codeGrid(fine, W, height * n) };
 }
 // A loop's closing frames hand the drawing's memory back to the warm-up's (`to`, the bands drawn in the frame before the
 // one these fields blend toward): each pixel, by its own seeded draw, takes the warm-up's bands once the blend weight `w`
@@ -4965,8 +5003,8 @@ function simulate(effect, context) {
   const tail = loop ? Array.from({ length: blend }, () => all.map(() => new Float64Array(N))) : [], seam = loop ? Array.from({ length: blend + 1 }, () => null) : null;
   const chars = Array.from({ length: frames }, () => null), drawn = Array.from({ length: frames }, () => []), n = context.subpixels ?? 1, fine = [];
   // The light of each recorded frame, and for a loop the light of the warm-up's closing frames, which its own closing
-  // frames are blended toward as the fields are.
-  const lights = run.shine ? Array.from({ length: frames }, () => null) : null, shineTail = lights && loop ? Array.from({ length: blend }, () => null) : null;
+  // frames are blended toward as the fields are; and the pixels each frame's bodies drew, which their light lies on.
+  const lights = run.shine ? Array.from({ length: frames }, () => null) : null, shineTail = lights && loop ? Array.from({ length: blend }, () => null) : null, painted = [];
   const peak = { density: 0, temperature: 0, speed: 0, ...(effect.electric && { ionization: 0, current: 0 }) }, figures = Array.from({ length: frames }, () => null), layouts = Array.from({ length: frames }, () => effect.layout);
   // A loop's bodies, where they were in the warm-up's closing frames, which its own closing frames are drawn blended toward,
   // and what those frames drew the fluid against (see closingView).
@@ -5033,7 +5071,7 @@ function simulate(effect, context) {
     if (lights) {
       stepShine(run, width, height);
       if (closing) { const w = smooth((k + 1) / blend), lit = run.shine.lit, then = shineTail[k]; for (let c = 0; c < N; c++) lit[c] = lit[c] * (1 - w) + then[c] * w; }
-      lights[frame] = Float32Array.from(run.shine.lit);
+      lights[frame] = frameLight(run);
     }
     for (let c = 0; c < N; c++) {
       if (base[0][c] > peak.density) peak.density = base[0][c];
@@ -5051,7 +5089,7 @@ function simulate(effect, context) {
     if (crowd) {
       // Finer than the fluid's pixels (subpixels), they are drawn on their own over it; else into its pixels.
       if (n > 1) fine[frame] = drawBodies(shownBodies, width, height, effect.bodies.symbols, n);
-      else paintBodies(shownBodies, chars[frame], width, height, effect.bodies.symbols);
+      else { const own = bodiesOver(shownBodies, chars[frame], width, height, effect.bodies.symbols); if (lights) painted[frame] = own; }
       onward();
     }
   }
@@ -5068,17 +5106,23 @@ function simulate(effect, context) {
       for (let y = top; y <= bottom; y++) { let row = ''; for (let x = left; x <= right; x++) { const ch = grid[y * width + x]; row += ch ? String.fromCharCode(ch) : '.'; if (ch) pixels++; } rows.push(row); }
       ops.push({ op: 'grid', x: left, y: top, rows });
     }
-    if (fine[i]?.op) { ops.push(fine[i].op); pixels += Math.round(fine[i].pixels / (n * n)); }
+    // What is drawn at the bodies' own pixels when they are finer than the fluid's: the bodies, and their light.
+    const sharp = [];
+    if (fine[i]?.op) { ops.push(fine[i].op); sharp.push(fine[i].op); pixels += Math.round(fine[i].pixels / (n * n)); }
     ops.push(...stampsOf(effect, layouts[i], 'over', width, height));
-    // The light, last: over the obstacles, whose faces it lights.
+    // The light, last: over the obstacles, whose faces it lights. Bodies drawn finer than the fluid's pixels take theirs
+    // at their own, in a grid after it (see fineLight), and the fluid's light leaves out the cells they are drawn in.
     if (lights) {
       let sparks = null;
       for (let k = 0; k < list.length; k += 2) (sparks ??= new Uint8Array(N))[list[k]] = 1;
-      const light = codeGrid(shineCodes(effect, layouts[i], lights[i], grid, sparks, width, height), width, height);
+      const codes = shineCodes(effect, layouts[i], lights[i], grid, sparks, painted[i] ?? null, width, height);
+      const finer = fine[i]?.op ? fineLight(effect.shine, lights[i], codes, fine[i].op, width, height, n) : null;
+      const light = codeGrid(codes, width, height, finer && (c => !finer.cells[c]));
       if (light) ops.push(light);
+      if (finer?.op) { ops.push(finer.op); sharp.push(finer.op); }
     }
     // Drawn n times finer, the fluid and its obstacles are enlarged to the bodies' pixels.
-    return { ops: n > 1 ? ops.map(op => (op === fine[i]?.op ? op : { ...op, x: op.x * n, y: op.y * n, scale: n })) : ops, pixels };
+    return { ops: n > 1 ? ops.map(op => (sharp.includes(op) ? op : { ...op, x: op.x * n, y: op.y * n, scale: n })) : ops, pixels };
   });
   const round = value => Math.floor(value * 1000 + 0.5) / 1000;
   const { totals } = run;
@@ -5251,8 +5295,7 @@ export function createLiveFluid(source, options = {}) {
     // only when rendered they came out differently with how often a page renders.
     // Measured without them, as a compiled frame's figures are.
     const fluidOnly = crowd ? Uint16Array.from(chars) : chars;
-    if (crowd) paintBodies(crowd.bodies, chars, width, height, own.bodies.symbols);
-    frame = { chars, drawn, fluidOnly };
+    frame = { chars, drawn, fluidOnly, bodies: crowd ? bodiesOver(crowd.bodies, chars, width, height, own.bodies.symbols) : null };
     overlay = [];
     drawSparks(run, put);
     for (const b of boosts) if (b.frames) b.frames--;
@@ -5367,7 +5410,7 @@ export function createLiveFluid(source, options = {}) {
       if (run.shine) {
         let sparks = null;
         for (let k = 0; k < overlay.length; k += 2) (sparks ??= new Uint8Array(N))[overlay[k]] = 1;
-        const light = shineCodes(run.effect, run.layout, run.shine.lit, chars, sparks, width, height);
+        const light = shineCodes(run.effect, run.layout, frameLight(run), chars, sparks, frame.bodies, width, height);
         if (light) for (let c = 0; c < N; c++) if (light[c]) { composite(rgba, c * 4, colours.get(light[c])); codes[c] = light[c]; }
       }
       const keys = [], fluid = [];
@@ -5381,8 +5424,7 @@ export function createLiveFluid(source, options = {}) {
   else {
     fieldsOf(run);
     const drawn = new Uint8Array(N), chars = drawFrame(run, width, height, drawn), fluidOnly = crowd ? Uint16Array.from(chars) : chars;
-    if (crowd) paintBodies(crowd.bodies, chars, width, height, own.bodies.symbols);
-    frame = { chars, drawn, fluidOnly };
+    frame = { chars, drawn, fluidOnly, bodies: crowd ? bodiesOver(crowd.bodies, chars, width, height, own.bodies.symbols) : null };
     run.hold.prev = null;
   }
   return live;

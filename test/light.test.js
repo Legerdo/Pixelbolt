@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createLight, spreadLight } from '../src/light.js';
 import { compileFluid, createLiveFluid } from '../src/fluid.js';
 import { compileEffects } from '../src/fx.js';
-import { renderProject, PixelError } from '../src/core.js';
+import { renderProject, parseColor, PixelError } from '../src/core.js';
 
 // A grid with one full light at (x, y) and the given solid cells.
 const scene = (width, height, at, walls = []) => {
@@ -148,6 +148,97 @@ test('a live runner draws the same light as it steps', () => {
   assert.equal(rgba[(12 * 48 + 35) * 4 + 3], 255);
   // Unstepped, nothing shines yet.
   assert.equal(createLiveFluid(fire({}), { warmup: 0 }).render().keys[8][22], '.');
+});
+
+test('a live runner cuts its light into bands from the numbers a compiled frame keeps', () => {
+  // A steady, full light beside a block, with a threshold that light at a whole number of pixels from it stands on.
+  // With a reach of 20 the flood's light eight pixels along a row is 0.5999999999999996: under 0.6 as the double the
+  // runner steps, and at it as the single a compiled frame keeps. With a reach of 10 it is 0.7000000000000001 three
+  // pixels along: at 0.7 as a double and under it as a single.
+  const keys = ['a', 'b', 'c', 'd'], steady = (reach, thresholds) => ({
+    format: 'pixelforge-fluid', version: 1, name: 'steady', width: 64, height: 64,
+    palette: { r: '#b8322f', o: '#f0772b', y: '#ffcc4d', W: '#fff6d1', a: '#ff000040', b: '#00ff0040', c: '#0000ff40', d: '#ffffff40', k: '#404040', D: '#00000080' },
+    symbols: { block: Array(4).fill('kkkkkkkk') },
+    effects: { fire: {
+      frames: 6, seed: 4, buoyancy: 0, cooling: 0, dissipation: 0,
+      obstacles: [{ symbol: 'block', x: 44, y: 28 }],
+      emitters: [{ at: [24, 32], radius: 5, rate: 1, temperature: 8, density: 0.3 }],
+      look: [{ field: 'temperature', colors: ['r', 'o', 'y', 'W'], thresholds: [0.36, 0.5, 0.72, 1.08], dither: 0 }],
+      shine: { from: 0.5, full: 1, reach, ease: 1, thresholds, wall: keys, colors: keys, dark: 'D', dither: 0 }
+    } }
+  });
+  for (const [reach, thresholds] of [[20, [0.2, 0.4, 0.6, 0.8]], [10, [0.1, 0.3, 0.5, 0.7]]]) {
+    const source = steady(reach, thresholds), { recipe } = compileFluid(source), live = createLiveFluid(source, { warmup: 0 });
+    renderProject(recipe).frames.forEach((frame, k) => {
+      assert.ok(recipe.frames[k].ops.at(-1).rows.some(row => /[abcd]/.test(row)), `reach ${reach}, frame ${k}: the frame has its light`);
+      const { rgba } = live.step().render();
+      let differ = 0;
+      for (let i = 0; i < rgba.length; i += 4) if (rgba[i] !== frame.data[i] || rgba[i + 1] !== frame.data[i + 1] || rgba[i + 2] !== frame.data[i + 2] || rgba[i + 3] !== frame.data[i + 3]) differ++;
+      assert.equal(differ, 0, `reach ${reach}, frame ${k}: ${differ} pixels of the live picture differ from the compiled frame`);
+    });
+  }
+});
+
+// ---- A body in the light --------------------------------------------------------------------------------------------
+// A fire whose gas pushes a crate away. The crate is drawn in two keys nothing else has, and the light has keys of its
+// own for a surface (u, v and the dark D) and for the wall (a, e), so each pixel's key tells what the light took it for
+// and every pixel of a surface has one.
+const crate = (body = {}, source = {}, effect = {}) => ({
+  format: 'pixelforge-fluid', version: 1, name: 'crate', width: 48, height: 48, ...source,
+  palette: { r: '#b8322f', o: '#f0772b', y: '#ffcc4d', W: '#fff6d1', n: '#a5683a', h: '#c98c4f', D: '#000000cc', u: '#00ff0080', v: '#00ffff80', a: '#ff00ff40', e: '#ff00ff80' },
+  symbols: { crate: ['nnnnnnnn', ...Array(6).fill('nhhhhhhn'), 'nnnnnnnn'] },
+  effects: { fire: {
+    frames: 10, seed: 4, buoyancy: 0.45, cooling: 0.1, gravity: [0, 0],
+    emitters: [{ at: [24, 40], radius: 6, rate: 1, temperature: 1.4, density: 0.3, velocity: [0, -1.5] }],
+    look: [{ field: 'temperature', colors: ['r', 'o', 'y', 'W'], thresholds: [0.36, 0.5, 0.72, 1.08], dither: 0 }],
+    bodies: [{ shape: 'box', size: [8, 8], at: [12, 16], density: 1, symbol: 'crate', ...body }],
+    shine: { from: 0.5, full: 1.1, reach: 40, thresholds: [0.1, 0.5], colors: ['u', 'v'], dark: 'D', wall: ['a', 'e'], dither: 0 },
+    ...effect
+  } }
+});
+const unlit = source => { const plain = structuredClone(source); delete plain.effects.fire.shine; return plain; };
+
+test('the light\'s surface colours lie on the pixels a body is drawn on: turned, held behind where it is, and finer than the fluid\'s pixels', () => {
+  // Every frame of each case, with what is wrong in it: pixels beside the body that took a surface colour, and pixels of
+  // the body that took none.
+  const wrong = [];
+  const tell = (label, beside, missed, body) => {
+    assert.ok(body > 0, `${label}: the crate is drawn`);
+    if (beside || missed) wrong.push(`${label}: a surface colour on ${beside} pixels beside the crate, none on ${missed} of its ${body}`);
+  };
+  // A loop's closing frames draw the crate on its way back to where the warm-up had it, away from its cells.
+  const cases = [['turned', crate({ angle: 30 })], ['pushed', crate()], ['three times finer and turned', crate({ angle: 30 }, { subpixels: 3 })], ['in a loop', crate({}, {}, { loop: true, frames: 12 })]];
+  for (const [label, source] of cases) {
+    // The same effect without its light is the picture under it: the light's own operations follow those, last.
+    const { recipe } = compileFluid(source), plain = compileFluid(unlit(source)).recipe, own = recipe.frames.map((frame, k) => frame.ops.slice(plain.frames[k].ops.length));
+    recipe.frames.forEach((frame, k) => assert.deepEqual(frame.ops.slice(0, plain.frames[k].ops.length), plain.frames[k].ops, `${label}, frame ${k}: the light changes nothing under it`));
+    const under = renderProject(plain).frames, light = renderProject({ ...recipe, frames: recipe.frames.map((frame, k) => ({ name: frame.name, duration: frame.duration, ops: own[k] })) }).frames;
+    const colours = keys => keys.map(key => parseColor(key, recipe.palette)), is = (data, i, list) => list.some(rgba => rgba.every((value, c) => data[i + c] === value));
+    const crateColours = colours(['n', 'h']), surfaceColours = colours(['D', 'u', 'v']);
+    recipe.frames.forEach((frame, k) => {
+      let beside = 0, missed = 0, body = 0;
+      for (let i = 0; i < under[k].data.length; i += 4) {
+        const onBody = is(under[k].data, i, crateColours), surface = is(light[k].data, i, surfaceColours);
+        if (onBody) body++;
+        if (surface && !onBody) beside++; else if (onBody && !surface) missed++;
+      }
+      tell(`${label}, frame ${k}`, beside, missed, body);
+    });
+  }
+  // The live runner, which draws its bodies at whole pixels: before any step, when the crate is all in the dark, and on.
+  const turned = crate({ angle: 30 }), live = createLiveFluid(turned, { warmup: 0 }), twin = createLiveFluid(unlit(turned), { warmup: 0 });
+  for (let k = 0; k <= 10; k++) {
+    const lit = live.render().keys.join(''), bare = twin.render().keys.join('');
+    let beside = 0, missed = 0, body = 0;
+    for (let c = 0; c < lit.length; c++) {
+      const onBody = 'nh'.includes(bare[c]), surface = 'Duv'.includes(lit[c]);
+      if (onBody) body++;
+      if (surface && !onBody) beside++; else if (onBody && !surface) missed++;
+    }
+    tell(`live, after ${k} steps`, beside, missed, body);
+    live.step(); twin.step();
+  }
+  assert.equal(wrong.length, 0, wrong.join('\n'));
 });
 
 test('shine is checked with paths, and one that nothing reaches says so', () => {
