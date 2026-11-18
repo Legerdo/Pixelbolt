@@ -15,6 +15,8 @@ import { GODOT_TILE_SOURCES } from '../scripts/verify-godot.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const spirit = JSON.parse(await readFile(path.join(root, 'examples', 'forest-spirit.json'), 'utf8'));
+// Its normal pass: rendered with it, the export has a Godot CanvasTexture that the SpriteFrames draws through.
+const spiritNormal = JSON.parse(await readFile(path.join(root, 'examples', 'forest-spirit-normal.json'), 'utf8'));
 const temp = async t => {
   const base = path.resolve(os.tmpdir()), dir = await mkdtemp(path.join(base, 'pixelbolt-save-as-'));
   t.after(async () => { assert.ok(dir.startsWith(base + path.sep)); await rm(dir, { recursive: true, force: true }); });
@@ -542,4 +544,168 @@ test('pixel_render saveAs writes an autotile set\'s Tiled tileset naming its ima
   ({ isError, info } = await mcp.render({ project: spirit, saveAs: { tiled: 'game/maps/spirit.tsx' } }));
   assert.deepEqual([isError, info.path], [true, 'saveAs.tiled'], JSON.stringify(info));
   assert.match(info.error, /this export has no Tiled tileset: only a recipe whose frames are an autotile set/);
+});
+
+// The textures a saved .tres names, in the file's order.
+const texturesOf = async file => [...(await readFile(file, 'utf8')).matchAll(/^\[ext_resource type="Texture2D" path="([^"]*)"/gm)].map(match => match[1]);
+
+test('pixel_render saveAs writes a lit export\'s Godot CanvasTexture naming its sheet and normal map, which must be inside the Godot project with it', async t => {
+  const project = await temp(t), mcp = await session(t, project), text = (await createBundle(spirit, { normal: spiritNormal })).files.get('forest-spirit.canvas.tres').toString();
+  const lit = saveAs => mcp.render({ project: spirit, normal: spiritNormal, saveAs });
+  // Beside a saved sheet and normal map, the CanvasTexture names those two; everything else is the export's own.
+  let { isError, info } = await lit({ 'forest-spirit.canvas.tres': 'art/spirit.canvas.tres', sheet: 'art/spirit.png', 'forest-spirit.normal_y_up.png': 'art/spirit.normal.png' });
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(info.saved.map(item => item.file), ['forest-spirit.canvas.tres', 'forest-spirit.png', 'forest-spirit.normal_y_up.png']);
+  assert.equal(await readFile(path.join(project, 'art', 'spirit.canvas.tres'), 'utf8'), text.replace('path="forest-spirit.png"', 'path="spirit.png"').replace('path="forest-spirit.normal_y_up.png"', 'path="spirit.normal.png"'));
+  assert.equal(await readFile(path.join(info.directory, 'forest-spirit.canvas.tres'), 'utf8'), text);
+  // Each texture by the rule a saved sheet follows, relative to the CanvasTexture: the copy in its own folder first,
+  // or else the first saved, or else the export folder's.
+  ({ isError, info } = await lit({ sheet: 'b/spirit.png', 'forest-spirit.png': 'a/spirit.png', 'forest-spirit.normal_y_up.png': 'b/normal.png', 'forest-spirit.canvas.tres': 'a/spirit.canvas.tres' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(await texturesOf(path.join(project, 'a', 'spirit.canvas.tres')), ['spirit.png', '../b/normal.png']);
+  ({ isError, info } = await lit({ 'forest-spirit.canvas.tres': 'loose/spirit.canvas.tres', sheet: 'sheets/spirit.png' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(await texturesOf(path.join(project, 'loose', 'spirit.canvas.tres')), ['../sheets/spirit.png', `../output/${path.basename(info.directory)}/forest-spirit.normal_y_up.png`]);
+  ({ isError, info } = await lit({ 'forest-spirit.canvas.tres': 'loose/alone.canvas.tres' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(await texturesOf(path.join(project, 'loose', 'alone.canvas.tres')), ['forest-spirit.png', 'forest-spirit.normal_y_up.png'].map(file => `../output/${path.basename(info.directory)}/${file}`));
+  // Godot loads textures only from inside its project, so a CanvasTexture saved in one needs both textures there.
+  await mkdir(path.join(project, 'game'));
+  await writeFile(path.join(project, 'game', 'project.godot'), 'config_version=5\n');
+  for (const [saveAs, message] of [
+    [{ 'forest-spirit.canvas.tres': 'game/lit.canvas.tres' }, /lit\.canvas\.tres is in the Godot project .*game, but its sheet would stay in the export folder, outside it, .*such as saveAs\.sheet$/],
+    [{ 'forest-spirit.canvas.tres': 'game/lit.canvas.tres', sheet: 'game/lit.png' }, /lit\.canvas\.tres is in the Godot project .*game, but its normal map would stay in the export folder, outside it, and Godot loads textures only from inside the project: save the normal map into the project too, such as saveAs\.forest-spirit\.normal_y_up\.png$/],
+    [{ 'forest-spirit.canvas.tres': 'game/lit.canvas.tres', sheet: 'game/lit.png', 'forest-spirit.normal_y_up.png': 'elsewhere/lit.normal.png' }, /but its normal map .*elsewhere.lit\.normal\.png is outside it/],
+    [{ 'forest-spirit.canvas.tres': 'game/lit.canvas.tres', sheet: 'elsewhere/lit.png', 'forest-spirit.normal_y_up.png': 'game/lit.normal.png' }, /but its sheet .*elsewhere.lit\.png is outside it/]
+  ]) {
+    ({ isError, info } = await lit(saveAs));
+    assert.deepEqual([isError, info.path], [true, 'saveAs.forest-spirit.canvas.tres'], JSON.stringify(info));
+    assert.match(info.error, message);
+  }
+  assert.deepEqual(await readdir(path.join(project, 'game')), ['project.godot']);
+  assert.equal(existsSync(path.join(project, 'elsewhere')), false);
+  ({ isError, info } = await lit({ 'forest-spirit.canvas.tres': 'game/lit/spirit.canvas.tres', sheet: 'game/spirit.png', 'forest-spirit.normal_y_up.png': 'game/lit/spirit.normal.png' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(await texturesOf(path.join(project, 'game', 'lit', 'spirit.canvas.tres')), ['../spirit.png', 'spirit.normal.png']);
+});
+
+test('pixel_render saveAs overwrite replaces a CanvasTexture, its own earlier copy included', async t => {
+  const project = await temp(t), mcp = await session(t, project), text = (await createBundle(spirit, { normal: spiritNormal })).files.get('forest-spirit.canvas.tres').toString();
+  const saveAs = { 'forest-spirit.canvas.tres': 'art/spirit.canvas.tres', sheet: 'art/spirit.png', 'forest-spirit.normal_y_up.png': 'art/spirit.normal.png' };
+  const lit = overwrite => mcp.render({ project: spirit, normal: spiritNormal, saveAs, ...(overwrite && { overwrite }) });
+  let { isError, info } = await lit();
+  assert.equal(isError, false, JSON.stringify(info));
+  // Like any file, it is kept without overwrite; with it, the earlier copy is replaced.
+  ({ isError, info } = await lit());
+  assert.equal(isError, true); assert.match(info.error, /spirit\.canvas\.tres already exists: choose a new name, or pass "overwrite": true/);
+  ({ isError, info } = await lit(true));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual(info.saved.map(item => [item.file, item.replaced]), [['forest-spirit.canvas.tres', true], ['forest-spirit.png', true], ['forest-spirit.normal_y_up.png', true]]);
+  // So is a CanvasTexture Godot saved (4.4 and earlier count load_steps), by the copy as this export writes it.
+  await writeFile(path.join(project, 'art', 'spirit.canvas.tres'), '[gd_resource type="CanvasTexture" load_steps=3 format=3]\n');
+  ({ isError, info } = await lit(true));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.equal(await readFile(path.join(project, 'art', 'spirit.canvas.tres'), 'utf8'), text.replace('path="forest-spirit.png"', 'path="spirit.png"').replace('path="forest-spirit.normal_y_up.png"', 'path="spirit.normal.png"'));
+});
+
+test('pixel_render saveAs overwrite never replaces another Godot resource with a CanvasTexture, or a CanvasTexture with another', async t => {
+  const project = await temp(t), mcp = await session(t, project);
+  const lit = saveAs => mcp.render({ project: spirit, normal: spiritNormal, saveAs, overwrite: true });
+  // A SpriteFrames, a TileSet or a project's other resource is no CanvasTexture, whatever the file is called.
+  await mkdir(path.join(project, 'art'));
+  const others = { 'frames.tres': '[gd_resource type="SpriteFrames" load_steps=2 format=3]\n\n[resource]\nanimations = []\n', 'tiles.canvas.tres': '[gd_resource type="TileSet" format=3]\n', 'theme.tres': '[gd_resource type="Theme" format=3]\n' };
+  for (const [file, kept] of Object.entries(others)) {
+    await writeFile(path.join(project, 'art', file), kept);
+    const { isError, info } = await lit({ 'forest-spirit.canvas.tres': `art/${file}` });
+    assert.deepEqual([isError, info.path], [true, 'saveAs.forest-spirit.canvas.tres'], JSON.stringify(info));
+    assert.ok(info.error.endsWith(`${file} is not a Godot CanvasTexture resource, so overwrite won't replace it: choose a new name`), info.error);
+    assert.equal(await readFile(path.join(project, 'art', file), 'utf8'), kept);
+  }
+  await assert.rejects(readdir(path.join(project, 'output')));
+  // And neither a SpriteFrames nor a TileSet replaces a CanvasTexture.
+  let { isError, info } = await lit({ 'forest-spirit.canvas.tres': 'art/spirit.canvas.tres' });
+  assert.equal(isError, false, JSON.stringify(info));
+  const saved = await readFile(path.join(project, 'art', 'spirit.canvas.tres'), 'utf8');
+  ({ isError, info } = await lit({ godot: 'art/spirit.canvas.tres' }));
+  assert.deepEqual([isError, info.path], [true, 'saveAs.godot'], JSON.stringify(info));
+  assert.match(info.error, /spirit\.canvas\.tres is not a Godot SpriteFrames resource, so overwrite won't replace it/);
+  ({ isError, info } = await mcp.render({ project: compileAutotile(GODOT_TILE_SOURCES[0]).recipe, overwrite: true, saveAs: { tileset: 'art/spirit.canvas.tres' } }));
+  assert.deepEqual([isError, info.path], [true, 'saveAs.tileset'], JSON.stringify(info));
+  assert.match(info.error, /spirit\.canvas\.tres is not a Godot TileSet resource, so overwrite won't replace it/);
+  assert.equal(await readFile(path.join(project, 'art', 'spirit.canvas.tres'), 'utf8'), saved);
+});
+
+test('pixel_render saveAs keeps a lit export\'s SpriteFrames lit through a CanvasTexture saved with it, and says so when none is', async t => {
+  const project = await temp(t), mcp = await session(t, project), text = (await createBundle(spirit, { normal: spiritNormal })).files.get('forest-spirit.tres').toString();
+  const lit = saveAs => mcp.render({ project: spirit, normal: spiritNormal, saveAs });
+  // The export's own SpriteFrames draws through the CanvasTexture beside it.
+  assert.ok(text.includes('[ext_resource type="Texture2D" path="forest-spirit.canvas.tres" id="1_sheet"]'), text);
+  // Saved with the CanvasTexture, each copy draws through the saved one, named relative to itself; everything else is
+  // the export's .tres, and no entry needs a note.
+  let { isError, info } = await lit({ godot: 'art/spirit.tres', 'forest-spirit.tres': 'deep/er/spirit.tres', 'forest-spirit.canvas.tres': 'art/spirit.canvas.tres', sheet: 'art/spirit.png', 'forest-spirit.normal_y_up.png': 'art/spirit.normal.png' });
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.equal(await readFile(path.join(project, 'art', 'spirit.tres'), 'utf8'), text.replace('path="forest-spirit.canvas.tres"', 'path="spirit.canvas.tres"'));
+  assert.equal(await readFile(path.join(project, 'deep', 'er', 'spirit.tres'), 'utf8'), text.replace('path="forest-spirit.canvas.tres"', 'path="../../art/spirit.canvas.tres"'));
+  assert.deepEqual(await texturesOf(path.join(project, 'art', 'spirit.canvas.tres')), ['spirit.png', 'spirit.normal.png']);
+  assert.deepEqual(info.saved.map(item => Object.keys(item)), Array(5).fill(['file', 'path']));
+  assert.equal(await readFile(path.join(info.directory, 'forest-spirit.tres'), 'utf8'), text);
+  // Saved without one, it names the plain sheet as it did, which no light shades: its entry says so in a short note,
+  // with the save that keeps it lit.
+  ({ isError, info } = await lit({ godot: 'plain/spirit.tres', sheet: 'plain/spirit2.png' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.equal(await readFile(path.join(project, 'plain', 'spirit.tres'), 'utf8'), text.replace('path="forest-spirit.canvas.tres"', 'path="spirit2.png"'));
+  assert.deepEqual(info.saved.map(item => Object.keys(item)), [['file', 'path', 'note'], ['file', 'path']]);
+  assert.match(info.saved[0].note, /^draws the plain sheet, .* to keep it lit, save forest-spirit\.canvas\.tres and forest-spirit\.normal_y_up\.png with it$/);
+  assert.ok(info.saved[0].note.length < 160, info.saved[0].note);
+  // In a Godot project, the CanvasTexture it draws through must be inside the project too.
+  await mkdir(path.join(project, 'game'));
+  await writeFile(path.join(project, 'game', 'project.godot'), 'config_version=5\n');
+  ({ isError, info } = await lit({ godot: 'game/spirit.tres', 'forest-spirit.canvas.tres': 'outside/spirit.canvas.tres', sheet: 'game/spirit.png', 'forest-spirit.normal_y_up.png': 'game/spirit.normal.png' }));
+  assert.deepEqual([isError, info.path], [true, 'saveAs.godot'], JSON.stringify(info));
+  assert.match(info.error, /spirit\.tres is in the Godot project .*game, but its CanvasTexture .*outside.spirit\.canvas\.tres is outside it, .*such as saveAs\.forest-spirit\.canvas\.tres$/);
+  assert.deepEqual(await readdir(path.join(project, 'game')), ['project.godot']);
+  assert.equal(existsSync(path.join(project, 'outside')), false);
+  // With all four in the project, each names what is beside it.
+  ({ isError, info } = await lit({ godot: 'game/spirit.tres', 'forest-spirit.canvas.tres': 'game/spirit.canvas.tres', sheet: 'game/spirit.png', 'forest-spirit.normal_y_up.png': 'game/spirit.normal.png' }));
+  assert.equal(isError, false, JSON.stringify(info));
+  assert.deepEqual([await texturesOf(path.join(project, 'game', 'spirit.tres')), await texturesOf(path.join(project, 'game', 'spirit.canvas.tres'))], [['spirit.canvas.tres'], ['spirit.png', 'spirit.normal.png']]);
+});
+
+test('pixel_render saveAs of an export with no normal pass writes the bytes it always did, with no note and no CanvasTexture', async t => {
+  const project = await temp(t), mcp = await session(t, project), bundle = await createBundle(spirit);
+  const tres = bundle.files.get('forest-spirit.tres').toString(), atlas = JSON.parse(bundle.files.get('forest-spirit.atlas.json'));
+  const { isError, info } = await mcp.render({ project: spirit, animation: 'idle', saveAs: { sheet: 'art/spirit.png', atlas: 'art/spirit.json', godot: 'art/spirit.tres', 'forest-spirit.tres': 'other/spirit.tres', recipe: 'art/spirit.pixel.json', apng: 'art/idle.png', gif: 'art/idle.gif', 'frames/blink.png': 'art/blink.png' } });
+  assert.equal(isError, false, JSON.stringify(info));
+  // The sheet, recipe, animations and frame are the export's own files; the atlas and each .tres name the saved sheet.
+  const expected = {
+    'art/spirit.png': bundle.files.get('forest-spirit.png'), 'art/spirit.pixel.json': bundle.files.get('forest-spirit.pixel.json'), 'art/idle.png': bundle.files.get('animations/idle.png'), 'art/blink.png': bundle.files.get('frames/blink.png'),
+    'art/idle.gif': animationGIF(bundle.project, 'idle', {}).data, 'art/spirit.json': JSON.stringify({ ...atlas, meta: { ...atlas.meta, image: 'spirit.png' } }, null, 2) + '\n',
+    'art/spirit.tres': tres.replace('path="forest-spirit.png"', 'path="spirit.png"'), 'other/spirit.tres': tres.replace('path="forest-spirit.png"', 'path="../art/spirit.png"')
+  };
+  for (const [file, bytes] of Object.entries(expected)) assert.deepEqual(await readFile(path.join(project, file)), Buffer.from(bytes), file);
+  assert.deepEqual(info.saved, [['forest-spirit.png', 'art/spirit.png'], ['forest-spirit.atlas.json', 'art/spirit.json'], ['forest-spirit.tres', 'art/spirit.tres'], ['forest-spirit.tres', 'other/spirit.tres'], ['forest-spirit.pixel.json', 'art/spirit.pixel.json'], ['animations/idle.png', 'art/idle.png'], ['gifs/idle.gif', 'art/idle.gif'], ['frames/blink.png', 'art/blink.png']].map(([file, target]) => ({ file, path: path.join(project, target) })));
+  // It has no CanvasTexture to save.
+  const refused = await mcp.render({ project: spirit, saveAs: { 'forest-spirit.canvas.tres': 'art/spirit.canvas.tres' } });
+  assert.deepEqual([refused.isError, refused.info.path], [true, 'saveAs.forest-spirit.canvas.tres'], JSON.stringify(refused.info));
+  assert.match(refused.info.error, /this export has no forest-spirit\.canvas\.tres/);
+});
+
+test('pixel_render saveAs on Windows: a CanvasTexture can\'t name a sheet or a normal map on another drive', { skip: process.platform !== 'win32' }, async t => {
+  const project = await temp(t), here = path.parse(project).root.toUpperCase();
+  const other = 'DEFGHIJKLMNOPQRSTUVWXYZC'.split('').map(letter => `${letter}:\\`).find(drive => drive !== here && existsSync(drive));
+  if (!other) return;
+  // The export directory is on the other drive, and nothing is made there: each save is refused first. (Should one
+  // ever get through, the folder it made is removed.)
+  const far = path.join(other, `pixelbolt-test-${path.basename(project)}`), mcp = await session(t, project, path.join(far, 'output'));
+  t.after(() => rm(far, { recursive: true, force: true }));
+  for (const [saveAs, message] of [
+    [{ 'forest-spirit.canvas.tres': 'lit.canvas.tres' }, /the \.tres is on another drive than the export folder, so it can't name the export's sheet: save the sheet too, such as saveAs\.sheet$/],
+    [{ 'forest-spirit.canvas.tres': 'lit.canvas.tres', sheet: 'lit.png' }, /the \.tres is on another drive than the export folder, so it can't name the export's normal map: save the normal map too, such as saveAs\.forest-spirit\.normal_y_up\.png$/]
+  ]) {
+    const { isError, info } = await mcp.render({ project: spirit, normal: spiritNormal, saveAs });
+    assert.deepEqual([isError, info.path], [true, 'saveAs.forest-spirit.canvas.tres'], JSON.stringify(info));
+    assert.match(info.error, message);
+  }
+  assert.equal(existsSync(far), false);
+  assert.deepEqual(await readdir(project), []);
 });

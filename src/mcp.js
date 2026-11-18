@@ -9,7 +9,7 @@ import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
 import { encodePNG } from './png.js';
 import { createBundle, writeBundle, embedBundleRecipe, outputSummary, describeAnimations } from './export.js';
-import { spriteFrames, retexture } from './godot.js';
+import { spriteFrames, retexture, canvasTexture } from './godot.js';
 import { shareLink } from './share.js';
 import { animationGIF, STILLS_GIF_NOTE } from './gif.js';
 import { readExpect, checkDelivery, briefCheck } from './check.js';
@@ -155,9 +155,10 @@ export function createToolRunner({ directory, root, version }) {
   const windowsName = part => /[<>:"|?*]/.test(part) || /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(\..*)?$/i.test(part) || /[. ]$/.test(part);
   const canonical = async target => { const folder = await nearest(target); return path.join(await realpath(folder), path.relative(folder, target)); };
   // The root can be a whole home folder (the desktop bundle's default), so saveAs writes only art: PNG, GIF and the JSON
-  // and Godot SpriteFrames and TileSets that describe it, never to a hidden name (settings live in .config, .vscode,
-  // .claude.json), and overwrite replaces a JSON file only if it is a recipe, atlas or sequence (an object with frames),
-  // never a settings file, and a .tres only if it is the same kind of resource, never a project's other resources.
+  // and Godot SpriteFrames, TileSets and CanvasTextures that describe it, never to a hidden name (settings live in
+  // .config, .vscode, .claude.json), and overwrite replaces a JSON file only if it is a recipe, atlas or sequence (an
+  // object with frames), never a settings file, and a .tres only if it is the same kind of resource (a SpriteFrames, a
+  // TileSet or a CanvasTexture, each only by its own kind), never a project's other resources.
   const SAVED_TYPES = ['.png', '.gif', '.json', '.tres', '.tsx'];
   const hidden = relative => relative.split(path.sep).some(part => part.startsWith('.'));
   // Where a home folder keeps app settings without a leading dot.
@@ -233,7 +234,7 @@ export function createToolRunner({ directory, root, version }) {
       if (existing && !existing.isFile()) throw new PixelError(where, `${destination} exists and is not a file`);
       if (existing && overwrite !== true) throw new PixelError(where, `${destination} already exists: choose a new name, or pass "overwrite": true to replace it`);
       if (existing && type === '.json' && !(await spriteJSON(destination, existing.size))) throw new PixelError(where, `${destination} is not a recipe, atlas or sequence (a JSON object with frames), so overwrite won't replace it: choose a new name`);
-      const resource = file.endsWith('.tileset.tres') ? 'TileSet' : 'SpriteFrames';
+      const resource = file.endsWith('.tileset.tres') ? 'TileSet' : file.endsWith('.canvas.tres') ? 'CanvasTexture' : 'SpriteFrames';
       if (existing && type === '.tres' && !(await godotResource(destination, existing.size, resource))) throw new PixelError(where, `${destination} is not a Godot ${resource} resource, so overwrite won't replace it: choose a new name`);
       if (existing && type === '.tsx' && !(await tiledTileset(destination, existing.size))) throw new PixelError(where, `${destination} is not a Tiled tileset, so overwrite won't replace it: choose a new name`);
       const id = fold(real);
@@ -245,22 +246,35 @@ export function createToolRunner({ directory, root, version }) {
     }
     // A saved atlas, .tres or .tsx names the sheet it describes relative to itself (Godot and Tiled read it from the
     // file's own folder): a saved sheet, the one in its own folder first, or else the export folder's, whose name is
-    // only known once that folder exists (null here).
-    const sheets = plan.filter(item => item.file === `${project.name}.png`);
-    const named = [['atlas', ['.atlas.json']], ['.tres', ['.tres', '.tileset.tres']], ['.tsx', ['.tsx']]];
+    // only known once that folder exists (null here). An export with a normal pass has a CanvasTexture, which names
+    // the sheet and its normal map, and its SpriteFrames draws through that. So a saved CanvasTexture names a normal
+    // map too, by the same rule (item.normal), and that export's saved SpriteFrames names a CanvasTexture saved in the
+    // same call in place of the sheet; with none saved it names the plain sheet, which no light shades, and its entry
+    // in the reply says so (item.note).
+    const copies = ending => plan.filter(item => item.file === project.name + ending);
+    const sheets = copies('.png'), normals = copies('.normal_y_up.png'), canvases = copies('.canvas.tres');
+    const named = [['atlas', ['.atlas.json']], ['.tres', ['.tres', '.tileset.tres', '.canvas.tres']], ['.tsx', ['.tsx']]];
     for (const [kind, endings] of named) for (const item of plan.filter(each => endings.some(ending => each.file === project.name + ending))) {
-      const sheet = sheets.find(each => fold(path.dirname(each.destination)) === fold(path.dirname(item.destination))) ?? sheets[0];
-      item.rebase = sheet ? sheet.destination : null;
-      // The export folder is <directory>/<name>-<6 letters or digits>, so its own name can't add these characters.
-      const target = sheet ? sheet.destination : path.join(path.resolve(directory), `${project.name}-x`, `${project.name}.png`);
-      if (path.isAbsolute(path.relative(path.dirname(item.destination), target))) throw new PixelError(`saveAs.${item.key}`, `the ${kind} is on another drive than the export folder, so it can't name the export's sheet: save the sheet too, such as saveAs.sheet`);
-      if (kind === 'atlas') {
-        const image = imagePath(item.destination, target);
-        if (!readsAsURL(image)) throw new PixelError(`saveAs.${item.key}`, `the atlas would name its sheet as ${image}, which reads as another name when it is loaded as a URL: choose a sheet path${sheet ? '' : ' in saveAs, or an export directory,'} without #, ?, %, backslashes or spaces at either end of a name`);
-      }
-      if (kind === '.tres') {
-        const godotFolder = await godotProject(path.dirname(item.destination));
-        if (godotFolder && !inside(godotFolder, target)) throw new PixelError(`saveAs.${item.key}`, `${item.destination} is in the Godot project ${godotFolder}, but its sheet ${sheet ? `${sheet.destination} is` : 'would stay in the export folder,'} outside it, and Godot loads textures only from inside the project: save the sheet into the project too, such as saveAs.sheet`);
+      const beside = saved => saved.find(each => fold(path.dirname(each.destination)) === fold(path.dirname(item.destination))) ?? saved[0];
+      const lit = item.file === `${project.name}.tres` && bundle.files.has(`${project.name}.canvas.tres`), canvas = lit ? beside(canvases) : undefined;
+      // The textures the file names: for each, its saved copy (if any), its export file and the save that adds a copy.
+      const textures = [canvas ? { what: 'CanvasTexture', copy: canvas, save: `saveAs.${project.name}.canvas.tres` } : { what: 'sheet', copy: beside(sheets), file: `${project.name}.png`, save: 'saveAs.sheet' }];
+      if (item.file === `${project.name}.canvas.tres`) textures.push({ what: 'normal map', copy: beside(normals), file: `${project.name}.normal_y_up.png`, save: `saveAs.${project.name}.normal_y_up.png` });
+      item.rebase = textures[0].copy ? textures[0].copy.destination : null;
+      if (textures[1]) item.normal = textures[1].copy ? textures[1].copy.destination : null;
+      if (lit && !canvas) item.note = `draws the plain sheet, without the normal map's lighting: to keep it lit, save ${project.name}.canvas.tres and ${project.name}.normal_y_up.png with it`;
+      for (const { what, copy, file, save } of textures) {
+        // The export folder is <directory>/<name>-<6 letters or digits>, so its own name can't add these characters.
+        const target = copy ? copy.destination : path.join(path.resolve(directory), `${project.name}-x`, file);
+        if (path.isAbsolute(path.relative(path.dirname(item.destination), target))) throw new PixelError(`saveAs.${item.key}`, `the ${kind} is on another drive than the export folder, so it can't name the export's ${what}: save the ${what} too, such as ${save}`);
+        if (kind === 'atlas') {
+          const image = imagePath(item.destination, target);
+          if (!readsAsURL(image)) throw new PixelError(`saveAs.${item.key}`, `the atlas would name its sheet as ${image}, which reads as another name when it is loaded as a URL: choose a sheet path${copy ? '' : ' in saveAs, or an export directory,'} without #, ?, %, backslashes or spaces at either end of a name`);
+        }
+        if (kind === '.tres') {
+          const godotFolder = await godotProject(path.dirname(item.destination));
+          if (godotFolder && !inside(godotFolder, target)) throw new PixelError(`saveAs.${item.key}`, `${item.destination} is in the Godot project ${godotFolder}, but its ${what} ${copy ? `${copy.destination} is` : 'would stay in the export folder,'} outside it, and Godot loads textures only from inside the project: save the ${what} into the project too, such as ${save}`);
+        }
       }
     }
     return plan;
@@ -270,9 +284,11 @@ export function createToolRunner({ directory, root, version }) {
     const image = imagePath(tsxPath, sheetPath).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     return Buffer.from(Buffer.from(bytes).toString('utf8').replace(/(<image source=")[^"]*(")/, (_, open, close) => `${open}${image}${close}`));
   };
-  // The bytes a saved .tres gets: its sheet named relative to it, with / separators.
+  // The bytes a saved .tres gets: its sheet named relative to it, with / separators. (A SpriteFrames takes a saved
+  // CanvasTexture as its sheet, and a CanvasTexture names its normal map as it does its sheet.)
   const rebasedSpriteFrames = (atlas, tresPath, sheetPath) => Buffer.from(spriteFrames(atlas.metadata, { image: imagePath(tresPath, sheetPath) }).text);
   const rebasedTileSet = (bytes, tresPath, sheetPath) => Buffer.from(retexture(Buffer.from(bytes).toString('utf8'), imagePath(tresPath, sheetPath)));
+  const rebasedCanvasTexture = (tresPath, sheetPath, normalPath) => Buffer.from(canvasTexture({ diffuse: imagePath(tresPath, sheetPath), normal: imagePath(tresPath, normalPath) }));
   // The bytes a saved atlas gets: its meta.image pointing at the given sheet, relative to the atlas, with / separators.
   const rebasedAtlas = (bytes, atlasPath, sheetPath) => {
     const atlas = JSON.parse(Buffer.from(bytes).toString('utf8'));
@@ -487,6 +503,7 @@ export function createToolRunner({ directory, root, version }) {
           await writeSaves(saves, overwrite === true, item => {
             if (item.rebase === undefined) return item.bytes;
             const sheet = item.rebase ?? path.join(out, `${bundle.project.name}.png`);
+            if (item.file.endsWith('.canvas.tres')) return rebasedCanvasTexture(item.destination, sheet, item.normal ?? path.join(out, `${bundle.project.name}.normal_y_up.png`));
             if (item.file.endsWith('.tileset.tres')) return rebasedTileSet(item.bytes, item.destination, sheet);
             if (item.file.endsWith('.tsx')) return rebasedTiled(item.bytes, item.destination, sheet);
             return item.file.endsWith('.tres') ? rebasedSpriteFrames(bundle.atlas, item.destination, sheet) : rebasedAtlas(item.bytes, item.destination, sheet);
@@ -496,7 +513,7 @@ export function createToolRunner({ directory, root, version }) {
           throw Object.assign(error, { made: { revision: savedRevision, directory: out } });
         }
         const check = checkDelivery(bundle.project, { recipe, gifs: bundle.project.stills ? undefined : gifs, expect, animation, call: 'mcp', scale: options.scale, recipeScale: Number.isInteger(from.recipe?.sheet?.scale) ? from.recipe.sheet.scale : 1 });
-        return { content: [textContent(withResolved({ ok: true, revision: savedRevision, directory: out, ...outputSummary(out, files, listFiles === true), frames: bundle.project.frames.length, ...describeAnimations(bundle.project, recipe), playback: path.join(out, 'preview.html'), ...(gifs.length && { gifs: { directory: 'gifs', count: gifs.length, scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(gifs.length <= 16 && { files: gifs.map(item => `gifs/${item.animation}.gif`) }), notes: gifs.flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16) } }), ...(frames && { sequence: sequenceSummary(frames.info) }), ...(saves.length && { saved: saves.map(item => ({ file: item.file, path: item.destination, ...(item.replaced && { replaced: true }) })) }), check: briefCheck(check), preview: viewSummary(view), warnings: bundle.project.warnings, ...(shared && { share: shared }) }, resolved)), imageContent(view.sheet)], ...(preview && preview(bundle.project, {
+        return { content: [textContent(withResolved({ ok: true, revision: savedRevision, directory: out, ...outputSummary(out, files, listFiles === true), frames: bundle.project.frames.length, ...describeAnimations(bundle.project, recipe), playback: path.join(out, 'preview.html'), ...(gifs.length && { gifs: { directory: 'gifs', count: gifs.length, scale: gifs[0].scale, width: gifs[0].width, height: gifs[0].height, ...(gifs.length <= 16 && { files: gifs.map(item => `gifs/${item.animation}.gif`) }), notes: gifs.flatMap(item => item.notes.map(text => `${item.animation}: ${text}`)).slice(0, 16) } }), ...(frames && { sequence: sequenceSummary(frames.info) }), ...(saves.length && { saved: saves.map(item => ({ file: item.file, path: item.destination, ...(item.replaced && { replaced: true }), ...(item.note && { note: item.note }) })) }), check: briefCheck(check), preview: viewSummary(view), warnings: bundle.project.warnings, ...(shared && { share: shared }) }, resolved)), imageContent(view.sheet)], ...(preview && preview(bundle.project, {
           animation, files: [...new Set([
             ...files.filter(file => path.dirname(file) === out && /\.(?:png|atlas\.json|pixel\.json|tres|tsx)$/.test(file)),
             ...saves.map(item => item.destination), ...gifs.map(item => path.join(out, 'gifs', item.animation + '.gif')),
