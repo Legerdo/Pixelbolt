@@ -45,10 +45,12 @@ test('compile --size refuses a recipe tied to its canvas before counting its fra
   // Before: "19 frames of 640×360 ... 18 frames fit: use fewer frames", and after --frames 1 the outline refusal.
   const iso = pixelbolt(['compile', '--preset', 'iso-tiles', '--size', '640x360', '--out', 'iso.json'], dir);
   assert.match(iso.error, /^--size: frames\[\d+\]\.ops\[\d+\] is "outline", which reads the whole canvas, so this recipe cannot move to another canvas size/);
-  // Before: "151 frames ... 72 fit", and after --frames 72 the tile refusal.
+  // Before: "151 frames ... 72 fit", and after --frames 72 the tile refusal. A tile set is refused as one, by its preset
+  // as by its file (the preset went through another function and got the recipe's refusal, or was thinned by --frames).
   for (const size of ['640x360', '320x180']) {
     const ground = pixelbolt(['compile', '--preset', 'ground', '--size', size, '--out', 'ground.json'], dir);
-    assert.equal(ground.error, '--size: frames[0].tile is tied to the canvas size, so this recipe cannot move to another one; change the size in its source instead');
+    assert.equal(ground.error, "--size: a tile set's size is its tile, set in the source");
+    assert.equal(pixelbolt(['compile', path.join(root, 'examples', 'ground.autotile.json'), '--size', size, '--out', 'ground.json'], dir).error, ground.error);
   }
 });
 
