@@ -283,7 +283,9 @@ export function prepareScene(source) {
     }
     const repeat = point(instance.repeat ?? [1, 1], `${path}.repeat`, 32);
     if (repeat.some(n => n < 1)) fail(`${path}.repeat`, 'repeat counts must be positive');
-    const step = point(instance.step ?? [project.width * scale, project.height * scale], `${path}.step`);
+    // A step the scene wrote is held to the coordinate bound; the default, the frame's own size at this scale, is not
+    // (a 1024-wide asset at scale 5 was refused for a step nobody wrote, and unused without repeat).
+    const step = instance.step === undefined ? [project.width * scale, project.height * scale] : point(instance.step, `${path}.step`);
     count += repeat[0] * repeat[1]; work += repeat[0] * repeat[1] * project.width * project.height * scale ** 2;
     if (count > MAX_DRAWS || work > MAX_WORK) fail(path, 'scene exceeds 4,096 draws or 4,194,304 drawing pixels');
     const selection = (entry, ep) => {

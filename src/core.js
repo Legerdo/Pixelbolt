@@ -1762,9 +1762,22 @@ function refitStack(views, wide) {
       const even = Math.floor((room - heights.slice(k).reduce((sum, h) => sum + h, 0)) / k);
       if (k === heights.length || even >= heights[k]) { cap = Math.max(1, even); break; }
     }
+    // A sheet whose one cell is taller than the cap cannot be cut to it. It keeps the least it can take, and the cap
+    // comes down until the others leave room for that, so a stack whose least heights fit is never refused: a
+    // 100×4096 still beside four sheets of 16 cells was, told to "compare at most 4 other recipes". Where even the
+    // least heights pass the image, the cap stands and the tall sheet's refusal says how many recipes it holds.
+    const least = views.map(view => Math.min(view.sheet.height, view[REFIT].low));
+    const taken = at => views.reduce((sum, view, i) => sum + Math.max(least[i], Math.min(view.sheet.height, at)), 0);
+    const held = taken(1) <= room;
+    if (held && taken(cap) > room) {
+      let low = 1, high = cap;
+      while (low < high) { const mid = Math.ceil((low + high) / 2); if (taken(mid) <= room) low = mid; else high = mid - 1; }
+      cap = low;
+    }
     views = views.map((view, i) => {
-      if (view.sheet.height <= cap && view.sheet.width <= wide) return view;
-      try { return { ...view[REFIT]({ maxHeight: cap + STACK_BAND, maxWidth: wide, stack: most, why, others: lows.filter((_, j) => j !== i) }), name: view.name }; }
+      const to = held ? Math.max(cap, least[i]) : cap;
+      if (view.sheet.height <= to && view.sheet.width <= wide) return view;
+      try { return { ...view[REFIT]({ maxHeight: to + STACK_BAND, maxWidth: wide, stack: most, why, others: lows.filter((_, j) => j !== i) }), name: view.name }; }
       catch (error) {
         if (error.every === undefined) throw bySheet(error, view.name);
         if (!short || error.every > short.every) short = bySheet(error, view.name);
@@ -2005,7 +2018,9 @@ export function inspectProject(project, options = {}, { sheets = 1, share, measu
   const box = mode === 'tile' ? { w: width * 3, h: height * 3 } : region;
   if (options.maxCells !== undefined) {
     const requested = integer(options.maxCells, 'inspect.maxCells', 1, 256);
-    const count = Math.min(positions.length, requested, Math.max(1, Math.floor(4094 / (box.w + 2)) * Math.floor(4094 / (box.h + 2))));
+    // What one sheet holds is measured as the sheet itself measures it (a rougher bound here said 45 cells of 1024×256
+    // where the same sheet without maxCells showed 60).
+    const count = Math.min(positions.length, requested, Math.max(1, cellsThatFit(positions.length, box.w, box.h, 1)));
     if (count < positions.length && every !== undefined && count < requested && (width > 256 || height > 256)) thinEvery(count, `one 4096-pixel sheet of ${box.w}×${box.h} cells holds`);
     if (count < positions.length) { positions = spread(positions, count); methods.push('evenly spaced, including endpoints'); }
   }

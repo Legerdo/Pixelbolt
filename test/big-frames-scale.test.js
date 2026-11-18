@@ -86,6 +86,11 @@ test('GIF and export budgets name the largest scale that fits', async t => {
   const long = Array.from({ length: 1000 }, () => ({ data: blank, duration: 100 }));
   assert.throws(() => encodeGIF(long, 320, 180, { scale: 2 }), { message: 'gif: 1000 frames at 640×360 exceed 67,108,864 pixels; scale 1 is the largest that fits, or shorten the animation' });
   assert.throws(() => encodeGIF([...long, ...long], 320, 180), { message: 'gif: 2000 frames at 320×180 exceed 67,108,864 pixels; shorten the animation' });
+  // A side past a GIF's 65,535 (a 4096-wide still at scale 16) said only "invalid dimensions": it names the scale too,
+  // and that scale holds the pixel budget as well.
+  const strip = [{ data: new Uint8ClampedArray(4096 * 1024 * 4), duration: 100 }];
+  assert.throws(() => encodeGIF(strip, 4096, 1024, { scale: 16 }), { path: 'gif', message: 'gif: 65536×16384 is past the 65,535 pixels a GIF\'s side holds; scale 4 is the largest that fits' });
+  assert.equal(encodeGIF(strip, 4096, 1024, { scale: 4 }).width, 16384);
   // Two frames played 1024 times: the atlas fits at scale 2, the animation pixels only at 1.
   const replayed = screen(320, 180, 2, { animations: { spin: { frames: Array.from({ length: 1024 }, (_, i) => `f${i % 2}`) } } });
   await assert.rejects(createBundle({ ...replayed, sheet: { scale: 2 } }), { path: 'project.sheet.scale', message: 'project.sheet.scale: the animations play 1024 frames of 640×360, past the 67,108,864 animation pixels an export holds; scale 1 is the largest that fits, or shorten them' });
@@ -127,4 +132,42 @@ test('small renders are byte for byte what they were before the refusal changed'
     const bundle = await createBundle(recipe), name = bundle.project.name;
     assert.deepEqual([sha(bundle.files.get(`${name}.png`)), sha(bundle.files.get(`${name}.atlas.json`)), sha(animationGIF(bundle.project, undefined, { scale: 2 }).data)], expected, file);
   }
+});
+
+test('every frame written to frames/ is inside the export\'s budget: stills and unplayed frames on a trimmed sheet', async () => {
+  // A trimmed sheet packs what is drawn, so its atlas is small where the whole frames in frames/ are not, and stills
+  // (or frames no animation plays) are in no animation's count: 40 stills of 128×128 at scale 16 made 167,772,160
+  // pixels of frame PNGs, held at once, with nothing said.
+  const icons = (count, scale, extra = {}) => ({ version: 1, name: 'icons', width: 128, height: 128, palette: { a: '#e04030' },
+    frames: Array.from({ length: count }, (_, k) => ({ name: `f${k}`, ops: [{ op: 'rect', x: k, y: 3, w: 8, h: 8, color: 'a' }] })), animations: {}, sheet: { trim: true, scale }, ...extra });
+  const refusal = { path: 'project.sheet.scale', message: 'project.sheet.scale: the 40 frames of 2048×2048 written to frames/ are past the 67,108,864 pixels an export\'s frames hold; scale 10 is the largest that fits' };
+  await assert.rejects(createBundle(icons(40, 16)), refusal);
+  await assert.rejects(createBundle(icons(40, 16, { animations: { one: { frames: ['f0'] } } })), refusal);
+  await assert.rejects(createBundle(icons(40, 11)), { message: /the 40 frames of 1408×1408 written to frames\/ .*; scale 10 is the largest that fits$/ });
+  const fits = await createBundle(icons(40, 10));
+  assert.equal([...fits.files.keys()].filter(file => file.startsWith('frames/')).length, 40);
+  assert.equal(fits.files.get('frames/f0.png').readUInt32BE(16), 1280);
+  // The frames an animation plays are refused by the animation budget, worded as before.
+  await assert.rejects(createBundle(icons(40, 16, { animations: undefined })), { message: /^project\.sheet\.scale: the animations play 40 frames of 2048×2048, past the 67,108,864 animation pixels an export holds; scale 10 is the largest that fits, or shorten them$/ });
+});
+
+test('a trimmed sheet\'s normal pass is not refused for an atlas of its own that is never written', async () => {
+  // The normal sheet is drawn on the colour sheet's cells (P-172). The pass was still packed by itself first, and a
+  // normal pass has a flat background: every frame full, so at scale 3 its own "atlas of 6144×6144" was refused
+  // where the colour sheet, and the normal sheet written, are 384×384.
+  const at = k => ({ x: 10 + (k % 16), y: 20 + Math.floor(k / 16) });
+  const colour = scale => ({ version: 1, name: 'lit', width: 256, height: 256, palette: { a: '#e04030', b: '#30e040' },
+    frames: Array.from({ length: 64 }, (_, k) => ({ name: `f${k}`, ops: [{ op: 'rect', x: 10, y: 20, w: 16, h: 16, color: 'a' }, { op: 'pixel', ...at(k), color: 'b' }] })), sheet: { trim: true, scale } });
+  const normal = { version: 1, name: 'lit', width: 256, height: 256, palette: { n: '#8080ff', u: '#80ff80' },
+    frames: Array.from({ length: 64 }, (_, k) => ({ name: `f${k}`, ops: [{ op: 'rect', x: 0, y: 0, w: 256, h: 256, color: 'n' }, { op: 'pixel', ...at(k), color: 'u' }] })) };
+  const size = png => [png.readUInt32BE(16), png.readUInt32BE(20)];
+  for (const scale of [2, 3, 4]) {
+    const { files } = await createBundle(colour(scale), { normal });
+    assert.deepEqual(size(files.get('lit.normal.png')), size(files.get('lit.png')), `scale ${scale}`);
+    assert.deepEqual(size(files.get('lit.png')), [128 * scale, 128 * scale]);
+  }
+  // An untrimmed pair is byte for byte what it was: the pass is rendered for its frames, and the sheet is the colour's.
+  const plain = { ...colour(1), sheet: { scale: 1 }, frames: colour(1).frames.slice(0, 4) }, flat = { ...normal, frames: normal.frames.slice(0, 4) };
+  const { files } = await createBundle(plain, { normal: flat }), alone = buildAtlas(renderProject({ ...flat, sheet: { scale: 1 } }));
+  assert.deepEqual(size(files.get('lit.normal.png')), [alone.width, alone.height]);
 });

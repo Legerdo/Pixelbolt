@@ -1,4 +1,4 @@
-import { renderProject, buildAtlas, scalePixels, PixelError, animationFps, namesAnimations, exportsStill, exportAtlas, stillTileSet, largestScale } from './core.js';
+import { renderProject, buildAtlas, scalePixels, PixelError, isObject, animationFps, namesAnimations, exportsStill, exportAtlas, stillTileSet, largestScale } from './core.js';
 import { encodePNG, encodeAPNG, crc32 } from './png.js';
 import { readFile, readdir, mkdir, writeFile, access, rm, rmdir, stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -77,13 +77,23 @@ export async function createBundle(spec, { normal } = {}) {
     const s = sheet.scale, fits = largestScale(animationPixels / (s * s), 67108864, s), played = animationPixels / (width * height * s * s);
     throw new PixelError(fits ? 'project.sheet.scale' : 'project.animations', `the animations play ${played} frames of ${width * s}×${height * s}, past the 67,108,864 animation pixels an export holds; ${fits ? `scale ${fits} is the largest that fits, or shorten them` : 'shorten them'}`);
   }
+  // Every frame is also written whole to frames/ at the sheet's scale. A trimmed sheet packs only what is drawn, so its
+  // atlas can be small where those are not, and stills and frames no animation plays are in no animation's count: 40
+  // stills of 128×128 at scale 16 made 167,772,160 pixels of them with nothing said.
+  const framePixels = frames.length * width * height * sheet.scale ** 2;
+  if (framePixels > 67108864) {
+    const s = sheet.scale, fits = largestScale(framePixels / (s * s), 67108864, s);
+    throw new PixelError('project.sheet.scale', `the ${frames.length} frames of ${width * s}×${height * s} written to frames/ are past the 67,108,864 pixels an export's frames hold; scale ${fits} is the largest that fits`);
+  }
   const files = new Map();
   files.set(`${name}.png`, encodePNG(atlas.data, atlas.width, atlas.height));
   files.set(`${name}.atlas.json`, Buffer.from(json(atlas.metadata)));
   if (tiles) files.set(`${name}.tileset.tres`, Buffer.from(tiles.text));
   if (tiles?.tiled) files.set(`${name}.tsx`, Buffer.from(tiles.tiled));
   if (normal !== undefined) {
-    const pass = renderProject({ ...normal, sheet: spec.sheet });
+    // Rendered for its frames only: the sheet it would pack by itself is never written (a normal pass with a flat
+    // background fills every frame, and its own trimmed atlas was refused at a scale the colour sheet holds).
+    const pass = renderProject({ ...normal, sheet: { ...(isObject(spec.sheet) ? spec.sheet : {}), trim: false, scale: 1 } });
     const differs = pass.width !== width || pass.height !== height ? `it is ${pass.width}×${pass.height} and the colour recipe ${width}×${height}` : pass.frames.length !== frames.length ? `it has ${pass.frames.length} frames and the colour recipe ${frames.length}` : pass.frames.find((frame, i) => frame.name !== frames[i].name);
     if (differs) throw new PixelError('normal', `a normal pass shares the colour recipe's size and frames: ${typeof differs === 'string' ? differs : `its frame "${differs.name}" is "${frames[pass.frames.indexOf(differs)].name}" in the colour recipe`}. Derive it from this recipe with a pixelforge-normals source`);
     // The normal sheet is drawn on the colour sheet's own cells, so the atlas and the SpriteFrames read both sheets at

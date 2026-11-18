@@ -196,7 +196,13 @@ function writeFrames(indexed, width, height, { loops, scale = 1 }, all, shared, 
 export function encodeGIF(frames, width, height, { loop = true, scale = 1, background = null } = {}) {
   if (!Array.isArray(frames) || !frames.length) throw new PixelError('gif', 'at least one frame is required');
   if (!Number.isInteger(scale) || scale < 1 || scale > 16) throw new PixelError('gif.scale', 'expected a whole number from 1 to 16');
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * scale > 65535 || height * scale > 65535) throw new PixelError('gif', 'invalid dimensions');
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new PixelError('gif', 'invalid dimensions');
+  if (width * scale > 65535 || height * scale > 65535) {
+    // A GIF's side is a 16-bit number; the scale named holds the pixel budget too.
+    let fits = Math.min(scale - 1, Math.floor(65535 / Math.max(width, height)));
+    while (fits >= 1 && frames.length * width * height * fits * fits > MAX_PIXELS) fits--;
+    throw new PixelError('gif', `${width * scale}×${height * scale} is past the 65,535 pixels a GIF's side holds; ${fits >= 1 ? `scale ${fits} is the largest that fits` : 'use a smaller canvas'}`);
+  }
   if (frames.length * width * height * scale * scale > MAX_PIXELS) {
     const fits = largestScale(frames.length * width * height, MAX_PIXELS, scale);
     // One frame has no animation to shorten.

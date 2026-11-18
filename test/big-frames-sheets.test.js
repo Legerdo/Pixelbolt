@@ -42,10 +42,14 @@ const runner = async t => {
 
 test('maxCells counts the cells a sheet holds across and down apart, so a 1024x256 preview shows all 16 frames', async t => {
   const project = renderProject(screen(1024, 256, 16)), view = inspectProject(project, { maxCells: 256 });
-  // floor(4094 / 1026) * floor(4094 / 258) = 3 * 15 = 45, not floor(4094 / 1026) squared = 9.
+  // Not floor(4094 / 1026) squared = 9.
   assert.deepEqual([view.cells.length, view.sampling], [16, undefined]);
-  // A square frame keeps the old count: 512x512 holds 7 * 7.
-  assert.equal(inspectProject(renderProject(screen(512, 512, 16, { plays: 4 })), { animation: 'run', maxCells: 256, scale: 1 }).cells.length, 49);
+  // What one sheet holds is counted as the sheet itself counts it: 512x512 holds 8 across and 7 down, 56, with maxCells
+  // as without. (A rougher bound here said 7 * 7, so the same sheet showed 49 cells with the option and 56 without.)
+  assert.equal(inspectProject(renderProject(screen(512, 512, 16, { plays: 4 })), { animation: 'run', maxCells: 256, scale: 1 }).cells.length, 56);
+  assert.equal(inspectProject(renderProject(screen(512, 512, 16, { plays: 4 })), { animation: 'run' }).cells.length, 56);
+  const wide = renderProject(screen(1024, 256, 16, { plays: 4 }));
+  assert.deepEqual([inspectProject(wide, { animation: 'run', maxCells: 64 }).cells.length, inspectProject(wide, { animation: 'run' }).cells.length], [60, 60]);
   const call = await runner(t), { info } = await call('pixel_render', { project: screen(1024, 256, 16) });
   assert.deepEqual([info.preview.cells, info.preview.sampling], [['f0 … f15: 80 ms each'], undefined]);
 });
@@ -60,9 +64,10 @@ test('every refuses to drop cells that do not fit, naming the every that does', 
   // Never thinned instead: the sampling of a sheet by time always reads as playback.
   assert.throws(() => inspectProject(project, { animation: 'run', every: 40 }), { path: 'inspect.every',
     message: 'inspect.every: 5120 ms at one cell per 40 ms is 128 cells, and one 4096-pixel sheet of 512×512 cells holds 56; choose every 92 or more' });
-  // A sheet of big frames holding fewer than maxCells is refused the same way.
+  // A sheet of big frames holding fewer than maxCells is refused the same way, with the same count and every.
   assert.throws(() => inspectProject(project, { animation: 'run', every: 80, maxCells: 100, scale: 1 }),
-    { path: 'inspect.every', message: 'inspect.every: 5120 ms at one cell per 80 ms is 64 cells, and one 4096-pixel sheet of 512×512 cells holds 49; choose every 105 or more' });
+    { path: 'inspect.every', message: 'inspect.every: 5120 ms at one cell per 80 ms is 64 cells, and one 4096-pixel sheet of 512×512 cells holds 56; choose every 92 or more' });
+  assert.equal(inspectProject(project, { animation: 'run', every: 92, maxCells: 100, scale: 1 }).cells.length, 56);
 });
 
 test('a maxCells below the cells every makes thins them evenly, as before big frames, at any scale', () => {
@@ -461,31 +466,52 @@ test('how many sheets beside stacks is never a caller option: one recipe past 25
   assert.ok(!(await run('pixel_inspect', { revision, animation: 'run', every: 20, beside: [revision] })).isError);
 });
 
+test('a stack whose least heights fit is refitted, not refused: a sheet of one tall cell keeps it and the others give way', () => {
+  // A 100x4096 still beside four sheets of 16 cells: 0.17.0 drew them (8,296 pixels tall, before the stack had a
+  // limit), and the refit then refused them with "compare at most 4 other recipes", the four that were asked. The
+  // tall sheet cannot be cut to the cap the others share, so it keeps the one cell it is and they share what is left.
+  const stacked = sizes => stackViews(sizes.map(([w, h, n], i) => ({ ...inspectProject(renderProject(screen(w, h, n)), {}, { sheets: sizes.length }), name: `v${i}` })));
+  const five = stacked([[100, 4096, 1], [256, 256, 16], [256, 256, 16], [256, 256, 16], [256, 256, 16]]);
+  assert.ok(five.sheet.height <= 8000, `${five.sheet.height}`);
+  assert.equal(five.stack.length, 5);
+  encodes(five.sheet);
+  // Animation frames too, eight sheets and three.
+  for (const sizes of [[[256, 1024, 4], ...Array.from({ length: 7 }, () => [320, 180, 72])], [[100, 4096, 1], [512, 512, 16], [512, 512, 16]]]) {
+    const { sheet } = stacked(sizes);
+    assert.ok(sheet.height <= 8000, `${sizes.length} sheets: ${sheet.height}`);
+    encodes(sheet);
+  }
+  // Where even one cell of each passes the image, the refusal counts what does fit, never the count that was asked.
+  assert.throws(() => stacked([[100, 4096, 1], [100, 4096, 1], [100, 4096, 1]]), { path: 'beside', message: /past the \d+ left to it in an image of 3 sheets stacked \(8,000 pixels tall at most\); compare one recipe at a time, or show a smaller region$/ });
+});
+
 test('every beside other recipes names the smallest every the stack holds, and what the sheet holds at the every asked', () => {
   // Nine mixed loops at one cell per 15 ms. The refusal named the first every that held (640), and "holds 1" from the
-  // try that failed, though every value from 256 holds and the 256x1024 sheet shows 3 cells there. The 1024x128 sheet
-  // alone holds 124 of the 171 cells asked; the stack moves the every past its own 21.
+  // try that failed, though every value from 240 holds and the 256x1024 sheet shows 3 cells there. The 1024x128 sheet
+  // alone holds 124 of the 171 cells asked; the stack moves the every past its own 21. (It was 256 until a sheet whose
+  // one row is taller than the stack's common cap kept that row, with the others sharing the rest: see refitStack.)
   const sizes = [[64, 64, 48], [320, 180, 40], [1024, 128, 32], [640, 360, 16], [512, 512, 12], [320, 180, 40], [64, 64, 48], [1024, 256, 8], [256, 1024, 8]];
   const projects = sizes.map(([w, h, n]) => renderProject(screen(w, h, n)));
   const views = every => projects.map((project, i) => ({ ...inspectProject(project, { animation: 'run', every }, { sheets: 9 }), name: `v${i}` }));
   assert.throws(() => stackViews(views(15)), { path: 'inspect.every',
-    message: 'inspect.every: v2: 2560 ms at one cell per 15 ms is 171 cells, and one 4096-pixel sheet (one of 9 in the image) of 1024×128 cells holds 124; stacked with the others, choose every 256' });
-  const advised = views(256), followed = stackViews(advised);
+    message: 'inspect.every: v2: 2560 ms at one cell per 15 ms is 171 cells, and one 4096-pixel sheet (one of 9 in the image) of 1024×128 cells holds 124; stacked with the others, choose every 240' });
+  const advised = views(240), followed = stackViews(advised);
   assert.ok(followed.sheet.height <= 8000, `${followed.sheet.height}`);
   assert.equal(advised[8].cells.length, 3);
   encodes(followed.sheet);
-  // One less: the 256x1024 sheet's 3 cells, which it holds at 256, are more than the 1 the other sheets' cells at 255
-  // leave it room for. Said so, never "is 3 cells, and … holds 3".
-  assert.throws(() => stackViews(views(255)), { path: 'inspect.every',
-    message: "inspect.every: v8: 640 ms at one cell per 255 ms is 3 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 1 beside the other sheets' cells at that every; choose every 256" });
+  // One less: the 512x512 sheet's 5 cells are more than the 4 the other sheets' cells at 239 leave it room for. Said
+  // so, never "is 5 cells, and … holds 5".
+  assert.throws(() => stackViews(views(239)), { path: 'inspect.every',
+    message: "inspect.every: v4: 960 ms at one cell per 239 ms is 5 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 4 beside the other sheets' cells at that every; choose every 240" });
 });
 
 test('every beside other recipes climbs from the every asked, so a run that holds just above it is named', () => {
   // A stack is not monotone in every: fewer cells can let a small sheet keep a larger scale and crowd the rest. These
-  // nine loops hold at 214 to 280, are refused at 290 to 319 and hold again from 320. The search jumped to what the
-  // refused sheet asked for (640), halved down to 320, and named it to an agent asking 213.
+  // nine loops held at 214 to 280, were refused at 290 to 319 and held again from 320, and the search jumped to what
+  // the refused sheet asked for (640), halved down to 320, and named it to an agent asking 213. (They hold from 214 on
+  // since the 256x1024 sheet, whose one row is taller than the stack's common cap, keeps that row: see refitStack.)
   const mixE = [[256, 256, 64], [256, 256, 24], [256, 256, 64], [256, 1024, 8], [256, 256, 24], [128, 128, 32], [256, 256, 24], [1024, 256, 16], [1024, 128, 32]];
-  // The second holds at 60 to 75, is refused at 80 to 100 and holds again from 110; asked 55 or 109 it was told 110.
+  // The second holds at 60 to 78, is refused at 79 to 109 and holds again from 110; asked 55 or 109 it was told 110.
   const nine = [[64, 64, 48], [512, 512, 12], [64, 64, 48], [64, 64, 48], [256, 256, 24], [512, 512, 2], [1024, 256, 2], [128, 128, 32], [64, 64, 48]];
   const stackOf = sizes => {
     const projects = sizes.map(([w, h, n]) => renderProject(screen(w, h, n)));
@@ -506,7 +532,7 @@ test('every beside other recipes climbs from the every asked, so a run that hold
     encodes(followed.sheet);
   };
   const e = stackOf(mixE), first = refusal(e, 213);
-  assert.equal(first.message, "inspect.every: a256x1024x8: 640 ms at one cell per 213 ms is 4 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 1 beside the other sheets' cells at that every; choose every 214");
+  assert.equal(first.message, "inspect.every: a256x256x64: 5120 ms at one cell per 213 ms is 25 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 24 beside the other sheets' cells at that every; choose every 214");
   follow(e, first.advised);
   const n = stackOf(nine);
   assert.equal(refusal(n, 55).message, "inspect.every: a512x512x12: 960 ms at one cell per 55 ms is 18 cells, and the height left to it in an image of 9 sheets stacked (8,000 pixels tall at most) holds 16 beside the other sheets' cells at that every; choose every 60");

@@ -127,3 +127,17 @@ test('the skill\'s craft notes keep the 4096-pixel still apart from scene backdr
   // pixels.
   assert.throws(() => prepareScene(scene({ width: 128, height: 64, assets: { sky: block('sky', 2048, 64, '#8090c0') }, instances: [{ asset: 'sky', at: [0, 0] }] })), /at most 1024 pixels a side and 262,144 in all/);
 });
+
+test('a placement of a long asset is not refused for a step the scene never wrote', () => {
+  // The default step is the frame's own size at the placement's scale. It was held to the ±4096 of a written
+  // coordinate, which no asset of 256 a side could pass; a 1024-wide one at scale 5 did, inside every budget.
+  const strip = { version: 1, name: 'strip', width: 1024, height: 16, palette: { a: '#e04030' }, frames: [{ name: 'a', ops: [{ op: 'rect', x: 0, y: 0, w: 1024, h: 16, color: 'a' }] }] };
+  const scene = extra => ({ format: 'pixelforge-scene', version: 1, name: 'long', width: 1024, height: 256, assets: { strip }, instances: [{ asset: 'strip', at: [0, 0], ...extra }] });
+  for (const scale of [4, 5, 16]) {
+    const { data } = renderScene(prepareScene(scene({ scale })));
+    // The strip's top-left pixel is drawn.
+    assert.deepEqual([...data.subarray(0, 4)], [224, 64, 48, 255], `scale ${scale}`);
+  }
+  // A step the scene writes is still held to the bound.
+  assert.throws(() => prepareScene(scene({ step: [5000, 0] })), { path: 'scene.instances[0].step', message: /expected two integer coordinates within ±4096/ });
+});
