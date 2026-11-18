@@ -95,7 +95,7 @@ test('sources that keep 256 a side still refuse 257 with the messages they alway
   refused(() => compileCrystals({ format: 'pixelforge-crystal', version: 1, name: 'c', width: 257, height: 64, palette: { k: '#000' }, effects: {} }), 'crystal.width: expected an integer from 1 to 256');
   // A compiled powder grid, the rows under or over a wave or a crystal, and a bodies canvas drawn finer.
   refused(() => compilePowder({ format: 'pixelforge-powder', version: 1, name: 'g', base: 'sandbox', width: 257, height: 16, scene: [{ material: 'sand', rect: [4, 2, 8, 4] }], clips: { fall: { frames: 4 } } }),
-    'powder.width: a compiled powder grid is an animation, at most 256 pixels a side; use a smaller grid, write a larger one as numbered video frames (pixelbolt sequence), or run it live in a page or game (createLivePowder)');
+    'powder.width: a compiled powder grid is at most 256 pixels a side; use a smaller grid, write a larger one as numbered video frames (pixelbolt sequence), or run it live in a page or game (createLivePowder)');
   const wave = { format: 'pixelforge-wave', version: 1, name: 'w', width: 8, height: 4, palette: { a: '#fff', b: '#f00' }, effects: { loop: { frames: 16, duration: 60,
     sources: [{ kind: 'directional', at: [0, 0], angle: 0, wavelength: 8, amplitude: 0.1, cycles: 1 }], look: { colors: ['a'], thresholds: [0.15], negative: ['b'] }, underlay: Array(257).fill('aaaaaaaa') } } };
   refused(() => compileWaves(wave), 'wave.effects.loop.underlay: expected an array with at most 256 items');
@@ -105,5 +105,5 @@ test('sources that keep 256 a side still refuse 257 with the messages they alway
   refused(() => compileCrystals(crystal), 'crystal.effects.e.underlay: expected an array with at most 256 items');
   const bodies = { format: 'pixelforge-bodies', version: 1, name: 'b', width: 72, height: 24, subpixels: 4, palette: { s: '#888', w: '#fff', k: '#000' }, symbols: { post: ['ss', 'ss'] },
     effects: { e: { frames: 24, gravity: [0, 0], obstacles: [{ symbol: 'post', x: 2, y: 2 }], bodies: [{ shape: 'box', size: [8, 8], at: [16, 12], fixed: true, fill: 'w', outline: 'k' }] } } };
-  refused(() => compileBodies(bodies), 'bodies.subpixels: a 72×24 canvas drawn 4 times finer is 288×96; an animation is at most 256 a side, so use subpixels of at most 3');
+  refused(() => compileBodies(bodies), 'bodies.subpixels: a 72×24 canvas drawn 4 times finer is 288×96; a bodies effect is drawn at most 256 a side, so use subpixels of at most 3');
 });

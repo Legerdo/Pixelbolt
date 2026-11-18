@@ -2078,7 +2078,7 @@ function readClips(source, only) {
   if (source.version !== 1) fail('powder.version', 'expected 1');
   const name = recipeName(source.name, 'powder.name');
   const live = createLivePowder(source), { width: W, height: H } = live;
-  if (!video && (W > GRID_SIDE || H > GRID_SIDE)) fail(W > GRID_SIDE ? 'powder.width' : 'powder.height', `a compiled powder grid is an animation, at most ${GRID_SIDE} pixels a side; use a smaller grid, write a larger one as numbered video frames (pixelbolt sequence), or run it live in a page or game (createLivePowder)`);
+  if (!video && (W > GRID_SIDE || H > GRID_SIDE)) fail(W > GRID_SIDE ? 'powder.width' : 'powder.height', `a compiled powder grid is at most ${GRID_SIDE} pixels a side; use a smaller grid, write a larger one as numbered video frames (pixelbolt sequence), or run it live in a page or game (createLivePowder)`);
   // Clips: each a one-shot animation.
   const given = source.clips ?? { [name]: {} };
   if (!isObject(given) || !Object.keys(given).length || Object.keys(given).length > LIMITS.clips) fail('powder.clips', `expected 1 to ${LIMITS.clips} named clips: { start, frames, every, duration }`);

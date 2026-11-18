@@ -2029,7 +2029,7 @@ export function readSubpixels(value, path, width, height, effects) {
   if (value === undefined) return 1;
   const n = integer(value, `${path}.subpixels`, 1, 8);
   const frames = Object.values(isObject(effects) ? effects : {}).reduce((sum, effect) => sum + (Number.isInteger(effect?.frames) && effect.frames > 0 ? effect.frames : 0), 0);
-  if (Math.max(width, height) * n > BODIES_SIDE) fail(`${path}.subpixels`, `a ${width}×${height} canvas drawn ${n} times finer is ${width * n}×${height * n}; an animation is at most ${BODIES_SIDE} a side, so use subpixels of at most ${finest(width, height, frames)}`);
+  if (Math.max(width, height) * n > BODIES_SIDE) fail(`${path}.subpixels`, `a ${width}×${height} canvas drawn ${n} times finer is ${width * n}×${height * n}; a bodies effect is drawn at most ${BODIES_SIDE} a side, so use subpixels of at most ${finest(width, height, frames)}`);
   return n;
 }
 // The finest a canvas may be drawn: at most BODIES_SIDE a side and, with `frames`, 4,194,304 pixels over them.
