@@ -88,10 +88,13 @@ test('a scene\'s planes, laid on the background by their parallax, draw the unli
     const view = renderScene(prepareScene({ ...source, camera }), { lit: false });
     assert.deepEqual(layPlanes(scene, planes, camera), view.data, `camera at ${camera}`);
   }
-  // The export writes them and says where each goes.
+  // The export writes them and says where each goes, but for the bobbing spirit, which scene.tscn plays on a sprite.
   const { files } = await createSceneBundle(source), alignment = JSON.parse(files.get('alignment.json'));
-  assert.deepEqual(alignment.planes.map(plane => [plane.image, plane.parallax, plane.at, plane.size, plane.placements]), planes.map((plane, k) => [`planes/${k}.png`, plane.parallax, plane.at, [plane.width, plane.height], plane.instances.map(i => scene.instances[i].name)]));
+  const baked = scenePlanes(scene, start.draws.filter(draw => scene.instances[draw.instance].name !== 'spirit')).planes;
+  assert.deepEqual(alignment.planes.map(plane => [plane.image, plane.parallax, plane.at, plane.size, plane.placements]), baked.map((plane, k) => [`planes/${k}.png`, plane.parallax, plane.at, [plane.width, plane.height], plane.instances.map(i => scene.instances[i].name)]));
+  assert.deepEqual(alignment.planes.map(plane => plane.placements), [['sun', 'cloud', 'cloud'], ['hills'], ['ground']]);
   assert.deepEqual(decodePNG(files.get('planes/1.png')).data, planes[1].data);
+  assert.deepEqual(decodePNG(files.get('planes/2.png')).data, baked[2].data);
 });
 
 test('planes are runs of draws on one plane: an attached placement rides its target\'s, and a shade placement is left out', async () => {
@@ -120,7 +123,8 @@ test('scene.tscn scrolls each plane with a Parallax2D under a top-left camera at
   assert.equal(JSON.parse(files.get('alignment.json')).godot, 'scene.tscn');
   assert.equal(files.get('scene.tscn').toString(), [
     '[gd_scene format=3]', '',
-    '[ext_resource type="Texture2D" path="planes/0.png" id="1_plane"]', '[ext_resource type="Texture2D" path="planes/1.png" id="2_plane"]', '[ext_resource type="Texture2D" path="planes/2.png" id="3_plane"]', '',
+    '[ext_resource type="Texture2D" path="planes/0.png" id="1_plane"]', '[ext_resource type="Texture2D" path="planes/1.png" id="2_plane"]', '[ext_resource type="Texture2D" path="planes/2.png" id="3_plane"]',
+    '[ext_resource type="SpriteFrames" path="assets/3/sprite_frames.tres" id="4_frames"]', '',
     '[node name="hills" type="Node2D"]', 'texture_filter = 1', '',
     '[node name="Camera2D" type="Camera2D" parent="."]', 'anchor_mode = 0', '',
     '[node name="Background" type="Parallax2D" parent="."]', 'scroll_scale = Vector2(0, 0)', '',
@@ -130,10 +134,48 @@ test('scene.tscn scrolls each plane with a Parallax2D under a top-left camera at
     '[node name="hills" type="Parallax2D" parent="."]', 'scroll_scale = Vector2(0.5, 0.5)', '',
     '[node name="Image" type="Sprite2D" parent="hills"]', 'position = Vector2(-16, 24)', 'texture = ExtResource("2_plane")', 'centered = false', '',
     '[node name="ground" type="Parallax2D" parent="."]', '',
-    '[node name="Image" type="Sprite2D" parent="ground"]', 'position = Vector2(-16, 49)', 'texture = ExtResource("3_plane")', 'centered = false', ''].join('\n'));
+    '[node name="Image" type="Sprite2D" parent="ground"]', 'position = Vector2(-16, 56)', 'texture = ExtResource("3_plane")', 'centered = false', '',
+    // The bobbing spirit is in no plane: it plays on its own sprite, after the ground.
+    '[node name="spirit" type="Parallax2D" parent="."]', '',
+    '[node name="Sprite" type="AnimatedSprite2D" parent="spirit"]', 'position = Vector2(32, 49)', 'sprite_frames = ExtResource("4_frames")', 'animation = &"bob"', 'autoplay = "bob"', 'centered = false', ''].join('\n'));
   // A camera that starts elsewhere starts the Camera2D there.
   const moved = (await createSceneBundle({ ...source, camera: [{ time: 0, at: [12, 3] }, { time: 3000, at: [96, 0] }] })).files.get('scene.tscn').toString();
   assert.match(moved, /\[node name="Camera2D" type="Camera2D" parent="\."\]\nposition = Vector2\(12, 3\)\nanchor_mode = 0\n/);
+});
+
+test('scene.tscn plays an animated placement on an AnimatedSprite2D, out of the planes; stills and moving placements stay baked', async () => {
+  const frame = (name, x, color) => ({ name, duration: 100, ops: [{ op: 'pixel', x, y: 0, color }] });
+  const two = (name, width, height, animation) => ({ version: 1, name, width, height, palette: { a: '#ff8000', b: '#ffe040' }, frames: [frame('f0', 0, 'a'), frame('f1', 1, 'b')], animations: { [animation]: { frames: ['f0', 'f1'] } } });
+  const sky = { version: 1, name: 'sky', width: 32, height: 18, palette: { s: '#203040' }, frames: [{ name: 'sky', ops: [{ op: 'rect', x: 0, y: 0, w: 32, h: 18, color: 's' }] }], animations: {} };
+  const source = { format: 'pixelforge-scene', version: 1, name: 'rainy', width: 32, height: 18, duration: 1000, background: '#000000', camera: [0, 0], haze: { color: '#ffffff' },
+    assets: { sky, rain: two('rain', 32, 18, 'fall'), torch: two('torch', 2, 2, 'flicker'), walker: two('walker', 2, 2, 'step') },
+    instances: [
+      { name: 'backdrop', asset: 'sky', at: [0, 0] },
+      { name: 'torch', asset: 'torch', animation: 'flicker', at: [4, 4], scale: 2, repeat: [2, 1], step: [8, 0], parallax: 0.5, haze: 0.5 },
+      { name: 'walker', asset: 'walker', animation: 'step', at: [0, 12], trajectory: [{ time: 0, at: [0, 12] }, { time: 1000, at: [20, 12] }] },
+      { name: 'rain', asset: 'rain', animation: 'fall', at: [0, 0], parallax: 0 }
+    ] };
+  const { files, warnings } = await createSceneBundle(source), alignment = JSON.parse(files.get('alignment.json')), tscn = files.get('scene.tscn').toString();
+  // The torch and the rain play from their SpriteFrames (the torch's hazed copy), each copy of the torch a sprite.
+  assert.deepEqual(alignment.sprites, [
+    { placement: 'torch', frames: 'assets/2/haze-0.5/sprite_frames.tres', animation: 'flicker', parallax: [0.5, 0.5], scale: 2, at: [[4, 4], [12, 4]] },
+    { placement: 'rain', frames: 'assets/1/sprite_frames.tres', animation: 'fall', parallax: [0, 0], scale: 1, at: [[0, 0]] }]);
+  // The backdrop's plane is the backdrop alone; the walker, which moves, is baked as it is at the start, and said so.
+  assert.deepEqual(alignment.planes.map(plane => plane.placements), [['backdrop'], ['walker']]);
+  const backdrop = decodePNG(files.get(alignment.planes[0].image));
+  assert.ok(backdrop.data.every((value, i) => value === [0x20, 0x30, 0x40, 255][i % 4]), 'no overlay pixel in the backdrop\'s plane');
+  assert.deepEqual(warnings.filter(warning => warning.startsWith('scene.tscn')), ['scene.tscn: walker: shown as at the scene\'s start, since it moves, follows cues or changes anchor as the scene plays; animate it in Godot with its asset\'s sprite_frames.tres']);
+  // Drawn in the scene's order: backdrop, torch, walker, then the rain over everything, on the screen (parallax 0).
+  assert.deepEqual([...tscn.matchAll(/\[node name="([^"]+)" type="(Parallax2D|Sprite2D|AnimatedSprite2D)" parent="([^"]+)"\]/g)].map(m => `${m[3]}/${m[1]} ${m[2]}`),
+    ['./Background Parallax2D', './backdrop Parallax2D', 'backdrop/Image Sprite2D', './torch Parallax2D', 'torch/Sprite AnimatedSprite2D', 'torch/Sprite 2 AnimatedSprite2D',
+      './walker Parallax2D', 'walker/Image Sprite2D', './rain Parallax2D', 'rain/Sprite AnimatedSprite2D']);
+  assert.ok(tscn.includes(['[node name="Sprite 2" type="AnimatedSprite2D" parent="torch"]', 'position = Vector2(12, 4)', 'scale = Vector2(2, 2)', 'sprite_frames = ExtResource("2_frames")', 'animation = &"flicker"', 'autoplay = "flicker"', 'centered = false'].join('\n')), tscn);
+  assert.ok(tscn.includes(['[node name="rain" type="Parallax2D" parent="."]', 'scroll_scale = Vector2(0, 0)', '', '[node name="Sprite" type="AnimatedSprite2D" parent="rain"]', 'sprite_frames = ExtResource("4_frames")', 'animation = &"fall"'].join('\n')), tscn);
+  assert.ok(tscn.includes('[ext_resource type="SpriteFrames" path="assets/2/haze-0.5/sprite_frames.tres" id="2_frames"]') && tscn.includes('[ext_resource type="SpriteFrames" path="assets/1/sprite_frames.tres" id="4_frames"]'), tscn);
+  // The sheet's scale divides the placement's: a sheet drawn at 2 plays a scale-2 placement at 1.
+  const doubled = await createSceneBundle({ ...source, assets: { ...source.assets, torch: { ...source.assets.torch, sheet: { scale: 2 } } } });
+  assert.equal(JSON.parse(doubled.files.get('alignment.json')).sprites[0].scale, 1);
+  assert.doesNotMatch(doubled.files.get('scene.tscn').toString(), /^scale = /m);
 });
 
 test('plane nodes take names Godot accepts, each its own among its siblings', () => {

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, MAX_PLANE } from './scene.js';
+import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, parallaxOf, MAX_PLANE } from './scene.js';
 import { framesGIF, gifBackground, asGIFShows, MAX_FRAMES_PIXELS } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
@@ -152,17 +152,44 @@ export async function createSceneBundle(source) {
   files.set('scene.tmx', Buffer.from(map.text));
   alignment.tiled = 'scene.tmx';
   // The same planes as images, hazed, for engines that scroll images, and a Godot scene scrolling them with Parallax2D
-  // nodes. A plane is a run of draws on one plane, so it holds what one or more of the map's layers hold.
-  const planes = scenePlanes(scene, unlit.draws), label = i => scene.instances[i].name ?? scene.instances[i].asset;
-  if (planes.shaded.length) tileWarnings.push(`planes: ${planes.shaded.join(', ')}: left out: a shade placement darkens what is drawn under it, which a plane's own image can't`);
-  if (planes.oversized.length) tileWarnings.push(`planes: ${planes.oversized.join('; ')}: left out: a plane's image is at most 16,777,216 pixels; keep a plane's placements closer together`);
-  alignment.planes = planes.planes.map((plane, k) => {
+  // nodes. A plane is a run of draws on one plane, so it holds what one or more of the map's layers hold. A placement
+  // that stands still and plays one animation (a rain overlay, a flickering torch) is no part of any plane: scene.tscn
+  // plays it on an AnimatedSprite2D over its asset's sprite_frames.tres, between the planes drawn before and after it.
+  const label = i => scene.instances[i].name ?? scene.instances[i].asset, animated = animatedPlacements(scene, alignment.assets);
+  const runs = [];
+  for (const draw of unlit.draws) {
+    const sprite = animated.has(draw.instance) ? draw.instance : undefined, last = runs.at(-1);
+    if (last && last.sprite === sprite) last.draws.push(draw);
+    else runs.push({ sprite, draws: [draw] });
+  }
+  const layers = [], shaded = [], oversized = [];
+  for (const run of runs) {
+    if (run.sprite !== undefined) { layers.push(run); continue; }
+    const cut = scenePlanes(scene, run.draws);
+    shaded.push(...cut.shaded.filter(name => !shaded.includes(name)));
+    oversized.push(...cut.oversized);
+    layers.push(...cut.planes.map(plane => ({ plane })));
+  }
+  if (shaded.length) tileWarnings.push(`planes: ${shaded.join(', ')}: left out: a shade placement darkens what is drawn under it, which a plane's own image can't`);
+  if (oversized.length) tileWarnings.push(`planes: ${oversized.join('; ')}: left out: a plane's image is at most 16,777,216 pixels; keep a plane's placements closer together`);
+  alignment.planes = layers.filter(layer => layer.plane).map((layer, k) => {
+    const { plane } = layer;
     files.set(`planes/${k}.png`, encodePNG(plane.data, plane.width, plane.height));
-    return { image: `planes/${k}.png`, parallax: plane.parallax, at: plane.at, size: [plane.width, plane.height], placements: plane.instances.map(label) };
+    return layer.image = { image: `planes/${k}.png`, parallax: plane.parallax, at: plane.at, size: [plane.width, plane.height], placements: plane.instances.map(label) };
   });
+  // Each animated placement, with every copy it draws (a repeat draws several), at scene positions.
+  const sprites = layers.filter(layer => layer.sprite !== undefined).map(layer => {
+    const i = layer.sprite, { frames, animation, scale } = animated.get(i);
+    return layer.entry = { placement: label(i), frames, animation, parallax: [...parallaxOf(scene, i)], scale, at: layer.draws.map(draw => [draw.x + draw.shift[0], draw.y + draw.shift[1]]) };
+  });
+  if (sprites.length) alignment.sprites = sprites;
   files.set('scene.tscn', Buffer.from(parallaxScene({ name: source.name, width: scene.width, height: scene.height, background: scene.background, camera: unlit.camera ?? [0, 0],
-    planes: alignment.planes.map((plane, k) => ({ name: planes.planes[k].instances.map(label)[0], image: plane.image, at: plane.at, parallax: plane.parallax })) })));
+    planes: layers.map(layer => (layer.plane ? { name: label(layer.plane.instances[0]), image: layer.image.image, at: layer.image.at, parallax: layer.image.parallax }
+      : { name: layer.entry.placement, frames: layer.entry.frames, animation: layer.entry.animation, scale: layer.entry.scale, parallax: layer.entry.parallax, at: layer.entry.at })) })));
   alignment.godot = 'scene.tscn';
+  // Placements that change but not as one animation in one place: scene.tscn shows them as they are at the start.
+  const held = scene.instances.flatMap((instance, i) => (!animated.has(i) && !instance.tilemap && !instance.shade && (moves(instance) || plays(scene, instance)) ? [label(i)] : []));
+  if (held.length) tileWarnings.push(`scene.tscn: ${held.slice(0, 6).join(', ')}${held.length > 6 ? ` and ${held.length - 6} more` : ''}: shown as at the scene's start, since ${held.length === 1 ? 'it moves, follows cues or changes anchor' : 'they move, follow cues or change anchor'} as the scene plays; animate ${held.length === 1 ? 'it' : 'them'} in Godot with ${held.length === 1 ? 'its' : 'their'} asset's sprite_frames.tres`);
   // One Godot TileSet holds every tile set of the scene, each a terrain set of its own, so one TileMapLayer paints all
   // of them and each one's edges open onto the others, as the scene's tilemaps draw them.
   if (tiles.length) {
@@ -186,6 +213,26 @@ export async function createSceneBundle(source) {
   // copies, the files of an asset it no longer has (or of a pass it lost), tileset.tres. Only files the earlier
   // alignment.json lists go, and only in the folders they are in, so nothing else in the folder is touched.
   return { files, scene, warnings: [...view.warnings, ...tileWarnings], owns: { marker: 'alignment.json', listed: sceneFiles, folders: listed => [...new Set(listed.map(file => path.posix.dirname(file)))], match: SCENE_FILES } };
+}
+
+// Whether a placement plays an animation of more than one frame from the scene's start, and whether it moves or changes
+// by cues: a trajectory, keyed lift, an attachment or a sequence.
+const plays = (scene, instance) => !instance.hidden && typeof instance.animation === 'string' && scene.assets[instance.asset].recipe.animations[instance.animation].frames.length > 1;
+const moves = instance => Boolean(instance.sequence?.length || instance.trajectory || instance.attach || Array.isArray(instance.lift));
+// The placements scene.tscn plays on an AnimatedSprite2D, by index, each { frames (its asset's SpriteFrames, or the
+// hazed copy's for a hazed placement), animation, scale (placement pixels per sheet pixel) }: those that play an
+// animation of more than one frame from the start and stand still while they do (they don't move, have no cues and
+// place every frame of it by one anchor). Tilemaps and shade placements never do.
+function animatedPlacements(scene, assets) {
+  const found = new Map();
+  scene.instances.forEach((instance, i) => {
+    if (instance.tilemap || instance.shade || moves(instance) || !plays(scene, instance)) return;
+    const project = scene.assets[instance.asset].recipe, frames = project.animations[instance.animation].frames;
+    if (instance.anchor === 'frame' && new Set(frames.map(index => String(project.frames[index].anchor ?? [0, 0]))).size > 1) return;
+    const entry = assets[instance.asset], frameSet = instance.haze ? entry.haze.find(copy => copy.amount === instance.haze).godot : entry.godot;
+    found.set(i, { frames: frameSet, animation: instance.animation, scale: instance.scale / project.sheet.scale });
+  });
+  return found;
 }
 
 // The files a scene export writes only sometimes, by the names it gives them.

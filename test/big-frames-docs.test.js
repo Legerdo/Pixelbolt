@@ -5,7 +5,6 @@ import { renderProject } from '../src/core.js';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { inspectProject } from '../src/core.js';
-import { createBundle } from '../src/export.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { compileEffects } from '../src/fx.js';
 import { helpText } from '../src/help.js';
@@ -61,28 +60,28 @@ test('every doc that says --frames thins a loop says when it is even: a count th
   assert.ok(Buffer.byteLength(await helpText()) < 12288);
 });
 
-test('an overlay delivered for Godot: the scene exported without it, and its own render\'s .tres, which plays every frame', async () => {
-  assert.match(await read('docs/agent-craft.md'), /bakes an animated placement in as its frame 0, so for Godot export the scene without the overlay \(left out, or `"hidden": true`\) and deliver the overlay's own `\.tres` from `render --out` to play over it; Tiled's `scene\.tmx` animates it\./);
+test('an overlay in a scene: scene.tscn plays it over the backdrop\'s plane, and scene.tmx animates it', async () => {
+  assert.match(await read('docs/agent-craft.md'), /In a scene, `scene --out` exports the overlay animated for both engines: `scene\.tscn` plays it on an `AnimatedSprite2D` over the backdrop's plane, and `scene\.tmx` as a tile animation\. Keep it still in the scene \(no `trajectory`, `sequence` or attachment\), or it is baked into a plane as it is at the start\./);
   const rain = { ...recipe('rain', 320, 180, 12), animations: { rain: { frames: Array.from({ length: 12 }, (_, i) => `rain-${i}`) } } };
   const backdrop = { version: 1, name: 'bg', width: 320, height: 180, palette: { g: '#30402a' }, frames: [{ name: 'bg', ops: [{ op: 'rect', x: 0, y: 0, w: 320, h: 180, color: 'g', filled: true }] }] };
   const scene = placed => ({ format: 'pixelforge-scene', version: 1, name: 's', width: 320, height: 180, assets: { bg: backdrop, ...(placed && { rain }) },
     instances: [{ name: 'bg', asset: 'bg', at: [0, 0] }, ...(placed ? [{ name: 'rain', asset: 'rain', at: [0, 0], animation: 'rain', ...placed }] : [])] });
-  const exported = async placed => { const files = (await createSceneBundle(scene(placed))).files; return { files, planes: JSON.parse(files.get('alignment.json')).planes.map(plane => plane.placements) }; };
-  // As placed, the overlay's first frame is baked into the backdrop's plane, and Tiled's map animates it.
-  const shown = await exported({});
-  assert.deepEqual(shown.planes, [['bg', 'rain']]);
+  const exported = async placed => { const files = (await createSceneBundle(scene(placed))).files, alignment = JSON.parse(files.get('alignment.json')); return { files, alignment, planes: alignment.planes.map(plane => plane.placements) }; };
+  // As placed, the overlay is in no plane: the backdrop's plane is the scene without it, pixel for pixel.
+  const shown = await exported({}), alone = await exported(null);
+  assert.deepEqual(shown.planes, [['bg']]);
+  assert.equal(Buffer.compare(shown.files.get('planes/0.png'), alone.files.get('planes/0.png')), 0);
+  // Godot plays it over the plane from its asset's SpriteFrames, all 12 frames; Tiled's map animates it.
+  assert.deepEqual(shown.alignment.sprites, [{ placement: 'rain', frames: 'assets/1/sprite_frames.tres', animation: 'rain', parallax: [1, 1], scale: 1, at: [[0, 0]] }]);
+  const tscn = shown.files.get('scene.tscn').toString();
+  assert.ok(tscn.indexOf('type="AnimatedSprite2D" parent="rain"') > tscn.indexOf('type="Sprite2D" parent="bg"'), 'drawn over the backdrop');
+  assert.match(tscn, /\[ext_resource type="SpriteFrames" path="assets\/1\/sprite_frames\.tres" id="2_frames"\][^]*sprite_frames = ExtResource\("2_frames"\)\nanimation = &"rain"\nautoplay = "rain"\n/);
+  assert.equal(shown.files.get('assets/1/sprite_frames.tres').toString().match(/"texture": /g)?.length, 12);
   assert.match(shown.files.get('scene.tmx').toString(), /name="rain"/);
   assert.match(shown.files.get('assets/1/tileset.tsx').toString(), /<animation>/);
-  // Hidden or left out, the plane is the backdrop alone, so the delivered .tres plays over clean ground.
-  const alone = await exported(null);
-  for (const without of [await exported({ hidden: true }), alone]) {
-    assert.deepEqual(without.planes, [['bg']]);
-    assert.equal(Buffer.compare(without.files.get('planes/0.png'), alone.files.get('planes/0.png')), 0);
-  }
-  const bundle = await createBundle(rain);
-  const tres = bundle.files.get('rain.tres')?.toString();
-  assert.ok(tres, 'render --out writes the overlay\'s SpriteFrames');
-  assert.equal(tres.match(/"texture": /g)?.length, 12);
+  // Hidden, it is in neither: nothing plays at the start.
+  const hidden = await exported({ hidden: true });
+  assert.deepEqual([hidden.planes, hidden.alignment.sprites], [[['bg']], undefined]);
 });
 
 test('a small region of a few frames is enlarged by itself, and --scale zooms the rest, as the docs say', async () => {

@@ -649,14 +649,18 @@ export async function verifyGodotLit({ godot = findGodot(), keep = false, log = 
   }
 }
 // ---- Parallax scenes -----------------------------------------------------------------------------------------------
-// Runs in Godot, headless: instances the exported scene.tscn and reports its camera, background and planes (each
-// Parallax2D's scroll scale and its Sprite2D's position, texture and pixels against the exported PNG), then moves the
-// camera to each position and reports where each plane's image and the background are on screen.
+// Runs in Godot, headless: instances the exported scene.tscn and reports its camera, background, the order of its
+// Parallax2D nodes, its planes (each Parallax2D's scroll scale and its Sprite2D's position, texture and pixels against
+// the exported PNG) and its animated placements (each AnimatedSprite2D's place, scale, SpriteFrames, animation and
+// whether it plays), then moves the camera to each position and reports where each plane's image, each sprite and the
+// background are on screen. At each position every sprite is paused on the next frame of its animation (the step's
+// number, wrapped), reported with that frame's region of its sheet, so each frame is drawn somewhere in the panning.
 const parallaxCheck = cameras => `extends SceneTree
 
 const CAMERAS = ${JSON.stringify(cameras)}
 var scene: Node
 var camera: Camera2D
+var animated := []
 var step := 0
 var wait := 0
 var report := {"cameras": []}
@@ -671,9 +675,19 @@ func _initialize():
 	report["camera"] = [camera.anchor_mode, camera.position.x, camera.position.y, camera.enabled]
 	report["background"] = [background.scroll_scale.x, background.scroll_scale.y, color.color.r8, color.color.g8, color.color.b8, color.color.a8, color.size.x, color.size.y]
 	var planes := []
+	var sprites := []
+	var layers := []
 	for child in scene.get_children():
 		if not (child is Parallax2D) or child == background:
 			continue
+		if not child.has_node("Image"):
+			layers.append([String(child.name), "sprites"])
+			for item in child.get_children():
+				var playing: AnimatedSprite2D = item
+				animated.append(playing)
+				sprites.append([String(child.name), String(item.name), child.scroll_scale.x, child.scroll_scale.y, playing.position.x, playing.position.y, playing.scale.x, playing.scale.y, playing.centered, playing.sprite_frames.resource_path, String(playing.animation), playing.autoplay])
+			continue
+		layers.append([String(child.name), "plane"])
 		var sprite: Sprite2D = child.get_node("Image")
 		var image := sprite.texture.get_image()
 		image.convert(Image.FORMAT_RGBA8)
@@ -692,6 +706,8 @@ func _initialize():
 						wrong += 1
 		planes.append([String(child.name), child.scroll_scale.x, child.scroll_scale.y, sprite.position.x, sprite.position.y, sprite.centered, sprite.texture.resource_path, image.get_width(), image.get_height(), wrong])
 	report["planes"] = planes
+	report["sprites"] = sprites
+	report["layers"] = layers
 
 func _process(_delta: float) -> bool:
 	if step >= CAMERAS.size():
@@ -699,7 +715,13 @@ func _process(_delta: float) -> bool:
 		quit()
 		return true
 	if wait == 0:
+		# The scene enters the tree after _initialize, so its sprites have started (autoplay) by the first step.
+		if step == 0:
+			report["playing"] = animated.map(func(playing): return [playing.is_playing(), playing.frame])
 		camera.position = Vector2(CAMERAS[step][0], CAMERAS[step][1])
+		for playing in animated:
+			playing.pause()
+			playing.frame = step % playing.sprite_frames.get_frame_count(playing.animation)
 	wait += 1
 	if wait < 3:
 		return false
@@ -709,18 +731,25 @@ func _process(_delta: float) -> bool:
 			var item: CanvasItem = child.get_child(0)
 			var origin := item.get_global_transform_with_canvas().origin
 			at.append([String(child.name), origin.x, origin.y])
-	report["cameras"].append(at)
+	var shown := []
+	for playing in animated:
+		var texture: AtlasTexture = playing.sprite_frames.get_frame_texture(playing.animation, playing.frame)
+		var origin: Vector2 = playing.get_global_transform_with_canvas().origin
+		shown.append([origin.x, origin.y, playing.frame, texture.region.position.x, texture.region.position.y, texture.region.size.x, texture.region.size.y, texture.atlas.resource_path])
+	report["cameras"].append({"at": at, "shown": shown})
 	step += 1
 	wait = 0
 	return false
 `;
 
 // Runs in Godot with a window the scene's size (it renders): the scene at each step's camera position, with the
-// window's Snap 2D Transforms to Pixel on or off as the step says ([x, y, snap]), saved as PNGs.
+// window's Snap 2D Transforms to Pixel on or off as the step says ([x, y, snap]) and every animated sprite paused on
+// the step's number of its animation's frames, wrapped, saved as PNGs.
 const parallaxRender = steps => `extends SceneTree
 
 const STEPS = ${JSON.stringify(steps)}
 var camera: Camera2D
+var animated := []
 var step := 0
 var wait := 0
 
@@ -728,6 +757,10 @@ func _initialize():
 	var scene := (load("res://parallax/scene.tscn") as PackedScene).instantiate()
 	root.add_child(scene)
 	camera = scene.get_node("Camera2D")
+	for child in scene.get_children():
+		for item in child.get_children():
+			if item is AnimatedSprite2D:
+				animated.append(item)
 
 func _process(_delta: float) -> bool:
 	if step >= STEPS.size():
@@ -737,6 +770,9 @@ func _process(_delta: float) -> bool:
 	if wait == 0:
 		root.snap_2d_transforms_to_pixel = STEPS[step][2]
 		camera.position = Vector2(STEPS[step][0], STEPS[step][1])
+		for playing in animated:
+			playing.pause()
+			playing.frame = step % playing.sprite_frames.get_frame_count(playing.animation)
 	wait += 1
 	if wait < 5:
 		return false
@@ -748,17 +784,76 @@ func _process(_delta: float) -> bool:
 	return false
 `;
 
+// Runs in Godot, headless, at a fixed 1000 frames per second: instances the exported scene.tscn and lets it play for
+// `run` milliseconds, recording when each AnimatedSprite2D's frame changes, as CHECK does for a SpriteFrames on its own,
+// with the SpriteFrames' speed and durations, so the scene's sprites play from the start by themselves (autoplay).
+const parallaxPlay = run => `extends SceneTree
+
+const RUN := ${run}.0
+var animated := []
+var steps := []
+var played := 0.0
+var events := []
+var report := {"sprites": []}
+
+func _initialize():
+	var scene := (load("res://parallax/scene.tscn") as PackedScene).instantiate()
+	root.add_child(scene)
+	for child in scene.get_children():
+		for item in child.get_children():
+			if not item is AnimatedSprite2D:
+				continue
+			var k := animated.size()
+			var playing: AnimatedSprite2D = item
+			animated.append(playing)
+			events.append([])
+			playing.frame_changed.connect(_on_frame_changed.bind(k))
+			playing.animation_finished.connect(_on_finished.bind(k))
+			var durations := []
+			for i in playing.sprite_frames.get_frame_count(playing.animation):
+				durations.append(playing.sprite_frames.get_frame_duration(playing.animation, i))
+			report["sprites"].append({"node": String(scene.get_path_to(playing)), "speed": playing.sprite_frames.get_animation_speed(playing.animation), "loop": playing.sprite_frames.get_animation_loop(playing.animation), "durations": durations})
+
+func _on_frame_changed(k: int):
+	if steps.size():
+		events[k].append([steps.size() - 1, animated[k].frame])
+
+func _on_finished(k: int):
+	if steps.size():
+		events[k].append([steps.size() - 1, -1])
+
+func _process(delta: float) -> bool:
+	# The scene enters the tree after _initialize: by the first step its sprites have started by themselves (autoplay).
+	if steps.is_empty():
+		for k in animated.size():
+			report["sprites"][k]["playing"] = animated[k].is_playing()
+			report["sprites"][k]["frame"] = animated[k].frame
+	if played < RUN:
+		steps.append(delta * 1000.0)
+		played += delta * 1000.0
+		return false
+	report["steps"] = steps
+	report["events"] = events
+	print("PIXELBOLT " + JSON.stringify(report, "", false, true))
+	quit()
+	return true
+`;
+
 // Exports the three-plane scene (scripts/parallax-scene.mjs: a sky at parallax 0, hills at 0.5 hazed 0.6, the ground
-// at 1) and loads its scene.tscn in a real Godot 4: a Camera2D at the camera's start anchored at its top-left, the
-// background on a Parallax2D that stays on screen, and a Parallax2D per plane with the plane's parallax as its scroll
-// scale over a Sprite2D of the plane's image, imported pixel for pixel. Godot then places each plane as the camera
-// moves to the start, halfway, the end and two places where the hills' share of it is a whole number and a half: it
-// must be at its scene position less its parallax times the camera. Snap 2D Transforms to Pixel rounds that place to
-// the nearest pixel, halves up, which is Pixelbolt's share rounded halves down, and the planes laid there must draw
-// Pixelbolt's unlit view (exactly, but for a step of one where a partly transparent pixel blends). Godot can't render
-// headless; with render (a window opens) Godot draws the scene in a window the scene's size at each position with
-// snapping on, and with it off where every share is whole (without it, a plane half a pixel off lands on texel edges,
-// which a GPU may round either way), and each must be that view.
+// at 1, and the forest spirit bobbing on it) and loads its scene.tscn in a real Godot 4: a Camera2D at the camera's
+// start anchored at its top-left, the background on a Parallax2D that stays on screen, a Parallax2D per plane with the
+// plane's parallax as its scroll scale over a Sprite2D of the plane's image, imported pixel for pixel, and, after the
+// ground, the spirit's own Parallax2D over an AnimatedSprite2D playing "bob" from its asset's sprite_frames.tres (it is
+// in no plane's image). Godot then places each plane and the sprite as the camera moves to the start, halfway, the end
+// and two places where the hills' share of it is a whole number and a half: each must be at its scene position less
+// its parallax times the camera. Snap 2D Transforms to Pixel rounds that place to the nearest pixel, halves up, which
+// is Pixelbolt's share rounded halves down, and the planes and the sprite's frame laid there (a different frame at
+// each place, its region of the sheet as atlas.json has it) must draw Pixelbolt's unlit view at that frame's time
+// (exactly, but for a step of one where a partly transparent pixel blends). Played at a fixed 1000 frames per second,
+// the sprite starts by itself and changes frame where a replay of AnimatedSprite2D says, within one 1 ms step of the
+// recipe's times. Godot can't render headless; with render (a window opens) Godot draws the scene in a window the
+// scene's size at each position with snapping on, and with it off where every share is whole (without it, a plane half
+// a pixel off lands on texel edges, which a GPU may round either way), and each must be that view.
 export async function verifyGodotParallax({ godot = findGodot(), keep = false, log = console.log, render = false } = {}) {
   if (!godot) throw new Error('Godot 4 was not found: pass --godot <path> or set GODOT');
   const version = godotRun(godot, ['--version']).output.trim().split('\n')[0];
@@ -767,11 +862,21 @@ export async function verifyGodotParallax({ godot = findGodot(), keep = false, l
     await writeFile(path.join(dir, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="Pixelbolt parallax check"\n');
     const source = await parallaxScene(), bundle = await createSceneBundle(source), alignment = JSON.parse(bundle.files.get('alignment.json'));
     assert.deepEqual(bundle.warnings, [], 'scene export warnings');
-    for (const [file, bytes] of bundle.files) if (file === 'scene.tscn' || file.startsWith('planes/')) {
+    const sprites = alignment.sprites ?? [], folders = new Set(sprites.map(sprite => path.posix.dirname(sprite.frames)));
+    assert.deepEqual(sprites.map(sprite => [sprite.placement, sprite.animation, sprite.at.length]), [['spirit', 'bob', 1]], 'the animated placements scene.tscn plays');
+    assert.ok(alignment.planes.every(plane => !plane.placements.includes('spirit')), 'the spirit is in no plane\'s image');
+    // The scene, its planes, and the SpriteFrames each sprite plays with the sheet (and CanvasTexture) beside it.
+    for (const [file, bytes] of bundle.files) if (file === 'scene.tscn' || file.startsWith('planes/') || (folders.has(path.posix.dirname(file)) && /\.(?:png|tres)$/.test(file))) {
       await mkdir(path.dirname(path.join(dir, 'parallax', file)), { recursive: true });
       await writeFile(path.join(dir, 'parallax', file), bytes);
     }
+    // The sprite's frames, as the recipe times them, and its regions of the sheet, as atlas.json has them.
+    const scene = prepareScene(source), [sprite] = sprites, placement = scene.instances.find(instance => instance.name === sprite.placement);
+    const project = scene.assets[placement.asset].recipe, ms = project.animations[sprite.animation].frames.map(index => project.frames[index].duration);
+    const startOf = frame => ms.slice(0, frame).reduce((sum, d) => sum + d, 0), sheetAtlas = JSON.parse(bundle.files.get(`${path.posix.dirname(sprite.frames)}/atlas.json`));
     await writeFile(path.join(dir, 'parallaxcheck.gd'), parallaxCheck(PARALLAX_CAMERAS));
+    const run = Math.round(ms.reduce((sum, d) => sum + d, 0) * 2 + 5);
+    await writeFile(path.join(dir, 'parallaxplay.gd'), parallaxPlay(run));
     // Snapping on at every camera, as docs/game-integration.md advises, and off too where every plane's share is whole.
     const whole = camera => alignment.planes.every(plane => plane.parallax.every((p, axis) => Number.isInteger(p * camera[axis])));
     const steps = PARALLAX_CAMERAS.flatMap(camera => [[...camera, true], ...(whole(camera) ? [[...camera, false]] : [])]);
@@ -780,15 +885,21 @@ export async function verifyGodotParallax({ godot = findGodot(), keep = false, l
     const problems = imported.output.split('\n').filter(line => /ERROR|WARNING/.test(line) && /parallax\//.test(line));
     assert.deepEqual(problems, [], `Godot reported problems while importing:\n${imported.output}`);
     const report = godotReport(godotRun(godot, ['--path', dir, '--script', 'res://parallaxcheck.gd']));
-    const scene = prepareScene(source), [r, g, b, a] = scene.background, planes = alignment.planes;
+    const [r, g, b, a] = scene.background, planes = alignment.planes;
     assert.deepEqual(report.root, [source.name, 1], 'the root, drawn with nearest filtering');
     assert.deepEqual(report.camera, [0, ...renderScene(scene).camera, true], 'the camera: anchored at its top-left, at its start');
     assert.deepEqual(report.background, [0, 0, r, g, b, a, scene.width, scene.height], 'the background');
     assert.deepEqual(report.planes, planes.map((plane, k) => [['sun', 'hills', 'ground'][k], ...plane.parallax, ...plane.at, false, `res://parallax/${plane.image}`, ...plane.size, 0]), 'the planes');
+    assert.deepEqual(report.layers, [['sun', 'plane'], ['hills', 'plane'], ['ground', 'plane'], ['spirit', 'sprites']], 'the Parallax2D nodes, in drawing order');
+    assert.deepEqual(report.sprites, [['spirit', 'Sprite', ...sprite.parallax, ...sprite.at[0], sprite.scale, sprite.scale, false, `res://parallax/${sprite.frames}`, sprite.animation, sprite.animation]], 'the animated sprite: its place, SpriteFrames and animation');
+    assert.deepEqual(report.playing, [[true, 0]], 'the sprite plays from its first frame by itself');
     const images = await Promise.all(planes.map(async plane => decodePNG(bundle.files.get(plane.image))));
+    const sheets = new Map();
+    const sheet = file => { if (!sheets.has(file)) sheets.set(file, decodePNG(bundle.files.get(file.replace('res://parallax/', '')))); return sheets.get(file); };
     let exact = 0, near = 0, drawn = '';
-    const compare = (camera, got, what) => {
-      const panned = prepareScene({ ...source, camera }), view = renderScene(panned, { lit: false, draws: true }), blended = new Uint8Array(scene.width * scene.height);
+    // Pixelbolt's unlit view with the camera here and the sprite's animation at `time`.
+    const compare = (camera, got, what, time = 0) => {
+      const panned = prepareScene({ ...source, camera }), view = renderScene(panned, { lit: false, draws: true, time }), blended = new Uint8Array(scene.width * scene.height);
       for (const draw of view.draws) {
         const project = panned.assets[draw.asset].recipe, data = project.frames[draw.frame].data, s = draw.scale;
         for (let y = 0; y < project.height * s; y++) for (let x = 0; x < project.width * s; x++) {
@@ -803,33 +914,49 @@ export async function verifyGodotParallax({ godot = findGodot(), keep = false, l
         else if (off === 1 && blended[y * scene.width + x]) near++;
         else wrong.push(`${x},${y}: ${what} ${pixel.map(Math.round).join(' ')}, Pixelbolt ${[...want].join(' ')}`);
       }
-      assert.deepEqual(wrong.slice(0, 12), [], `camera at ${camera}: ${wrong.length} pixels of ${what} differ from the unlit scene`);
+      assert.deepEqual(wrong.slice(0, 12), [], `camera at ${camera}${time ? `, ${time} ms in` : ''}: ${wrong.length} pixels of ${what} differ from the unlit scene`);
     };
     PARALLAX_CAMERAS.forEach((camera, step) => {
-      const at = report.cameras[step];
-      assert.deepEqual(at, [['Background', 0, 0], ...planes.map((plane, k) => [report.planes[k][0], ...plane.at.map((v, axis) => v - plane.parallax[axis] * camera[axis])])], `camera at ${camera}: where Godot puts each plane`);
+      const { at, shown } = report.cameras[step], frame = step % ms.length, region = sheetAtlas.frames[sheetAtlas.animations[sprite.animation].frames[frame]].frame;
+      const moved = ([x, y], parallax) => [x - parallax[0] * camera[0], y - parallax[1] * camera[1]];
+      assert.deepEqual(at, [['Background', 0, 0], ...planes.map((plane, k) => [report.planes[k][0], ...moved(plane.at, plane.parallax)]), ['spirit', ...moved(sprite.at[0], sprite.parallax)]], `camera at ${camera}: where Godot puts each plane and the sprite`);
+      assert.deepEqual(shown, [[...moved(sprite.at[0], sprite.parallax), frame, region.x, region.y, region.w, region.h, `res://parallax/${path.posix.dirname(sprite.frames)}/color.png`]], `camera at ${camera}: the sprite's frame ${frame} and its region of the sheet`);
+      // What Godot draws, in drawing order: the planes' images, then the sprite's frame, each from its top-left as
+      // snapping places it (rounded as renderer_canvas_cull.cpp rounds it, floor(v + 0.5)).
+      const layers = [...images.map((image, k) => ({ image, x: at[k + 1][1], y: at[k + 1][2], region: [0, 0, image.width, image.height], scale: 1 })),
+        ...shown.map(([x, y, , rx, ry, rw, rh, file]) => ({ image: sheet(file), x, y, region: [rx, ry, rw, rh], scale: sprite.scale }))];
       compare(camera, (x, y) => {
         const pixel = [r, g, b];
-        images.forEach((image, k) => {
-          // Where snapping draws it: its place rounded as renderer_canvas_cull.cpp rounds it, floor(v + 0.5).
-          const ix = x - Math.floor(at[k + 1][1] + 0.5), iy = y - Math.floor(at[k + 1][2] + 0.5);
-          if (ix < 0 || iy < 0 || ix >= image.width || iy >= image.height) return;
-          const p = (iy * image.width + ix) * 4, alpha = image.data[p + 3] / 255;
+        for (const { image, x: left, y: top, region: [rx, ry, rw, rh], scale } of layers) {
+          const ix = Math.floor((x - Math.floor(left + 0.5)) / scale), iy = Math.floor((y - Math.floor(top + 0.5)) / scale);
+          if (ix < 0 || iy < 0 || ix >= rw || iy >= rh) continue;
+          const p = ((ry + iy) * image.width + rx + ix) * 4, alpha = image.data[p + 3] / 255;
           for (let c = 0; c < 3; c++) pixel[c] = image.data[p + c] * alpha + pixel[c] * (1 - alpha);
-        });
+        }
         return pixel;
-      }, 'the planes where Godot puts them');
+      }, 'the planes and the sprite where Godot puts them', startOf(frame));
     });
+    // Played: the sprite starts on its first frame by itself, and changes frame as AnimatedSprite2D's code says with
+    // these durations (Godot 4.6 and 4.7's, or the fixed one) and within one 1 ms step of the recipe's times.
+    const play = godotReport(godotRun(godot, ['--path', dir, '--fixed-fps', '1000', '--script', 'res://parallaxplay.gd']));
+    assert.equal(play.sprites.length, 1, 'one sprite plays');
+    const [playing] = play.sprites, events = play.events[0], time = play.steps.reduce((sum, step) => sum + step, 0);
+    assert.deepEqual([playing.node, playing.playing, playing.frame], ['spirit/Sprite', true, 0], 'the sprite plays from its first frame by itself');
+    const stale = differences(events, replaySprite(playing.speed, playing.durations, playing.loop, play.steps), 1);
+    const fixed = differences(events, replaySprite(playing.speed, playing.durations, playing.loop, play.steps, { stale: false }), 1);
+    assert.ok(!stale.length || !fixed.length, ['the scene\'s sprite: playback matches neither Godot 4.6 and 4.7\'s AnimatedSprite2D nor the fixed one:', ...stale.slice(0, 4), ...fixed.slice(0, 4)].join('\n'));
+    const late = differences(events, idealEvents(ms, playing.loop, play.steps, time), 1);
+    assert.deepEqual(late, [], `the scene's sprite changes frame away from the recipe's times (${ms.join(', ')} ms)`);
     if (render) {
       const shown = godotReport(godotRun(godot, ['--path', dir, '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy', '--resolution', `${scene.width}x${scene.height}`, '--script', 'res://parallaxrender.gd'], { headless: false }));
       assert.deepEqual(shown.size, [scene.width, scene.height], 'the window is the scene\'s size');
       for (const [step, [cx, cy, snap]] of steps.entries()) {
         const image = decodePNG(await readFile(path.join(dir, `render-${step}.png`)));
-        compare([cx, cy], (x, y) => [...image.data.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 3)], `Godot's render${snap ? '' : ' without snapping'}`);
+        compare([cx, cy], (x, y) => [...image.data.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 3)], `Godot's render${snap ? '' : ' without snapping'}`, startOf(step % ms.length));
       }
       drawn = ` Godot drew the scene in a window as Pixelbolt does at each position with Snap 2D Transforms to Pixel on, and with it off at ${steps.filter(step => !step[2]).map(step => `[${step.slice(0, 2)}]`).join(', ')}, where every share is whole.`;
     }
-    log(`${version}: scene.tscn holds a top-left Camera2D at the camera's start, the background and ${planes.length} Parallax2D planes (scroll scale ${planes.map(plane => plane.parallax[0]).join(', ')}) whose images Godot imported pixel for pixel; with the camera at ${PARALLAX_CAMERAS.map(c => `[${c}]`).join(', ')}, Godot put every plane where Pixelbolt draws it, rounded as snapping rounds it, and the planes there draw the unlit scene exactly in ${exact} pixels and within one step in ${near}, where partly transparent pixels blend.${drawn}`);
+    log(`${version}: scene.tscn holds a top-left Camera2D at the camera's start, the background, ${planes.length} Parallax2D planes (scroll scale ${planes.map(plane => plane.parallax[0]).join(', ')}) whose images Godot imported pixel for pixel and an AnimatedSprite2D playing ${sprite.placement}'s "${sprite.animation}" from sprite_frames.tres; with the camera at ${PARALLAX_CAMERAS.map(c => `[${c}]`).join(', ')}, Godot put every plane and the sprite where Pixelbolt draws them, rounded as snapping rounds it, and the planes and each of the sprite's ${ms.length} frames there draw the unlit scene at that frame's time exactly in ${exact} pixels and within one step in ${near}, where partly transparent pixels blend. Played at 1000 fps for ${run} ms, the sprite started by itself and made ${events.length} frame changes, each within one 1 ms step of the recipe's times.${drawn}`);
     return { version, report, dir: keep ? dir : null };
   } finally {
     if (!keep) await rm(dir, { recursive: true, force: true });
