@@ -111,6 +111,14 @@ test('a light point and cues reach the back and front parts too', () => {
     assert.deepEqual(frame(part).points.light, frame('lit-0').points.light, part);
     assert.deepEqual(frame(part).points.hit, [16, 16], part);
   }
+  // Parts compiled without the whole have the same frames, light point included: the whole effect, whose light it is,
+  // is still reviewed. Before, a compile of the parts alone left the point out, though compiling everything and then
+  // keeping the parts, as compile --animation did through 0.17.0, has it.
+  for (const kept of [['lit-back', 'lit-front'], ['lit-front']]) {
+    const alone = compileEffects(source({ lit }), { animation: kept });
+    assert.deepEqual(alone.recipe.frames, recipe.frames.filter(made => kept.some(part => made.name.startsWith(`${part}-`))), kept.join());
+    assert.ok(alone.recipe.frames.every(made => made.points.light), kept.join());
+  }
 });
 
 test('parts compiled without their whole are warned of the whole effect\'s edges, residue, seam and uneven thinning, each once', () => {

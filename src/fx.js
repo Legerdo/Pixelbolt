@@ -1833,7 +1833,8 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
   // animation kept and, where a part is kept without its whole, for that whole too (`unkept`). Its parts are what a
   // game draws of it, so the compile warns of the whole's edges, residue, seam and uneven thinning as it does when
   // everything is kept, each once. Nothing of an unkept whole is delivered: its frames (`aside`) and its seam probe are
-  // only rendered for the review, and what the review notes of it is dropped. A whole's frame draws what both its
+  // only rendered for the review, and what the review notes of it is dropped, but for the light point it gives its
+  // parts' frames (`light: true`), as it does whenever the effect is compiled. A whole's frame draws what both its
   // parts' do, so it can pass the drawing operations a frame holds (FRAME_OPERATIONS) where neither part's does: the
   // render refuses such a frame, so that whole is left unreviewed rather than its parts' compile refused over it.
   const made = Object.entries(animations).map(([name, animation]) => [name, animation, metadata.effects[name]]), unkept = new Set(), aside = [];
@@ -1931,13 +1932,14 @@ export function compileEffects(source, { stats = false, frames: keep, animation,
     }
     effect.light = light;
     // Frames are named per animation, so each frame takes its own light; a cue of the same name keeps its place. The
-    // parts' frames take the whole effect's light, so game code drawing them finds it too. An unkept whole writes
-    // none: the review of it changes nothing a compile delivers.
-    if (pointed.has(name) && !unkept.has(name)) animation.frames.forEach((frameName, k) => {
+    // parts' frames take the whole effect's light, so game code drawing them finds it too, from an unkept whole as
+    // well: a part compiled without its whole has the frames a compile of everything gives it. (A part the compile
+    // leaves out has no frame here.)
+    if (pointed.has(name)) animation.frames.forEach((frameName, k) => {
       if (!effect.light[k]) return;
       for (const target of [frameName, ...(effect.parts ? Object.values(effect.parts).map(part => `${part}-${k}`) : [])]) {
         const frame = frameOf.get(target);
-        if (!frame.points?.light) frame.points = { ...frame.points, light: effect.light[k].at };
+        if (frame && !frame.points?.light) frame.points = { ...frame.points, light: effect.light[k].at };
       }
     });
     // What reaches a canvas edge is cut off there, unless the effect is meant to touch that side (its edges).
