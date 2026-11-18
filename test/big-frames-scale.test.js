@@ -118,13 +118,14 @@ test('GIF and export budgets name the largest scale that fits', async t => {
 });
 
 test('small renders are byte for byte what they were before the refusal changed', async () => {
-  // Hashes from 139f1ad: the sheet PNG, the atlas JSON and a scale-2 GIF of the first animation.
+  // Hashes from 139f1ad: the sheet PNG, the atlas JSON and a scale-2 GIF of the first animation. The sheets' hashes
+  // are from the switch to deflate level 6, whose PNGs decode to the same pixels as 139f1ad's (Pillow and ffmpeg).
   const sha = data => createHash('sha256').update(data).digest('hex').slice(0, 16);
   const cases = [
-    ['coin.json', undefined, ['0b28ab131f2d7919', '679346b3895f9c90', '6bd9d1cceef0ae1e']],
-    ['coin.json', { scale: 4 }, ['0c936b5fefbee550', 'b9399de97286d40b', '6bd9d1cceef0ae1e']],
-    ['ember.json', { trim: true, scale: 3 }, ['0be69f13cc6ab3fd', 'cb0834dec6ad2a72', 'a269dd5138d5ce11']],
-    ['effects.json', undefined, ['2232123623dc72fa', '8d1066145b07b7ab', '619bdb2aff26b4c5']]
+    ['coin.json', undefined, ['36a6db886654b688', '679346b3895f9c90', '6bd9d1cceef0ae1e']],
+    ['coin.json', { scale: 4 }, ['df9dc2e456df1582', 'b9399de97286d40b', '6bd9d1cceef0ae1e']],
+    ['ember.json', { trim: true, scale: 3 }, ['a898084df24f4663', 'cb0834dec6ad2a72', 'a269dd5138d5ce11']],
+    ['effects.json', undefined, ['b513517473b154d6', '8d1066145b07b7ab', '619bdb2aff26b4c5']]
   ];
   for (const [file, sheet, expected] of cases) {
     const recipe = JSON.parse(await readFile(path.join(root, 'examples', file), 'utf8'));

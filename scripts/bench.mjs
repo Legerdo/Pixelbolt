@@ -160,6 +160,21 @@ const CASES = [
       const bundle = await createBundle(recipe), names = [...bundle.files.keys()].sort();
       return { frames: bundle.project.frames.length, hash: hash(names.map(name => `${name} ${bundle.files.get(name).length}`).join('\n'), ...names.map(name => bundle.files.get(name))) };
     } },
+  // What render --out does at the 4,194,304 pixels a recipe's frames may hold, with frames that barely compress: 16
+  // frames of 1024 × 256 eight-colour noise. Most of it is deflating the sheet, the frames and the animated PNG.
+  { id: 'export/bundle-full-total', what: 'createBundle: 16 frames of 1024 × 256 noise, the whole frame total', budget: 6000,
+    setup: async load => {
+      const keys = 'abcdefgh', palette = Object.fromEntries([...keys].map((key, i) => [key, `#${(0x203040 + i * 0x1c2a36).toString(16)}`]));
+      let seed = 1;
+      const next = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 29;
+      const frames = Array.from({ length: 16 }, (_, i) => ({ name: `f${i}`, duration: 100,
+        ops: [{ op: 'grid', x: 0, y: 0, rows: Array.from({ length: 256 }, () => Array.from({ length: 1024 }, () => keys[next()]).join('')) }] }));
+      return { createBundle: (await load('src/export.js')).createBundle, recipe: { version: 1, name: 'noise', width: 1024, height: 256, palette, frames } };
+    },
+    run: async ({ createBundle, recipe }) => {
+      const bundle = await createBundle(recipe), names = [...bundle.files.keys()].sort();
+      return { frames: bundle.project.frames.length, hash: hash(names.map(name => `${name} ${bundle.files.get(name).length}`).join('\n'), ...names.map(name => bundle.files.get(name))) };
+    } },
   { id: 'export/gif-waterfall', what: 'animationGIF at scale 4', inputs: ['waterfall'],
     setup: async load => ({ animationGIF: (await load('src/gif.js')).animationGIF, project: (await load('src/core.js')).renderProject(prepared('waterfall')) }),
     run: ({ animationGIF, project }) => { const { data, ...gif } = animationGIF(project, undefined, { scale: 4 }); return { frames: gif.frames, hash: hash(JSON.stringify(gif), data) }; } },
