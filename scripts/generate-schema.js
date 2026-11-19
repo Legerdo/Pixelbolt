@@ -35,6 +35,9 @@ const hex = '^(transparent|#([a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))$';
 // An opaque colour: #RGB or #RRGGBB, or with a full alpha.
 const opaqueHex = '^#([a-fA-F0-9]{3}[fF]?|[a-fA-F0-9]{6}([fF]{2})?)$';
 const pairOf = item => ({ ...array(item, 2), minItems: 2 });
+const partScale = { oneOf: [num(0, 16), pairOf(num(0, 16))] };
+const trackTime = int(0, 256 * 60000);
+const definitions = item => ({ type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: item });
 const ruleRows = { ...array({ type: 'string', minLength: 1, maxLength: 8 }, 8), minItems: 1, description: 'Equal-width rows of palette keys; dot or space matches anything (match) or keeps the pixel (replace); the empty character stands for transparent.' };
 const ease = { enum: EASINGS, description: 'linear (default), hold (jump at the end), in, out, inOut, overshoot or bounce.' };
 const names64 = { ...array({ type: 'string', minLength: 1 }, 64), minItems: 1 };
@@ -80,6 +83,16 @@ const schema = {
     palette: { type: 'object', maxProperties: 257, properties: { $ref: { type: 'string', description: 'Shared palette file, resolved by the CLI and MCP relative to this recipe. Local entries add to or override it.' } }, additionalProperties: { type: 'string', pattern: hex } },
     ramps: { ...array({ ...array({ type: 'string', minLength: 1, maxLength: 64 }, 32), minItems: 2 }, 64), description: 'Palette keys from dark to light, one list per material. shade and scene ramp lighting move a colour along its ramp instead of inventing one. A key belongs to one ramp. A shared palette file ({"palette": {...}, "ramps": [...]}) can supply them.' },
     background: color, symbols: { type: 'object', propertyNames: id, additionalProperties: ref('rows') },
+    parts: definitions(object({ pivot: { ...point, description: 'Local pixel placed at the instance position. Defaults to [0, 0].' },
+      ops: array({ oneOf: [
+        operation('polygon', { ...xy, points: { ...array(point, 256), minItems: 3 }, color, filled: bool }, ['points', 'color']),
+        operation('line', { ...xy, x2: xy.x, y2: xy.y, color }, ['x2', 'y2', 'color']),
+        operation('pixel', { ...xy, color }, ['color'])
+      ] }) }, ['ops'])),
+    scaleTracks: definitions({ ...object({ keys: { ...array(object({ at: trackTime, scale: partScale }, ['at', 'scale']), 256), minItems: 1, description: 'Ascending milliseconds. For a loop, start at 0 and end at its period.' },
+      ease: { enum: ['linear', 'hold', 'in', 'out', 'inOut'] }, loop: bool }, ['keys']),
+      if: { required: ['loop'], properties: { loop: { const: true } } },
+      then: { properties: { keys: { minItems: 2, prefixItems: [{ properties: { at: { const: 0 } } }] } } } }),
     anchor: { ...point, description: 'Default pivot for every frame, exported to the atlas as anchorPx (exported pixels) and as anchor and pivot (anchor / source size, the 0-1 origin Phaser and PixiJS read).' },
     frames: { ...array(ref('frame'), 256), minItems: 1 },
     animations: { type: 'object', maxProperties: 65524, description: 'Named animations; left out, one plays every frame in order. {} says the frames are stills (icons, UI states, tiles), exported with no animation. ZIP32 bundle budget: animation count + frame count + 10 support files must not exceed 65,535.', propertyNames: id, additionalProperties: object({ frames: { ...array(id, 1024), minItems: 1 }, direction: { enum: ['forward', 'reverse', 'pingpong'] }, loop: bool }, ['frames']) },
@@ -89,7 +102,7 @@ const schema = {
   then: { properties: { width: { maximum: 1024 }, height: { maximum: 1024 } } },
   $defs: {
     rows: rowsOf(1024),
-    frame: object({ name: id, duration: int(1, 60000, 'Frame duration in milliseconds; default 100.'), from: id, translate: { ...array(int(-4096, 4096), 2), minItems: 2 }, wrap: { type: 'boolean', description: 'Translation wraps around the canvas instead of clipping (scrolling tiles).' }, flipX: bool, flipY: bool,
+    frame: object({ name: id, duration: int(1, 60000, 'Frame duration in milliseconds; default 100.'), time: { ...trackTime, description: 'Scale track sample time in ms. Defaults to total duration of preceding source frames.' }, from: id, translate: { ...array(int(-4096, 4096), 2), minItems: 2 }, wrap: { type: 'boolean', description: 'Translation wraps around the canvas instead of clipping (scrolling tiles).' }, flipX: bool, flipY: bool,
       palette: { type: 'object', maxProperties: 256, additionalProperties: color, description: 'Recolor project palette keys for this frame only (palette cycling). Keys must exist in the project palette.' },
       anchor: point, points: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: point, description: 'Named frame positions (hands, hit points, glyph advance), exported in the atlas in exported pixels.' },
       tile: { ...object({ terrain: { ...id, description: 'The autotile set this frame belongs to; default the recipe name. Each terrain is a Godot terrain set of its own.' },
@@ -99,10 +112,13 @@ const schema = {
       groups: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: point, description: 'Shared [dx, dy] translations for layers in this frame. A layer refers to one by group.' },
       ops: array(ref('op')), layers: array(ref('layer'), 64), pixels: { ...array(ref('pixel'), 262144), description: 'Final canvas-coordinate RGBA replacements after ops and layers. Coordinates must be inside this canvas. Later entries win; transparent erases.' } }, ['name']),
     pixel: object({ x: int(0, 4095), y: int(0, 4095), color }, ['x', 'y', 'color']),
-    layer: object({ name: id, group: { ...id, description: 'Name in this frame’s groups. Its translation adds to this layer’s x and y.' }, visible: bool, opacity: { type: 'number', minimum: 0, maximum: 1 }, ...xy,
+    layer: { ...object({ name: id, group: { ...id, description: 'Name in this frame’s groups. Its translation adds to this layer’s x and y.' }, visible: bool, opacity: { type: 'number', minimum: 0, maximum: 1 }, ...xy,
+      part: { ...id, description: 'Polygon part whose pivot lands at x/y plus group. Optional ops follow it in canvas coordinates.' },
+      flipX: bool, flipY: bool, scale: { oneOf: [...partScale.oneOf, id] }, delay: int(-256 * 60000, 256 * 60000, 'Subtract this many ms from the scale track sample time.'),
       sort: { enum: ['ground'], description: 'ground: draw the operations far to near by the row each stands on (its ground, or the lowest row it draws), list order breaking ties, as a game draws actors and props. Use it for everything standing on the ground: trees, grass, rocks, figures. Area operations (dither, shade, fill, outline, tilemap...) are refused.' },
       palette: { type: 'object', maxProperties: 256, additionalProperties: color, description: 'Recolor project palette keys for this layer\'s drawing only, on top of the frame palette: a flash or cycle on one layer leaves other drawing that shares the key alone. Keys must exist in the project palette; values are colours or project palette names.' },
-      ops: array(ref('op')) }),
+      ops: array(ref('op')) }), dependentRequired: { flipX: ['part'], flipY: ['part'], scale: ['part'], delay: ['part', 'scale'] },
+      allOf: [{ if: { required: ['part'] }, then: { not: { required: ['sort'] } } }, { if: { required: ['delay'] }, then: { properties: { scale: id } } }] },
     op: { oneOf: [
       operation('pixel', { ...xy, ground, color }, ['color']),
       operation('rect', { ...xy, ground, ...wh, color, filled: bool }, ['w', 'h', 'color']),

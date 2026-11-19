@@ -131,9 +131,11 @@ export function resizeRecipe(recipe, size, path = 'size') {
   // asked frame by frame (what a frame continues changes nothing that is cut), and in a frame with more than that any
   // list may have been. A replace is never cut, since it reaches every pixel of its canvas: the margins too.
   const { animations, sheet, ...single } = recipe;
+  const timedFrames = pinTrackTimes(recipe);
   // The places cut in one frame, as paths within it (ops[2], layers[0], layers[1].ops[0]), or null for any.
   const cutIn = ({ from, ...frame }, index) => {
-    const whole = !project.clippingOmitted || recipe.frames.length === 1, made = whole ? project : renderProject({ ...single, frames: [frame] });
+    const whole = !project.clippingOmitted || recipe.frames.length === 1;
+    const made = whole ? project : renderProject({ ...single, frames: [{ ...frame, time: timedFrames[index].time }] });
     const under = `project.frames[${whole ? index : 0}].`;
     return made.clippingOmitted ? null : (made.clipping ?? []).filter(entry => entry.path.startsWith(under)).map(entry => entry.path.slice(under.length));
   };
@@ -160,17 +162,24 @@ export function resizeRecipe(recipe, size, path = 'size') {
     // A layer is drawn on a canvas of its own, cut by it, then moved by the layer's x and y and cut by the frame.
     // Here its operations take that move as well, so its canvas is the new one, and what either cut took is cleared.
     const offsets = (frame.layers ?? []).map(layer => layerOffset(layer, frame.groups));
-    const moved = offsets.map(([x, y], li) => moveOps(frame.layers[li].ops ?? [], dx + x, dy + y, frame.layers[li].sort ? null : canvas));
-    const beyond = offsets.map(([x, y]) => outside(dx + Math.max(0, x), dx + oldWidth + Math.min(0, x), dy + Math.max(0, y), dy + oldHeight + Math.min(0, y)));
+    const moved = offsets.map(([x, y], li) => {
+      const layer = frame.layers[li];
+      return moveOps(layer.ops ?? [], dx + (layer.part ? 0 : x), dy + (layer.part ? 0 : y), layer.sort ? null : canvas);
+    });
+    const beyond = offsets.map(([x, y], li) => frame.layers[li].part ? outside(dx, dx + oldWidth, dy, dy + oldHeight)
+      : outside(dx + Math.max(0, x), dx + oldWidth + Math.min(0, x), dy + Math.max(0, y), dy + oldHeight + Math.min(0, y)));
     const cut = margins.length || beyond.some(clears => clears.length) ? cutIn(frame, index) : [];
     if (margins.length && overhangs(cut, 'ops', frame.ops ?? [])) ops.push(...margins);
     const layers = frame.layers?.map(({ x, y, group, ...layer }, li) => {
-      if (beyond[li].length && overhangs(cut, `layers[${li}]`, layer.ops ?? [])) {
+      const scope = `layers[${li}]`;
+      const partCut = layer.part && (!cut || cut.some(at => at.startsWith(`${scope}.part`)));
+      if (beyond[li].length && (partCut || overhangs(cut, scope, layer.ops ?? []))) {
         // A sorted layer takes only what stands on the ground, and nothing that stands there erases.
         if (layer.sort) fail(path, `${p}.layers[${li}] is sorted by ground and draws past the canvas where the new one has a margin, which a sorted layer cannot clear, so this recipe cannot move to that canvas size; change the size in its source instead`);
         moved[li].push(...beyond[li]);
       }
-      return { ...layer, ...((layer.ops || moved[li].length > 0) && { ops: moved[li] }) };
+      // The part pivot already includes the group move; post-part operations use canvas coordinates.
+      return { ...layer, ...(layer.part && { x: offsets[li][0] + dx, y: offsets[li][1] + dy }), ...((layer.ops || moved[li].length > 0) && { ops: moved[li] }) };
     });
     const { groups, ...resizedFrame } = frame;
     return {
@@ -204,6 +213,18 @@ export function resizeMargins({ from, offset }, [width, height]) {
   return Object.keys(margins).length ? margins : null;
 }
 
+// Sampling depends on the elapsed time in the full source. Pin only animated instances before
+// rendering a frame on its own, dropping its predecessors or redistributing their durations.
+function pinTrackTimes(recipe) {
+  if (!recipe.scaleTracks || !Array.isArray(recipe.frames)) return recipe.frames;
+  let elapsed = 0;
+  return recipe.frames.map(frame => {
+    const time = elapsed;
+    elapsed += frame?.duration ?? 100;
+    return frame?.time === undefined && Array.isArray(frame?.layers) && frame.layers.some(layer => typeof layer?.scale === 'string')
+      ? { ...frame, time } : frame;
+  });
+}
 // A recipe whose animations play at most `count` frames: of an animation that lists more, evenly spaced ones are kept
 // and the rest removed. A loop keeps frame floor(i × F / count), so the step across its seam is as even as the others;
 // a one-shot or a pingpong keeps its first and last, where a one-shot's last is the last that draws anything, so an
@@ -211,7 +232,8 @@ export function resizeMargins({ from, offset }, [width, height]) {
 // for, so the animation plays as long as before. Returns { recipe, kept: { <animation>: "8 of 19" }, notes }.
 export function keepFrames(recipe, count, path = 'frames') {
   if (!Number.isInteger(count) || count < 1 || count > 256) fail(path, 'expected how many frames each animation keeps, a whole number from 1 to 256');
-  const { project, draws } = frameFacts(recipe), names = recipe.frames.map(frame => frame.name), index = new Map(names.map((name, i) => [name, i]));
+  const timed = { ...recipe, frames: pinTrackTimes(recipe) };
+  const { project, draws } = frameFacts(timed), names = recipe.frames.map(frame => frame.name), index = new Map(names.map((name, i) => [name, i]));
   const animations = recipe.animations ?? { default: { frames: names } }, kept = {}, next = {}, wanted = new Map(), dropped = new Set();
   for (const [key, animation] of Object.entries(animations)) {
     const listed = animation.frames.map(name => index.get(name)), F = listed.length, pingpong = animation.direction === 'pingpong';
@@ -233,7 +255,7 @@ export function keepFrames(recipe, count, path = 'frames') {
   for (let i = recipe.frames.length - 1; i >= 0; i--) if (stays.has(i) || !dropped.has(i)) for (const source of sources(recipe.frames[i])) stays.add(source);
   const remains = (_, i) => stays.has(i) || !dropped.has(i), notes = [];
   // A duration is the frame's own: one played at two lengths keeps the length it had.
-  const frames = recipe.frames.map((frame, i) => {
+  const frames = timed.frames.map((frame, i) => {
     const lasts = wanted.get(i);
     if (!lasts || (lasts.size === 1 && lasts.has(project.frames[i].duration))) return frame;
     if (lasts.size > 1) { notes.push(`Frame "${frame.name}" is played more than once, so it keeps its ${project.frames[i].duration} ms and its animations no longer play exactly as long as before.`); return frame; }
@@ -273,5 +295,5 @@ export function keepAnimations(recipe, names, path = 'animation') {
   const index = new Map(recipe.frames.map((frame, i) => [frame.name, i])), stays = new Set(wanted.flatMap(name => recipe.animations[name].frames.map(frame => index.get(frame))));
   const sources = frame => [frame.from, ...[...(frame.ops ?? []), ...(frame.layers ?? []).flatMap(layer => layer.ops ?? [])].filter(op => op.op === 'copy').map(op => op.from)].filter(name => index.has(name)).map(name => index.get(name));
   for (let i = recipe.frames.length - 1; i >= 0; i--) if (stays.has(i)) for (const source of sources(recipe.frames[i])) stays.add(source);
-  return { recipe: { ...recipe, frames: recipe.frames.filter((_, i) => stays.has(i)), animations: Object.fromEntries(wanted.map(name => [name, recipe.animations[name]])) }, dropped: has.filter(name => !wanted.includes(name)) };
+  return { recipe: { ...recipe, frames: pinTrackTimes(recipe).filter((_, i) => stays.has(i)), animations: Object.fromEntries(wanted.map(name => [name, recipe.animations[name]])) }, dropped: has.filter(name => !wanted.includes(name)) };
 }

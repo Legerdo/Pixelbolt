@@ -1,5 +1,5 @@
 // Browser-compatible, deterministic rasterizer. No I/O and no dependencies.
-import { patternProblem, ditherThreshold, traceLine, pixelId, colorOf, idsOf, cleanupIds, ruleVariants, rewriteIds } from './craft.js';
+import { patternProblem, ditherThreshold, traceLine, pixelId, colorOf, idsOf, cleanupIds, ruleVariants, rewriteIds, ease } from './craft.js';
 import { AUTOTILE_MODES, tilePieces, templatePiece, expandTilemap, isoLayout, autotileFrames } from './autotile.js';
 import { layoutText, FONT_HEIGHT, FONT_CHARACTERS } from './font.js';
 export class PixelError extends Error {
@@ -285,7 +285,7 @@ const AREA = new Set(['clear', 'fill', 'replace', 'tilemap', 'outline', 'dither'
 // `stills: false` keeps a document to the animation limit even with one frame, and `side` gives a source that keeps a
 // smaller canvas its own (pose sources compile to animations at most POSE_SIDE a side).
 function readProject(spec, { stills = true, side: most = CANVAS_SIDE } = {}) {
-  object(spec, 'project', ['$schema', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'background', 'symbols', 'frames', 'animations', 'sheet', 'anchor']);
+  object(spec, 'project', ['$schema', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'background', 'symbols', 'parts', 'scaleTracks', 'frames', 'animations', 'sheet', 'anchor']);
   if (spec.version !== 1) fail('project.version', 'expected 1');
   const projectName = name(spec.name, 'project.name');
   const frameCount = Array.isArray(spec.frames) ? spec.frames.length : 0, still = stills && frameCount === 1;
@@ -396,6 +396,76 @@ function polygonSpans(points, filled, spend, visit) {
   }
 }
 
+// A part keeps its original vertices, including negative coordinates. Its instance scales around
+// the local pivot, rasterizes on an unbounded integer grid, then reflects spans into canvas space.
+const partFields = { pixel: [], line: ['x2', 'y2'], polygon: ['points', 'filled'] };
+const trackEases = ['linear', 'hold', 'in', 'out', 'inOut'];
+const trackLimit = 256 * 60000;
+function scalePair(value, path) {
+  if (!Array.isArray(value)) { const s = number(value, path, 0, 16); return [s, s]; }
+  if (value.length !== 2) fail(path, 'expected a scale or [scaleX, scaleY]');
+  return value.map((s, i) => number(s, `${path}[${i}]`, 0, 16));
+}
+function readPart(part, path, palette) {
+  object(part, path, ['pivot', 'ops']);
+  const pivot = point(part.pivot ?? [0, 0], `${path}.pivot`);
+  const shapes = list(part.ops, `${path}.ops`).map((op, i) => {
+    const p = `${path}.ops[${i}]`;
+    object(op, p);
+    if (typeof op.op !== 'string' || !own(partFields, op.op)) fail(`${p}.op`, 'a polygon part takes polygon, line or pixel');
+    object(op, p, ['op', 'x', 'y', 'color', ...partFields[op.op]]);
+    parseColor(op.color, palette, `${p}.color`);
+    const x = integer(op.x ?? 0, `${p}.x`), y = integer(op.y ?? 0, `${p}.y`);
+    let points = [[x, y]], filled = true;
+    if (op.op === 'line') points.push([integer(op.x2, `${p}.x2`), integer(op.y2, `${p}.y2`)]);
+    if (op.op === 'polygon') {
+      points = polygonPoints(op, p).map(([px, py]) => [px + x, py + y]);
+      filled = boolean(op.filled ?? true, `${p}.filled`);
+    }
+    return { color: op.color, filled, points: points.map(([px, py]) => [px - pivot[0], py - pivot[1]]) };
+  });
+  return shapes;
+}
+function polygonPoints(op, path) {
+  if (!Array.isArray(op.points) || op.points.length < 3 || op.points.length > 256) fail(`${path}.points`, 'expected 3–256 vertices as [x, y] pairs');
+  return op.points.map((at, i) => point(at, `${path}.points[${i}]`));
+}
+function readTrack(track, path) {
+  object(track, path, ['keys', 'loop', 'ease']);
+  const loop = boolean(track.loop ?? false, `${path}.loop`), easing = track.ease ?? 'linear';
+  if (!trackEases.includes(easing)) fail(`${path}.ease`, `expected ${trackEases.join(', ')}`);
+  list(track.keys, `${path}.keys`, 256);
+  if (!track.keys.length || (loop && track.keys.length < 2)) fail(`${path}.keys`, 'expected at least one scale key, or two for a loop');
+  let previous = -1;
+  const keys = track.keys.map((key, i) => {
+    const p = `${path}.keys[${i}]`;
+    object(key, p, ['at', 'scale']);
+    const at = integer(key.at, `${p}.at`, 0, trackLimit);
+    if (at <= previous || (loop && i === 0 && at !== 0)) fail(`${p}.at`, 'key times must increase; a loop starts at 0 ms');
+    previous = at;
+    return { at, scale: scalePair(key.scale, `${p}.scale`) };
+  });
+  return { keys, loop, easing };
+}
+function definitions(value, path, read) {
+  const entries = Object.entries(object(value ?? {}, path));
+  if (entries.length > 64) fail(path, 'at most 64 definitions');
+  return new Map(entries.map(([key, definition]) => {
+    const p = `${path}.${key}`;
+    return [name(key, p), read(definition, p)];
+  }));
+}
+function sampleTrack({ keys, loop, easing }, time) {
+  const last = keys[keys.length - 1];
+  if (loop) time = ((time % last.at) + last.at) % last.at;
+  if (time <= keys[0].at) return keys[0].scale;
+  if (time >= last.at) return last.scale;
+  const i = keys.findIndex(key => key.at >= time), a = keys[i - 1], b = keys[i];
+  if (time === b.at) return b.scale;
+  const t = ease(easing, (time - a.at) / (b.at - a.at));
+  return a.scale.map((start, axis) => start + t * (b.scale[axis] - start));
+}
+
 export function renderProject(spec, options = {}) {
   object(options, 'render', ['layers', 'stats', 'owners']);
   if (options.stats !== undefined) boolean(options.stats, 'render.stats');
@@ -411,6 +481,8 @@ export function renderProject(spec, options = {}) {
     return renderProject(isolated, { ...(options.stats && { stats: true }), ...(options.owners && { owners: true }) });
   }
   const { projectName, width, height, palette, ramps, background, projectAnchor, symbols } = readProject(spec);
+  const parts = definitions(spec.parts, 'project.parts', (value, path) => readPart(value, path, palette));
+  const tracks = definitions(spec.scaleTracks, 'project.scaleTracks', readTrack);
   // Rectangles, ellipses and dither or shade regions may overhang the canvas: up to 512 pixels, or twice the canvas's
   // side when that is over 256.
   const boxWidth = Math.max(512, 2 * width), boxHeight = Math.max(512, 2 * height);
@@ -479,9 +551,19 @@ export function renderProject(spec, options = {}) {
     const [sourceWidth, sourceHeight] = grid ? [grid.width, grid.height] : [width, height];
     return box(whole(op.w, sourceWidth - whole(op.sx, 0)), whole(op.h, sourceHeight - whole(op.sy, 0)));
   };
-  // Operations draw in list order; in a layer with sort "ground" they draw far to near, by the row each stands on, and
-  // operations on the same row keep list order (as a game draws actors and props). Paths keep list positions.
-  function drawOps(data, ops, path, origins, bounds = null, sorted = false) {
+  // Charge the full span to the work budget, then paint only the pixels that reach the destination.
+  function paintSpan(row, left, right, path, paint) {
+    const length = right - left + 1;
+    spend(length);
+    if (row < 0 || row >= height) { clip(path, length); return; }
+    const first = Math.max(0, left), last = Math.min(width - 1, right);
+    const lost = length - Math.max(0, last - first + 1);
+    if (lost) clip(path, lost);
+    for (let px = first; px <= last; px++) paint(px, row);
+  }
+  // Operations draw in list order; ground-sorted layers draw far to near and ties keep list order.
+  // A part layer paints its transformed geometry first, then any canvas-space operations.
+  function drawOps(data, ops, path, origins, bounds = null, sorted = false, instance = null) {
     // Conservative dirty bounds, including writes later erased. Global operations still see the complete buffer.
     const touch = (x, y) => {
       if (!bounds) return;
@@ -490,6 +572,22 @@ export function renderProject(spec, options = {}) {
       if (x > bounds[2]) bounds[2] = x;
       if (y > bounds[3]) bounds[3] = y;
     };
+    if (instance) {
+      const { shapes, scale, dx, dy, signX, signY } = instance;
+      for (const shape of shapes) {
+        if (++operationCount > 20000) fail(instance.path, 'project exceeds 20,000 drawing operations');
+        const c = color(shape.color, instance.path);
+        const points = shape.points.map(([x, y]) => [Math.round(x * scale[0]), Math.round(y * scale[1])]);
+        const paint = (x, y) => {
+          if (c[3]) touch(x, y);
+          origins.paint(data, (y * width + x) * 4, c);
+        };
+        const span = (row, left, right) => paintSpan(dy + signY * row, dx + (signX > 0 ? left : -right), dx + (signX > 0 ? right : -left), instance.path, paint);
+        if (points.length === 1) span(points[0][1], points[0][0], points[0][0]);
+        else if (points.length === 2) traceLine(...points[0], ...points[1], (x, y) => span(y, x, x));
+        else polygonSpans(points, shape.filled, spend, span);
+      }
+    }
     list(ops, path);
     const order = ops.map((_, index) => index), refused = new Set();
     if (sorted) {
@@ -642,18 +740,10 @@ export function renderProject(spec, options = {}) {
         spend(Math.max(Math.abs(x2 - x), Math.abs(y2 - y)) + 1);
         traceLine(x, y, x2, y2, (px, py) => put(px, py, c));
       } else if (op.op === 'polygon') {
-        if (!Array.isArray(op.points) || op.points.length < 3 || op.points.length > 256) fail(`${p}.points`, 'expected 3–256 vertices as [x, y] pairs');
-        const points = op.points.map((at, i) => point(at, `${p}.points[${i}]`));
+        const points = polygonPoints(op, p);
         const c = color(op.color, `${p}.color`), filled = boolean(op.filled ?? true, `${p}.filled`);
-        polygonSpans(points, filled, spend, (row, left, right) => {
-          const py = row + y, length = right - left + 1;
-          spend(length);
-          if (py < 0 || py >= height) { clip(p, length); return; }
-          const first = Math.max(0, left + x), last = Math.min(width - 1, right + x);
-          const lost = length - Math.max(0, last - first + 1);
-          if (lost) clip(p, lost);
-          for (let px = first; px <= last; px++) put(px, py, c);
-        });
+        const paint = (px, py) => put(px, py, c);
+        polygonSpans(points, filled, spend, (row, left, right) => paintSpan(row + y, left + x, right + x, p, paint));
       } else if (op.op === 'grid' || op.op === 'stamp') {
         if (op.op === 'stamp' && typeof op.symbol !== 'string') fail(`${p}.symbol`, 'expected a string naming a symbol');
         const grid = op.op === 'grid' ? readRows(op.rows, `${p}.rows`, palette) : symbols[op.symbol];
@@ -908,16 +998,19 @@ export function renderProject(spec, options = {}) {
       }
     }
   }
+  let elapsed = 0;
   const frames = checked(() => spec.frames.map((frame, index) => {
     const p = `project.frames[${index}]`;
     // A field a frame doesn't have is noted like a broken operation and the frame is read without it, so the same
     // reply still names what else is wrong: another frame's operations, an animation that lists a missing frame.
-    try { object(frame, p, ['name', 'duration', 'from', 'translate', 'wrap', 'flipX', 'flipY', 'palette', 'anchor', 'points', 'groups', 'tile', 'ops', 'layers', 'pixels']); }
+    try { object(frame, p, ['name', 'duration', 'time', 'from', 'translate', 'wrap', 'flipX', 'flipY', 'palette', 'anchor', 'points', 'groups', 'tile', 'ops', 'layers', 'pixels']); }
     catch (error) { if (!isObject(frame) || !error.message.includes('unknown field')) throw error; note(error, p); }
     const frameName = name(frame.name, `${p}.name`);
     if (frameNames.has(frameName.toLowerCase())) fail(`${p}.name`, `duplicate frame ${frameName}; names must also be unique ignoring case`);
     frameNames.add(frameName.toLowerCase());
     const duration = integer(frame.duration ?? 100, `${p}.duration`, 1, 60000);
+    const time = integer(frame.time ?? elapsed, `${p}.time`, 0, trackLimit);
+    elapsed += duration;
     if (frame.groups !== undefined) {
       object(frame.groups, `${p}.groups`);
       if (Object.keys(frame.groups).length > 64) fail(`${p}.groups`, 'at most 64 layer groups per frame');
@@ -989,7 +1082,7 @@ export function renderProject(spec, options = {}) {
     const layerOrigins = new BlendOrigins(width * height);
     for (const [li, layer] of (frame.layers ?? []).entries()) {
       const lp = `${p}.layers[${li}]`;
-      object(layer, lp, ['name', 'visible', 'opacity', 'x', 'y', 'group', 'palette', 'sort', 'ops']);
+      object(layer, lp, ['name', 'visible', 'opacity', 'x', 'y', 'group', 'palette', 'sort', 'ops', 'part', 'flipX', 'flipY', 'scale', 'delay']);
       if (layer.sort !== undefined && layer.sort !== 'ground') fail(`${lp}.sort`, 'expected "ground": draw this layer\'s operations far to near by the row each stands on');
       if (layer.name !== undefined) name(layer.name, `${lp}.name`);
       // A layer palette recolors keys for this layer's drawing only, on top of the frame's palette, so one layer can
@@ -1002,9 +1095,29 @@ export function renderProject(spec, options = {}) {
       activePalette = layerOverrides ? { ...framePalette, ...layerOverrides } : framePalette;
       const visible = boolean(layer.visible ?? true, `${lp}.visible`), opacity = layer.opacity ?? 1;
       if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) fail(`${lp}.opacity`, 'expected a number from 0 to 1');
-      const [lx, ly] = layerOffset(layer, frame.groups, lp);
+      let [lx, ly] = layerOffset(layer, frame.groups, lp), instance = null;
+      if (layer.part !== undefined) {
+        const shapes = parts.get(name(layer.part, `${lp}.part`));
+        if (!shapes) fail(`${lp}.part`, `unknown polygon part "${layer.part}"`);
+        if (layer.sort !== undefined) fail(`${lp}.sort`, 'a polygon part draws in definition order');
+        const signX = boolean(layer.flipX ?? false, `${lp}.flipX`) ? -1 : 1;
+        const signY = boolean(layer.flipY ?? false, `${lp}.flipY`) ? -1 : 1;
+        let scale;
+        if (typeof layer.scale === 'string') {
+          const track = tracks.get(layer.scale);
+          if (!track) fail(`${lp}.scale`, `unknown scale track "${layer.scale}"`);
+          scale = sampleTrack(track, time - integer(layer.delay ?? 0, `${lp}.delay`, -trackLimit, trackLimit));
+        } else {
+          if (layer.delay !== undefined) fail(`${lp}.delay`, 'delay needs a named scale track');
+          scale = scalePair(layer.scale ?? 1, `${lp}.scale`);
+        }
+        instance = { shapes, scale, dx: lx, dy: ly, signX, signY, path: `${lp}.part` };
+        lx = 0; ly = 0;
+      } else for (const key of ['flipX', 'flipY', 'scale', 'delay']) {
+        if (layer[key] !== undefined) fail(`${lp}.${key}`, `${key} needs a polygon part on this layer`);
+      }
       const bounds = [width, height, -1, -1];
-      drawOps(pixels, layer.ops ?? [], `${lp}.ops`, layerOrigins, bounds, layer.sort === 'ground');
+      drawOps(pixels, layer.ops ?? [], `${lp}.ops`, layerOrigins, bounds, layer.sort === 'ground', instance);
       activePalette = framePalette;
       if (visible && opacity > 0 && bounds[2] >= 0) {
         const area = (bounds[2] - bounds[0] + 1) * (bounds[3] - bounds[1] + 1);

@@ -46,7 +46,7 @@ test('every operation field the schema lists is one the renderer accepts, and no
     for (const key of keys) assert.equal(unknown(() => draw(key), `project.frames[0].ops[0].${key}`), false, `${name}.${key} is in the schema but the renderer rejects it`);
     assert.equal(unknown(() => draw('notAField'), 'project.frames[0].ops[0].notAField'), true, name);
   }
-  assert.deepEqual(Object.keys(schema.properties).sort(), ['$schema', 'anchor', 'animations', 'background', 'frames', 'height', 'name', 'palette', 'ramps', 'sheet', 'symbols', 'version', 'width']);
+  assert.deepEqual(Object.keys(schema.properties).sort(), ['$schema', 'anchor', 'animations', 'background', 'frames', 'height', 'name', 'palette', 'parts', 'ramps', 'scaleTracks', 'sheet', 'symbols', 'version', 'width']);
 });
 
 test('scene fields in the schema match what prepareScene accepts', async () => {

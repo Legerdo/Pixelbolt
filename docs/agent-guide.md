@@ -29,13 +29,13 @@ In the portable Pixelbolt Studio build, run `.\pixelbolt` on Windows or `./pixel
 
 ## Frames and layers
 
-A frame is `{name, duration?, from?, translate?, wrap?, flipX?, flipY?, palette?, anchor?, points?, groups?, tile?, ops?, layers?, pixels?}`.
+A frame is `{name, duration?, time?, from?, translate?, wrap?, flipX?, flipY?, palette?, anchor?, points?, groups?, tile?, ops?, layers?, pixels?}`.
 
 `duration` is 1–60000 milliseconds, default 100. `from` copies an **earlier** frame; otherwise the frame starts with the project background. Whole-frame flips happen first, then `translate: [dx, dy]`, then `ops`, then layers in array order, then final `pixels` corrections. Translation leaves newly exposed pixels transparent and clips at the canvas boundary; with `wrap: true` pixels scroll around the canvas instead (animated water, conveyors, clouds).
 
 `palette` recolors project palette keys for this frame's own drawing: `{"!": "w", "@": "tint2"}`. Keys must exist in the project palette; values are colors or project palette names. This is palette cycling: stamp the same symbol in every frame and give each frame a different mapping, with no marker colors or `replace` passes. `anchor` overrides the project anchor; `points` names up to 64 positions (`{"hand": [12, 9], "advance": [6, 0]}`) exported per frame in the atlas, in exported pixels. `tile` describes the frame as a tile for the Godot TileSet: `terrain` (the autotile set it belongs to; default the recipe name, so two sets in one recipe need their own) or `corners` (a layered set's tile: the terrain names at its NW, NE, SW and SE corners; the recipe's layered tiles make one terrain set whose first terrain is the ground under the others), `weight` (1–1000, how often it is picked against the other frames for the same cell), `collision` (3–32 points `[x, y]` around its solid part, in canvas pixels from `[0, 0]` to `[width, height]`, in order around the shape, or a list of up to 8 such polygons for separate parts) and `oneWay` (bodies pass up through it and land on top). The autotile compiler writes them from `variants[].weight` and `collision`; any frame with `tile` makes the export write a TileSet. Inherited frames do not copy their source frame's anchor, points, tile or palette.
 
-Layers are `{name?, group?, visible?, opacity?, x?, y?, palette?, sort?, ops?}`. They render to a transparent buffer of the **canvas size**, then translate by x/y, then composite in order with source-over alpha. `opacity` is 0–1, applied once to the flattened layer. Hidden layers are validated but not composited. Drawing outside a layer's own canvas is clipped **before** the layer is translated.
+Ordinary drawing layers are `{name?, group?, visible?, opacity?, x?, y?, palette?, sort?, ops?}`. They render to a transparent buffer of the **canvas size**, then translate by x/y, then composite in order with source-over alpha. `opacity` is 0–1, applied once to the flattened layer. Hidden layers are validated but not composited. Drawing outside an ordinary layer's own canvas is clipped **before** the layer is translated.
 
 Use a frame's `groups` to move several layers together. With `"groups": {"swimmer": [2, -1]}`, each layer with `"group": "swimmer"` moves two pixels right and one up. Its own `x` and `y` add to that translation, so a fin can also move locally. The layers keep their draw order, clipping, opacity and names for inspection. Declare up to 64 named offsets per frame. A frame continued with `from` declares its own groups for its new layers.
 
@@ -46,6 +46,40 @@ A layer `palette` recolors project palette keys for that layer's own drawing, on
 Transparent drawing skips pixels. Use `clear` to erase. Clearing a layer erases only that layer's own pixels; it does not erase underlying layers. A `from` frame is already flattened, so later operations can edit or erase its pixels.
 
 `pixels` is an optional list of `{x, y, color}` corrections in **final canvas coordinates** (top-left origin). Each entry replaces the exact RGBA after all operations and layers: `transparent` erases even underlying layers; a semi-transparent color sets that exact alpha instead of blending. Coordinates are required integers inside the canvas, colors use palette names or hex, and later entries at the same coordinate win. At most 262,144 entries are allowed per frame, a whole 512 × 512 frame. Original layer operations are preserved. Frames that inherit this frame also inherit its corrections before applying their own transforms. Remove a correction to reveal the original drawing beneath it. Use `pixel_patch`'s `paint` change to manage these corrections without knowing the layer structure.
+
+### Polygon parts and scale tracks
+
+Draw a wing once in project `parts`, including its outline, veins and eyespots. Put its `pivot` on the shoulder. Each instance places that pixel at layer `[x, y]` plus its frame group offset. Coordinates on either side of the pivot may be negative. The renderer scales vertices around the pivot, rounds to integer pixels, reflects the raster with `flipX` or `flipY`, then clips at the destination canvas. The pivot stays fixed through every pose.
+
+```json
+{
+  "version": 1, "name": "wingbeat", "width": 24, "height": 16,
+  "parts": {
+    "wing": {"pivot": [1, 0], "ops": [
+      {"op": "polygon", "points": [[1,0],[-7,-4],[-5,2]], "color": "#65b6a0"},
+      {"op": "line", "x": 1, "y": 0, "x2": -5, "y2": -2, "color": "#ffe39c"}
+    ]}
+  },
+  "scaleTracks": {"beat": {"loop": true, "ease": "inOut", "keys": [
+    {"at": 0, "scale": 1}, {"at": 100, "scale": [0.3, 1]}, {"at": 200, "scale": 1}
+  ]}},
+  "frames": [
+    {"name": "open", "layers": [
+      {"part": "wing", "x": 10, "y": 8, "scale": "beat"},
+      {"part": "wing", "x": 13, "y": 8, "scale": "beat", "flipX": true}
+    ]},
+    {"name": "fold", "layers": [
+      {"part": "wing", "x": 10, "y": 8, "scale": "beat"},
+      {"part": "wing", "x": 13, "y": 8, "scale": "beat", "flipX": true}
+    ]}
+  ]
+}
+```
+
+- Define up to 64 parts. Each draws up to 2,048 `polygon`, `line` or `pixel` operations in order with their usual coordinates and colours. `pivot` defaults to `[0,0]`. Layer `palette`, `opacity`, visibility and drawing order apply to the instance. Optional layer `ops` draw over the part in canvas coordinates before compositing.
+- Layer `scale` accepts a number for both axes, `[xScale,yScale]`, or a named track. Each axis ranges from 0 to 16. Zero collapses that axis to the pivot, which can leave a one-pixel edge. Use `visible: false` to hide it.
+- Define up to 64 `scaleTracks` with 1–256 keys in increasing milliseconds. The frame samples the total duration of preceding frames in recipe order. `frame.time` overrides that frame’s sample. Layer `delay` subtracts milliseconds from that sample, so a positive value makes the part follow later. Reversing an animation plays its sampled poses in reverse.
+- Between keys, each axis interpolates with `linear` (default), `hold`, `in`, `out` or `inOut` easing. A one-shot holds the nearest endpoint outside its keys. A loop starts at 0, needs at least two keys, and wraps at the last key’s time, including for a delayed instance. Give the first and last keys the same scale for a continuous seam.
 
 ## Operations
 

@@ -1092,6 +1092,12 @@
           "maximum": 60000,
           "description": "Frame duration in milliseconds; default 100."
         },
+        "time": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15360000,
+          "description": "Scale track sample time in ms. Defaults to total duration of preceding source frames."
+        },
         "from": {
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
@@ -1339,6 +1345,47 @@
           "minimum": -4096,
           "maximum": 4096
         },
+        "part": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+          "description": "Polygon part whose pivot lands at x/y plus group. Optional ops follow it in canvas coordinates."
+        },
+        "flipX": {
+          "type": "boolean"
+        },
+        "flipY": {
+          "type": "boolean"
+        },
+        "scale": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 16
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 16
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+              "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+            }
+          ]
+        },
+        "delay": {
+          "type": "integer",
+          "minimum": -15360000,
+          "maximum": 15360000,
+          "description": "Subtract this many ms from the scale track sample time."
+        },
         "sort": {
           "enum": [
             "ground"
@@ -1363,7 +1410,54 @@
         }
       },
       "required": [],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependentRequired": {
+        "flipX": [
+          "part"
+        ],
+        "flipY": [
+          "part"
+        ],
+        "scale": [
+          "part"
+        ],
+        "delay": [
+          "part",
+          "scale"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "part"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "sort"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "delay"
+            ]
+          },
+          "then": {
+            "properties": {
+              "scale": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+                "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+              }
+            }
+          }
+        }
+      ]
     },
     "op": {
       "oneOf": [
@@ -2942,6 +3036,252 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/rows"
+          }
+        },
+        "parts": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "pivot": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": -4096,
+                  "maximum": 4096
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "description": "Local pixel placed at the instance position. Defaults to [0, 0]."
+              },
+              "ops": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "const": "polygon"
+                        },
+                        "x": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": -4096,
+                              "maximum": 4096
+                            },
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "description": "[x, y] in unscaled canvas pixels; the top-left corner of that pixel."
+                          },
+                          "maxItems": 256,
+                          "minItems": 3
+                        },
+                        "color": {
+                          "type": "string",
+                          "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
+                        },
+                        "filled": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "points",
+                        "color"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "const": "line"
+                        },
+                        "x": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "x2": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "y2": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "color": {
+                          "type": "string",
+                          "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "x2",
+                        "y2",
+                        "color"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "const": "pixel"
+                        },
+                        "x": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": -4096,
+                          "maximum": 4096
+                        },
+                        "color": {
+                          "type": "string",
+                          "description": "Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA."
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "color"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "maxItems": 2048
+              }
+            },
+            "required": [
+              "ops"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "scaleTracks": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 15360000
+                    },
+                    "scale": {
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 16
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 16
+                          },
+                          "maxItems": 2,
+                          "minItems": 2
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "scale"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 256,
+                "minItems": 1,
+                "description": "Ascending milliseconds. For a loop, start at 0 and end at its period."
+              },
+              "ease": {
+                "enum": [
+                  "linear",
+                  "hold",
+                  "in",
+                  "out",
+                  "inOut"
+                ]
+              },
+              "loop": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "keys"
+            ],
+            "additionalProperties": false,
+            "if": {
+              "required": [
+                "loop"
+              ],
+              "properties": {
+                "loop": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "keys": {
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "properties": {
+                        "at": {
+                          "const": 0
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "anchor": {
