@@ -158,7 +158,7 @@ test('an unknown field or operation names the one most likely meant and what is 
   }
   assert.match(message({ op: 'elipse', x: 0, y: 0, w: 2, h: 2, color: 'r' }), /did you mean "ellipse"\?/);
   assert.match(message({ op: 'Rect', x: 0, y: 0, w: 2, h: 2, color: 'r' }), /did you mean "rect"\?/);
-  assert.match(message({ op: 'polygon' }), /unknown operation "polygon"; operations: pixel, /);
+  assert.match(message({ op: 'arc' }), /unknown operation "arc"; operations: pixel, /);
   assert.match(message({ op: 7 }), /unknown operation 7; operations: pixel, /);
   // Recipe and frame fields get the same help.
   assert.throws(() => renderProject(make([], { animation: {} })), { message: /^project\.animation: unknown field; did you mean "animations"\?/ });

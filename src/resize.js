@@ -3,7 +3,7 @@
 // offset (a layer's by its own x and y as well), and the result renders exactly as that window of the original does:
 // a margin shows the background, or nothing. With fewer frames (`keepFrames`): evenly spaced frames of each
 // animation, playing as long as before. Browser-compatible.
-import { CANVAS_SIDE, FRAME_AREA, frameAreaProblem, frameTotalProblem, parseColor, renderProject, fail } from './core.js';
+import { CANVAS_SIDE, FRAME_AREA, frameAreaProblem, frameTotalProblem, layerOffset, parseColor, renderProject, fail } from './core.js';
 import { frameParts } from './fx.js';
 
 
@@ -37,7 +37,7 @@ function start(drawn, size) {
 
 // Operations that only place something: they move with the canvas. The rest read the whole canvas (an outline, a
 // flood fill, a dither's pattern), so the same operation on another canvas would draw something else.
-const PLACED = new Set(['pixel', 'rect', 'ellipse', 'line', 'clear', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box', 'tilemap', 'replace']);
+const PLACED = new Set(['pixel', 'rect', 'ellipse', 'line', 'polygon', 'clear', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box', 'tilemap', 'replace']);
 
 // What a move puts partly off the canvas keeps only its part on it, and what it puts wholly off is left out: a
 // plain grid keeps those rows and columns, a plain stamp becomes a copy of that rectangle of its symbol, a pixel
@@ -159,11 +159,12 @@ export function resizeRecipe(recipe, size, path = 'size') {
     const p = `frames[${index}]`, ops = moveOps(frame.ops ?? [], dx, dy, canvas);
     // A layer is drawn on a canvas of its own, cut by it, then moved by the layer's x and y and cut by the frame.
     // Here its operations take that move as well, so its canvas is the new one, and what either cut took is cleared.
-    const moved = (frame.layers ?? []).map(({ x = 0, y = 0, sort, ops: list = [] }, li) => moveOps(list, dx + x, dy + y, sort ? null : canvas));
-    const beyond = (frame.layers ?? []).map(({ x = 0, y = 0 }) => outside(dx + Math.max(0, x), dx + oldWidth + Math.min(0, x), dy + Math.max(0, y), dy + oldHeight + Math.min(0, y)));
+    const offsets = (frame.layers ?? []).map(layer => layerOffset(layer, frame.groups));
+    const moved = offsets.map(([x, y], li) => moveOps(frame.layers[li].ops ?? [], dx + x, dy + y, frame.layers[li].sort ? null : canvas));
+    const beyond = offsets.map(([x, y]) => outside(dx + Math.max(0, x), dx + oldWidth + Math.min(0, x), dy + Math.max(0, y), dy + oldHeight + Math.min(0, y)));
     const cut = margins.length || beyond.some(clears => clears.length) ? cutIn(frame, index) : [];
     if (margins.length && overhangs(cut, 'ops', frame.ops ?? [])) ops.push(...margins);
-    const layers = frame.layers?.map(({ x, y, ...layer }, li) => {
+    const layers = frame.layers?.map(({ x, y, group, ...layer }, li) => {
       if (beyond[li].length && overhangs(cut, `layers[${li}]`, layer.ops ?? [])) {
         // A sorted layer takes only what stands on the ground, and nothing that stands there erases.
         if (layer.sort) fail(path, `${p}.layers[${li}] is sorted by ground and draws past the canvas where the new one has a margin, which a sorted layer cannot clear, so this recipe cannot move to that canvas size; change the size in its source instead`);
@@ -171,8 +172,9 @@ export function resizeRecipe(recipe, size, path = 'size') {
       }
       return { ...layer, ...((layer.ops || moved[li].length > 0) && { ops: moved[li] }) };
     });
+    const { groups, ...resizedFrame } = frame;
     return {
-      ...frame,
+      ...resizedFrame,
       ...(frame.anchor && { anchor: point(frame.anchor) }),
       ...(frame.points && { points: Object.fromEntries(Object.entries(frame.points).map(([name, at]) => [name, point(at)])) }),
       ...((frame.ops || ops.length > 0) && { ops }),

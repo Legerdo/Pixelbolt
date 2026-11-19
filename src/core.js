@@ -84,6 +84,16 @@ function point(value, path) {
   if (!Array.isArray(value) || value.length !== 2) fail(path, 'expected [x, y]');
   return [integer(value[0], `${path}[0]`), integer(value[1], `${path}[1]`)];
 }
+// Layers in a frame group take its translation on top of their own. The compositor, canvas
+// resize and canvas-space patch advice all need the same effective offset.
+export function layerOffset(layer, groups, path = 'layer') {
+  const x = integer(layer.x ?? 0, `${path}.x`), y = integer(layer.y ?? 0, `${path}.y`);
+  if (layer.group === undefined) return [x, y];
+  const group = name(layer.group, `${path}.group`);
+  if (!groups || !own(groups, group)) fail(`${path}.group`, `unknown layer group "${group}"; declare it in this frame's groups`);
+  const [dx, dy] = groups[group];
+  return [x + dx, y + dy];
+}
 // A frame's facts as a tile, for engine tile sets: the terrain an autotile frame belongs to (frames of one set share
 // it), its weight against the other frames that could fill the same cell, and collision polygons around its solid
 // parts in canvas pixels (pixel corners, from 0 to the width and height), one-way when oneWay: bodies pass up through
@@ -175,6 +185,23 @@ export function blend(data, i, color, opacity = 1) {
   for (let c = 0; c < 3; c++) data[i + c] = Math.round((color[c] * a + data[i + c] * old * (1 - a)) / out);
   data[i + 3] = Math.round(out * 255);
 }
+// Final-pixel provenance for palette inspection. Allocate a byte per pixel only after the
+// first mix. Exact writes clear it, even when they write the very same RGBA as a previous mix.
+class BlendOrigins {
+  constructor(size, mask) { this.size = size; this.mask = mask?.slice(); }
+  set(at, mixed) {
+    if (mixed) (this.mask ??= new Uint8Array(this.size))[at] = 1;
+    else if (this.mask) this.mask[at] = 0;
+  }
+  paint(data, i, color, opacity = 1, inherited = false) {
+    if (!color[3] || !opacity) return;
+    this.set(i / 4, inherited || opacity < 1 || (color[3] < 255 && data[i + 3] > 0));
+    blend(data, i, color, opacity);
+  }
+}
+// Exact colours a rendered frame declares beyond the project palette, including copied pixels.
+const frameColours = frame => [...Object.values(frame.palette ?? {}),
+  ...(frame.layerPalettes ?? []).flatMap(entry => Object.values(entry.palette)), ...(frame.inherited ?? [])];
 // Text rows are all as wide as the first: every miscounted row at once, with its own width, so a hand-typed grid is
 // fixed in one pass. What a recipe's grid, a source format's symbol and a patch's rows are checked with.
 export function sameWidth(rows, path) {
@@ -252,7 +279,7 @@ export function largestScale(pixels, limit, scale) {
   return k;
 }
 // What may stand in a layer with sort "ground", and what works on an area instead.
-const STANDING = new Set(['pixel', 'rect', 'ellipse', 'line', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box']);
+const STANDING = new Set(['pixel', 'rect', 'ellipse', 'line', 'polygon', 'grid', 'stamp', 'text', 'copy', 'autotile', 'box']);
 const AREA = new Set(['clear', 'fill', 'replace', 'tilemap', 'outline', 'dither', 'shade', 'rewrite']);
 
 // `stills: false` keeps a document to the animation limit even with one frame, and `side` gives a source that keeps a
@@ -324,6 +351,51 @@ export function inlineSharedPalette(document, { palette, ramps = null }) {
   return { ...document, palette: { ...palette, ...local }, ...(inherit && { ramps }) };
 }
 
+// Emit disjoint inclusive spans, so translucent edges and shared vertices paint each pixel once.
+// Interior spans pair crossings at pixel centres (even-odd). Trace each boundary from its upper
+// endpoint so a Bresenham tie selects the same pixel when the vertex order is reversed.
+function polygonSpans(points, filled, spend, visit) {
+  const ys = points.map(([, y]) => y), top = Math.min(...ys), bottom = Math.max(...ys);
+  const sides = points.map(([x, y], i) => {
+    let [endX, endY] = points[(i + 1) % points.length];
+    if (y > endY || (y === endY && x > endX)) { [x, endX] = [endX, x]; [y, endY] = [endY, y]; }
+    return { x, y, endX, endY, dx: Math.abs(endX - x), dy: endY - y, step: Math.sign(endX - x) };
+  });
+  spend((bottom - top + 1) * sides.length);
+  for (let row = top; row <= bottom; row++) {
+    const edges = [], crossings = [];
+    for (const { x, y, endX, endY, dx, dy, step } of sides) {
+      if (row < y || row > endY) continue;
+      if (!dy) { edges.push([x, endX]); continue; }
+      const k = row - y;
+      if (filled && row < endY) crossings.push(x + step * dx * (k + .5) / dy);
+      // A steep line visits one column on this row. For a shallow line, collect all
+      // major-axis steps whose rounded minor-axis coordinate is k (the line op's ties).
+      if (dy >= dx) {
+        const px = x + step * Math.round(k * dx / dy);
+        edges.push([px, px]);
+      } else {
+        const a = x + step * Math.max(0, Math.ceil((k - .5) * dx / dy));
+        const b = x + step * Math.min(dx, Math.ceil((k + .5) * dx / dy) - 1);
+        edges.push([Math.min(a, b), Math.max(a, b)]);
+      }
+    }
+    crossings.sort((a, b) => a - b);
+    for (let i = 0; i < crossings.length; i += 2) {
+      const left = Math.ceil(crossings[i] - .5), right = Math.ceil(crossings[i + 1] - .5) - 1;
+      if (left <= right) edges.push([left, right]);
+    }
+    edges.sort((a, b) => a[0] - b[0]);
+    let [left, right] = edges[0];
+    for (let i = 1; i < edges.length; i++) {
+      const [lo, hi] = edges[i];
+      if (lo > right + 1) { visit(row, left, right); left = lo; }
+      right = Math.max(right, hi);
+    }
+    visit(row, left, right);
+  }
+}
+
 export function renderProject(spec, options = {}) {
   object(options, 'render', ['layers', 'stats', 'owners']);
   if (options.stats !== undefined) boolean(options.stats, 'render.stats');
@@ -377,9 +449,7 @@ export function renderProject(spec, options = {}) {
   // Diagnostics count them as declared for the frame (`inherited`); drawing never reads them.
   let taken = null;
   const take = source => {
-    for (const value of Object.values(source.palette ?? {})) taken.add(value);
-    for (const entry of source.layerPalettes ?? []) for (const value of Object.values(entry.palette)) taken.add(value);
-    for (const value of source.inherited ?? []) taken.add(value);
+    for (const value of frameColours(source)) taken.add(value);
   };
   // The row an operation stands on, for a layer with sort "ground": its `ground`, or the lowest row it draws (a
   // stamp's or grid's bottom after scale and rotation, a line's lower end, a shape's bottom edge). Text needs `ground`,
@@ -398,6 +468,7 @@ export function renderProject(spec, options = {}) {
     const box = (w, h) => y + (turned ? w : h) * scale - 1;
     if (op.op === 'pixel') return y;
     if (op.op === 'line') return Math.max(y, whole(op.y2, y));
+    if (op.op === 'polygon') return y + (Array.isArray(op.points) && op.points.length && op.points.length <= 256 ? Math.max(...op.points.map(pt => whole(pt?.[1], 0))) : 0);
     if (op.op === 'rect' || op.op === 'ellipse') return y + whole(op.h, 1) - 1;
     if (op.op === 'grid') return Array.isArray(op.rows) && typeof op.rows[0] === 'string' ? box(op.rows[0].length, op.rows.length) : y;
     const grid = typeof op.symbol === 'string' && own(symbols, op.symbol) ? symbols[op.symbol] : null;
@@ -410,7 +481,7 @@ export function renderProject(spec, options = {}) {
   };
   // Operations draw in list order; in a layer with sort "ground" they draw far to near, by the row each stands on, and
   // operations on the same row keep list order (as a game draws actors and props). Paths keep list positions.
-  function drawOps(data, ops, path, bounds = null, sorted = false) {
+  function drawOps(data, ops, path, origins, bounds = null, sorted = false) {
     // Conservative dirty bounds, including writes later erased. Global operations still see the complete buffer.
     const touch = (x, y) => {
       if (!bounds) return;
@@ -443,6 +514,7 @@ export function renderProject(spec, options = {}) {
       const fields = {
         pixel: ['x', 'y', 'color', 'ground'], rect: ['x', 'y', 'w', 'h', 'color', 'filled', 'ground'],
         ellipse: ['x', 'y', 'w', 'h', 'color', 'filled', 'ground'], line: ['x', 'y', 'x2', 'y2', 'color', 'ground'],
+        polygon: ['x', 'y', 'points', 'color', 'filled', 'ground'],
         clear: ['x', 'y', 'w', 'h'], fill: ['x', 'y', 'color'],
         grid: ['x', 'y', 'rows', ...transform, 'remap', 'ground'],
         stamp: ['x', 'y', 'symbol', ...transform, 'remap', 'ground'], replace: ['from', 'to'],
@@ -460,11 +532,12 @@ export function renderProject(spec, options = {}) {
       object(op, p, ['op', ...fields[op.op]]);
       if (op.ground !== undefined && !sorted) fail(`${p}.ground`, 'ground orders a layer with sort "ground"; set sort on this layer, or remove ground');
       const x = integer(op.x ?? 0, `${p}.x`), y = integer(op.y ?? 0, `${p}.y`);
-      const put = (px, py, c, erase = false) => {
+      const put = (px, py, c, erase = false, mixed = false) => {
         if (px < 0 || py < 0 || px >= width || py >= height) { clip(p); return; }
         const at = (py * width + px) * 4;
         if (!erase && c[3]) touch(px, py);
-        if (erase) data.fill(0, at, at + 4); else blend(data, at, c);
+        if (erase) { data.fill(0, at, at + 4); origins.set(at / 4, false); }
+        else origins.paint(data, at, c, 1, mixed);
       };
       // Palette characters, optionally remapped to other palette keys or colors for this operation only.
       const paletteSampler = () => {
@@ -485,7 +558,7 @@ export function renderProject(spec, options = {}) {
       // Draws a w x h source through flip, rotation and integer scale; flips happen before rotation. `shift` moves
       // the drawing by [dx, dy], given the scale, rotation and vertical flip (text alignment, and accents above the
       // first line).
-      const drawCells = (w, h, sample, shift = () => [0, 0]) => {
+      const drawCells = (w, h, sample, shift = () => [0, 0], mixedAt) => {
         const scale = integer(op.scale ?? 1, `${p}.scale`, 1, 16);
         const flipX = boolean(op.flipX ?? false, `${p}.flipX`), flipY = boolean(op.flipY ?? false, `${p}.flipY`);
         const rotate = integer(op.rotate ?? 0, `${p}.rotate`, 0, 270);
@@ -499,7 +572,8 @@ export function renderProject(spec, options = {}) {
           if (rotate === 90) [px, py] = [h - 1 - py, px];
           else if (rotate === 180) [px, py] = [w - 1 - px, h - 1 - py];
           else if (rotate === 270) [px, py] = [py, w - 1 - px];
-          for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) put(left + px * scale + sx, top + py * scale + sy, c);
+          const mixed = mixedAt?.(gx, gy);
+          for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) put(left + px * scale + sx, top + py * scale + sy, c, false, mixed);
         }
       };
       // The canvas-anchored threshold field shared by dither and shade: a region from x/y (to the canvas edge unless w/h
@@ -567,6 +641,19 @@ export function renderProject(spec, options = {}) {
         const x2 = integer(op.x2, `${p}.x2`), y2 = integer(op.y2, `${p}.y2`), c = color(op.color, `${p}.color`);
         spend(Math.max(Math.abs(x2 - x), Math.abs(y2 - y)) + 1);
         traceLine(x, y, x2, y2, (px, py) => put(px, py, c));
+      } else if (op.op === 'polygon') {
+        if (!Array.isArray(op.points) || op.points.length < 3 || op.points.length > 256) fail(`${p}.points`, 'expected 3–256 vertices as [x, y] pairs');
+        const points = op.points.map((at, i) => point(at, `${p}.points[${i}]`));
+        const c = color(op.color, `${p}.color`), filled = boolean(op.filled ?? true, `${p}.filled`);
+        polygonSpans(points, filled, spend, (row, left, right) => {
+          const py = row + y, length = right - left + 1;
+          spend(length);
+          if (py < 0 || py >= height) { clip(p, length); return; }
+          const first = Math.max(0, left + x), last = Math.min(width - 1, right + x);
+          const lost = length - Math.max(0, last - first + 1);
+          if (lost) clip(p, lost);
+          for (let px = first; px <= last; px++) put(px, py, c);
+        });
       } else if (op.op === 'grid' || op.op === 'stamp') {
         if (op.op === 'stamp' && typeof op.symbol !== 'string') fail(`${p}.symbol`, 'expected a string naming a symbol');
         const grid = op.op === 'grid' ? readRows(op.rows, `${p}.rows`, palette) : symbols[op.symbol];
@@ -595,7 +682,7 @@ export function renderProject(spec, options = {}) {
       } else if (op.op === 'copy') {
         // Copies a rectangle of a symbol (palette characters) or of an earlier frame (exact RGBA).
         if ((op.from === undefined) === (op.symbol === undefined)) fail(p, 'copy needs exactly one of from (an earlier frame) or symbol');
-        let sourceWidth, sourceHeight, read;
+        let sourceWidth, sourceHeight, read, mixedAt;
         if (op.symbol !== undefined) {
           if (typeof op.symbol !== 'string') fail(`${p}.symbol`, 'expected a string naming a symbol');
           const grid = symbols[op.symbol];
@@ -605,8 +692,8 @@ export function renderProject(spec, options = {}) {
         } else {
           if (typeof op.from !== 'string' || !rendered.has(op.from)) fail(`${p}.from`, 'must name an earlier frame');
           // A frame copy keeps exact RGBA; remap swaps exact colours, named by project palette key or hex, for others.
-          const source = rendered.get(op.from).data, swaps = new Map();
-          take(rendered.get(op.from));
+          const previous = rendered.get(op.from), source = previous.data, swaps = new Map();
+          take(previous);
           if (op.remap !== undefined) {
             object(op.remap, `${p}.remap`);
             if (Object.keys(op.remap).length > 256) fail(`${p}.remap`, 'at most 256 colours');
@@ -618,10 +705,14 @@ export function renderProject(spec, options = {}) {
             }
           }
           [sourceWidth, sourceHeight, read] = [width, height, (sx, sy) => { const at = (sy * width + sx) * 4; return source[at + 3] ? swaps.get(pixelId(source, at)) ?? source.subarray(at, at + 4) : null; }];
+          if (previous.blendMask) mixedAt = (sx, sy) => {
+            const at = sy * width + sx;
+            return previous.blendMask[at] && !swaps.has(pixelId(source, at * 4));
+          };
         }
         const sx = integer(op.sx ?? 0, `${p}.sx`, 0, sourceWidth - 1), sy = integer(op.sy ?? 0, `${p}.sy`, 0, sourceHeight - 1);
         const w = integer(op.w ?? sourceWidth - sx, `${p}.w`, 1, sourceWidth - sx), h = integer(op.h ?? sourceHeight - sy, `${p}.h`, 1, sourceHeight - sy);
-        drawCells(w, h, (gx, gy) => read(sx + gx, sy + gy));
+        drawCells(w, h, (gx, gy) => read(sx + gx, sy + gy), undefined, mixedAt && ((gx, gy) => mixedAt(sx + gx, sy + gy)));
       } else if (op.op === 'autotile') {
         // One tile of an autotile set. The autotile compiler emits one per frame, so editing the template redraws every tile.
         if (typeof op.symbol !== 'string') fail(`${p}.symbol`, 'expected a string naming a template symbol');
@@ -727,7 +818,7 @@ export function renderProject(spec, options = {}) {
         }
         for (let i = 0; i < paint.length; i++) if (paint[i]) {
           if (c[3]) touch(i % width, Math.floor(i / width));
-          blend(data, i * 4, c);
+          origins.paint(data, i * 4, c);
         }
       } else if (op.op === 'dither') {
         // Ordered dither: draws `color` (or erases) where the canvas-anchored pattern's threshold is below the density.
@@ -750,7 +841,7 @@ export function renderProject(spec, options = {}) {
           const at = (py * width + px) * 4, id = pixelId(data, at);
           if (!id || (over && !over.has(id))) return;
           const next = shift(id, steps);
-          if (next) data.set(next, at);
+          if (next) { data.set(next, at); origins.set(at / 4, false); }
         });
       } else if (op.op === 'rewrite') {
         // Markov-style rules: small palette grids matched against exact RGBA and replaced in place (see craft.js).
@@ -787,6 +878,7 @@ export function renderProject(spec, options = {}) {
         for (const index of rewriteIds(ids, width, height, rules, { x: rx, y: ry, w: rw, h: rh, steps, chance, limit, seed, spend })) {
           touch(index % width, Math.floor(index / width));
           data.set(colorOf(ids[index]), index * 4);
+          origins.set(index, false);
         }
       } else if (op.op === 'replace') {
         const from = color(op.from, `${p}.from`), to = color(op.to, `${p}.to`);
@@ -794,6 +886,7 @@ export function renderProject(spec, options = {}) {
         for (let i = 0; i < data.length; i += 4) if (from.every((c, j) => data[i + j] === c)) {
           touch(i / 4 % width, Math.floor(i / 4 / width));
           data.set(to, i);
+          origins.set(i / 4, false);
         }
       } else if (op.op === 'fill') {
         if (x < 0 || y < 0 || x >= width || y >= height) fail(p, 'fill seed must be inside the canvas');
@@ -806,6 +899,7 @@ export function renderProject(spec, options = {}) {
           visited[at] = 1;
           if (!target.every((v, j) => data[at * 4 + j] === v)) continue;
           data.set(c, at * 4);
+          origins.set(at, false);
           const px = at % width, py = Math.floor(at / width);
           touch(px, py);
           if (px > 0) stack.push(at - 1); if (px + 1 < width) stack.push(at + 1);
@@ -818,12 +912,19 @@ export function renderProject(spec, options = {}) {
     const p = `project.frames[${index}]`;
     // A field a frame doesn't have is noted like a broken operation and the frame is read without it, so the same
     // reply still names what else is wrong: another frame's operations, an animation that lists a missing frame.
-    try { object(frame, p, ['name', 'duration', 'from', 'translate', 'wrap', 'flipX', 'flipY', 'palette', 'anchor', 'points', 'tile', 'ops', 'layers', 'pixels']); }
+    try { object(frame, p, ['name', 'duration', 'from', 'translate', 'wrap', 'flipX', 'flipY', 'palette', 'anchor', 'points', 'groups', 'tile', 'ops', 'layers', 'pixels']); }
     catch (error) { if (!isObject(frame) || !error.message.includes('unknown field')) throw error; note(error, p); }
     const frameName = name(frame.name, `${p}.name`);
     if (frameNames.has(frameName.toLowerCase())) fail(`${p}.name`, `duplicate frame ${frameName}; names must also be unique ignoring case`);
     frameNames.add(frameName.toLowerCase());
     const duration = integer(frame.duration ?? 100, `${p}.duration`, 1, 60000);
+    if (frame.groups !== undefined) {
+      object(frame.groups, `${p}.groups`);
+      if (Object.keys(frame.groups).length > 64) fail(`${p}.groups`, 'at most 64 layer groups per frame');
+      for (const [key, offset] of Object.entries(frame.groups)) {
+        name(key, `${p}.groups.${key}`); point(offset, `${p}.groups.${key}`);
+      }
+    }
     let overrides = null;
     if (frame.palette !== undefined) {
       overrides = paletteOverride(frame.palette, palette, `${p}.palette`, 'frame palettes recolor keys declared in the project palette');
@@ -839,11 +940,13 @@ export function renderProject(spec, options = {}) {
     }
     const tile = frame.tile === undefined ? null : tileFacts(frame.tile, `${p}.tile`, width, height);
     let data = new Uint8ClampedArray(width * height * 4), owner = ownerNames && new Uint16Array(width * height);
+    let origins = new BlendOrigins(width * height);
     taken = new Set();
     if (frame.from !== undefined) {
       if (typeof frame.from !== 'string' || !rendered.has(frame.from)) fail(`${p}.from`, 'must name an earlier frame');
       take(rendered.get(frame.from));
       data.set(rendered.get(frame.from).data);
+      origins = new BlendOrigins(width * height, rendered.get(frame.from).blendMask);
       owner?.set(rendered.get(frame.from).owners);
     } else if (background.some(Boolean)) {
       for (let i = 0; i < data.length; i += 4) data.set(background, i);
@@ -857,19 +960,21 @@ export function renderProject(spec, options = {}) {
     const wrap = boolean(frame.wrap ?? false, `${p}.wrap`);
     if (dx || dy || flipX || flipY) {
       const transformed = new Uint8ClampedArray(data.length), moved = owner && new Uint16Array(owner.length);
+      const movedOrigins = new BlendOrigins(width * height);
       for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         let px = (flipX ? width - 1 - x : x) + dx, py = (flipY ? height - 1 - y : y) + dy;
         if (wrap) { px = ((px % width) + width) % width; py = ((py % height) + height) % height; }
         if (px >= 0 && py >= 0 && px < width && py < height) {
           transformed.set(data.subarray((y * width + x) * 4, (y * width + x) * 4 + 4), (py * width + px) * 4);
           if (moved) moved[py * width + px] = owner[y * width + x];
+          if (origins.mask?.[y * width + x]) movedOrigins.set(py * width + px, true);
         } else if (data[(y * width + x) * 4 + 3]) clip(`${p}.translate`);
       }
-      data = transformed; owner = moved;
+      data = transformed; owner = moved; origins = movedOrigins;
     }
     // Frame operations may draw anywhere and erase: what they changed is theirs.
     const unchanged = owner && frame.ops?.length ? data.slice() : null;
-    drawOps(data, frame.ops ?? [], `${p}.ops`);
+    drawOps(data, frame.ops ?? [], `${p}.ops`, origins);
     if (unchanged) {
       const id = ownerId('frame.ops');
       for (let at = 0; at < owner.length; at++) {
@@ -881,9 +986,10 @@ export function renderProject(spec, options = {}) {
     const framePalette = activePalette, layerPalettes = [];
     // Reuse a layer scratch buffer; clear only dirty rows after compositing. Empty layers allocate nothing extra.
     const pixels = (frame.layers ?? []).length ? new Uint8ClampedArray(data.length) : null;
+    const layerOrigins = new BlendOrigins(width * height);
     for (const [li, layer] of (frame.layers ?? []).entries()) {
       const lp = `${p}.layers[${li}]`;
-      object(layer, lp, ['name', 'visible', 'opacity', 'x', 'y', 'palette', 'sort', 'ops']);
+      object(layer, lp, ['name', 'visible', 'opacity', 'x', 'y', 'group', 'palette', 'sort', 'ops']);
       if (layer.sort !== undefined && layer.sort !== 'ground') fail(`${lp}.sort`, 'expected "ground": draw this layer\'s operations far to near by the row each stands on');
       if (layer.name !== undefined) name(layer.name, `${lp}.name`);
       // A layer palette recolors keys for this layer's drawing only, on top of the frame's palette, so one layer can
@@ -896,9 +1002,9 @@ export function renderProject(spec, options = {}) {
       activePalette = layerOverrides ? { ...framePalette, ...layerOverrides } : framePalette;
       const visible = boolean(layer.visible ?? true, `${lp}.visible`), opacity = layer.opacity ?? 1;
       if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) fail(`${lp}.opacity`, 'expected a number from 0 to 1');
-      const lx = integer(layer.x ?? 0, `${lp}.x`), ly = integer(layer.y ?? 0, `${lp}.y`);
+      const [lx, ly] = layerOffset(layer, frame.groups, lp);
       const bounds = [width, height, -1, -1];
-      drawOps(pixels, layer.ops ?? [], `${lp}.ops`, bounds, layer.sort === 'ground');
+      drawOps(pixels, layer.ops ?? [], `${lp}.ops`, layerOrigins, bounds, layer.sort === 'ground');
       activePalette = framePalette;
       if (visible && opacity > 0 && bounds[2] >= 0) {
         const area = (bounds[2] - bounds[0] + 1) * (bounds[3] - bounds[1] + 1);
@@ -910,7 +1016,8 @@ export function renderProject(spec, options = {}) {
             const to = (ty * width + tx) * 4;
             if (pixels[i + 3] === 255 && opacity === 1) {
               data[to] = pixels[i]; data[to + 1] = pixels[i + 1]; data[to + 2] = pixels[i + 2]; data[to + 3] = 255;
-            } else blend(data, to, pixels.subarray(i, i + 4), opacity);
+              origins.set(to / 4, layerOrigins.mask?.[i / 4]);
+            } else origins.paint(data, to, pixels.subarray(i, i + 4), opacity, layerOrigins.mask?.[i / 4]);
           } else clip(lp);
         }
         if (owner) {
@@ -921,7 +1028,10 @@ export function renderProject(spec, options = {}) {
           }
         }
       }
-      for (let y = bounds[1]; y <= bounds[3]; y++) pixels.fill(0, (y * width + bounds[0]) * 4, (y * width + bounds[2] + 1) * 4);
+      for (let y = bounds[1]; y <= bounds[3]; y++) {
+        const start = y * width + bounds[0], end = y * width + bounds[2] + 1;
+        pixels.fill(0, start * 4, end * 4); layerOrigins.mask?.fill(0, start, end);
+      }
     }
     // Final canvas-space corrections replace RGBA, including transparency, after all layers.
     list(frame.pixels ?? [], `${p}.pixels`, FRAME_PIXELS);
@@ -931,6 +1041,7 @@ export function renderProject(spec, options = {}) {
       object(pixel, pp, ['x', 'y', 'color']);
       const x = integer(pixel.x, `${pp}.x`, 0, width - 1), y = integer(pixel.y, `${pp}.y`, 0, height - 1);
       data.set(color(pixel.color, `${pp}.color`), (y * width + x) * 4);
+      origins.set(y * width + x, false);
       // A correction over drawn pixels recolours them (a pose's inner lines recolour its parts' outlines), so they
       // stay their owner's; one on empty canvas is its own.
       if (owner) owner[y * width + x] = !data[(y * width + x) * 4 + 3] ? 0 : owner[y * width + x] || ownerId('frame.pixels');
@@ -938,6 +1049,7 @@ export function renderProject(spec, options = {}) {
     activePalette = palette;
     const result = { name: frameName, duration, data, ...(owner && { owners: owner }), ...(frameAnchor && { anchor: frameAnchor }), ...(points && { points }), ...(tile && { tile }), ...(overrides && { palette: overrides }), ...(layerPalettes.length && { layerPalettes }), ...(taken.size && { inherited: [...taken] }) };
     rendered.set(frameName, result);
+    if (origins.mask?.includes(1)) result.blendMask = origins.mask;
     return result;
   }));
   const animations = checked(() => readAnimations(spec, frames));
@@ -1885,10 +1997,11 @@ export function stackViews(views) {
 
 // One picture laid over another, pixel for pixel (`top` over `bottom`, both RGBA of one size): what a game draws when
 // it stacks frames.
-function laidOver(bottom, top) {
+function laidOver(bottom, top, origins, topMask) {
   const out = new Uint8ClampedArray(bottom);
   for (let i = 0; i < top.length; i += 4) {
     const a = top[i + 3];
+    if (a && origins) origins.set(i / 4, topMask?.[i / 4] || (a < 255 && out[i + 3] > 0));
     if (a === 255 || !out[i + 3]) { if (a) out.set(top.subarray(i, i + 4), i); continue; }
     if (!a) continue;
     const under = out[i + 3] * (255 - a) / 255, all = a + under;
@@ -1920,7 +2033,9 @@ export function inspectProject(project, options = {}, { sheets = 1, share, measu
       list(group, p, 16);
       if (!group.length) fail(p, 'a cell lists one to sixteen frame names, the bottom one first');
       const layers = group.map((ref, n) => project.frames.find(f => f.name === ref) ?? fail(`${p}[${n}]`, `unknown frame ${JSON.stringify(ref)}`));
-      return { name: group.join('+'), duration: layers[0].duration, data: layers.slice(1).reduce((data, frame) => laidOver(data, frame.data), layers[0].data) };
+      const origins = options.diagnostics && new BlendOrigins(width * height, layers[0].blendMask);
+      const data = layers.slice(1).reduce((bottom, frame) => laidOver(bottom, frame.data, origins, frame.blendMask), layers[0].data);
+      return { name: group.join('+'), duration: layers[0].duration, data, ...(origins && { blendMask: origins.mask, inherited: layers.flatMap(frameColours) }) };
     });
     project = { ...project, frames: stacked, animations: {}, ownerNames: undefined };
   }
@@ -2175,10 +2290,10 @@ export function analyzeProject(project) {
   const { width, height, frames } = project, findings = [], hashes = new Map(), cleanup = new Map();
   const known = new Set(Object.values(project.palette).map(color => colorId(parseColor(color), 0)));
   const stats = frames.map(frame => {
-    const colors = new Set(), outside = new Set(), isolated = [], unlisted = [];
+    const colors = new Set(), outside = new Set(), blended = new Set(), isolated = [], unlisted = [], mixes = [];
     // Colors a frame or layer palette introduces are declared for that frame, and for the frames that continue it or
     // copy from it (`inherited`), whose pixels carry them.
-    const introduced = [...Object.values(frame.palette ?? {}), ...(frame.layerPalettes ?? []).flatMap(entry => Object.values(entry.palette)), ...(frame.inherited ?? [])];
+    const introduced = frameColours(frame);
     const declared = introduced.length ? new Set([...known, ...introduced.map(color => colorId(parseColor(color), 0))]) : known;
     let visible = 0, isolatedCount = 0, hash = 2166136261;
     for (let at = 0; at < frame.data.length; at += 4) {
@@ -2187,7 +2302,13 @@ export function analyzeProject(project) {
       if (!id) continue;
       visible++; colors.add(id);
       const x = at / 4 % width, y = Math.floor(at / 4 / width);
-      if (!declared.has(id) && !outside.has(id)) { outside.add(id); if (unlisted.length < 32) unlisted.push({ x, y, color: toHex(frame.data.subarray(at, at + 4)) }); }
+      if (!declared.has(id)) {
+        const mixed = frame.blendMask?.[at / 4], seen = mixed ? blended : outside, samples = mixed ? mixes : unlisted;
+        if (!seen.has(id)) {
+          seen.add(id);
+          if (samples.length < 32) samples.push({ x, y, color: toHex(frame.data.subarray(at, at + 4)) });
+        }
+      }
       let neighbor = false;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if ((dx || dy) && x + dx >= 0 && x + dx < width && y + dy >= 0 && y + dy < height && frame.data[((y + dy) * width + x + dx) * 4 + 3]) neighbor = true;
@@ -2200,7 +2321,8 @@ export function analyzeProject(project) {
     peers.push(frame); hashes.set(hash, peers);
     if (!visible) findings.push({ code: 'empty', frame: frame.name, note: 'An empty effect/transition frame may be intentional.' });
     if (isolatedCount) findings.push({ code: 'isolated', frame: frame.name, count: isolatedCount, coordinates: isolated, omitted: isolatedCount - isolated.length, note: 'No visible 8-connected neighbor. Exempt intentional sparks, stars and detached accents.' });
-    if (outside.size) findings.push({ code: 'palette', frame: frame.name, count: outside.size, coordinates: unlisted, omitted: outside.size - unlisted.length, note: 'Colors outside the declared palette; literal colors and alpha blends may be intentional.' });
+    if (outside.size) findings.push({ code: 'palette', frame: frame.name, count: outside.size, coordinates: unlisted, omitted: outside.size - unlisted.length, note: 'Directly drawn colors outside the declared palette.' });
+    if (blended.size) findings.push({ code: 'alpha-blend', frame: frame.name, count: blended.size, coordinates: mixes, omitted: blended.size - mixes.length, note: 'Colors outside the declared palette produced by alpha blending or layer opacity.' });
     // How many pixels a `cleanup` patch change would alter with corners or strays alone. Counts, not findings: in
     // finished art most L-steps and specks are deliberate (highlight strokes, small rounded corners, texture).
     if (!cleanup.has(same?.name)) {
@@ -2247,14 +2369,12 @@ export function briefDiagnostics(diagnostics) {
   rest.findings = rest.findings.filter(finding => finding.code !== 'duplicate');
   if (frames.length <= DIAGNOSTIC_ROWS) return { advisory: rest.advisory, frames, ...(rest.animations && { animations: rest.animations }), findings: rest.findings };
   const range = key => [Math.min(...frames.map(row => row[key])), Math.max(...frames.map(row => row[key]))], sum = key => frames.reduce((total, row) => total + row[key], 0);
-  // 2 for a frame with a finding to place, 1 for one whose only finding is off-palette colours.
+  // Place drawing findings first, then direct off-palette colours, then expected blends.
   const flagged = new Map();
-  for (const finding of rest.findings) if (finding.coordinates) flagged.set(finding.frame, Math.max(flagged.get(finding.frame) ?? 0, finding.code === 'palette' ? 1 : 2));
+  for (const finding of rest.findings) if (finding.coordinates) flagged.set(finding.frame, Math.max(flagged.get(finding.frame) ?? 0, finding.code === 'alpha-blend' ? 1 : finding.code === 'palette' ? 2 : 3));
   const most = frames.map((row, index) => ({ row, index, flagged: flagged.get(row.frame) ?? 0, count: row.corners + row.strays })).filter(entry => entry.flagged || entry.count)
     .sort((a, b) => b.flagged - a.flagged || b.count - a.count || a.index - b.index).slice(0, 3).map(entry => entry.row);
-  const kept = new Set(most.map(row => row.frame)), totals = new Map(), named = new Map(), colours = new Map(), plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const paletteFrames = [];
-  let unlisted = false;
+  const kept = new Set(most.map(row => row.frame)), totals = new Map(), named = new Map(), paletteTotals = new Map(), plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const findings = rest.findings.filter(finding => {
     if (finding.frame === undefined) return true;
     if (!finding.coordinates) {
@@ -2263,9 +2383,10 @@ export function briefDiagnostics(diagnostics) {
       named.set(finding.code, [finding.frame]); return true;
     }
     if (kept.has(finding.frame)) return true;
-    if (finding.code === 'palette') {
-      for (const { color } of finding.coordinates) colours.set(color, (colours.get(color) ?? 0) + 1);
-      unlisted ||= finding.omitted > 0; paletteFrames.push(finding.frame);
+    if (finding.code === 'palette' || finding.code === 'alpha-blend') {
+      const total = paletteTotals.get(finding.code) ?? { colours: new Map(), frames: [], unlisted: false };
+      for (const { color } of finding.coordinates) total.colours.set(color, (total.colours.get(color) ?? 0) + 1);
+      total.unlisted ||= finding.omitted > 0; total.frames.push(finding.frame); paletteTotals.set(finding.code, total);
     } else {
       const total = totals.get(finding.code) ?? { count: 0, frames: [] };
       total.count += finding.count ?? 0; total.frames.push(finding.frame); totals.set(finding.code, total);
@@ -2278,12 +2399,12 @@ export function briefDiagnostics(diagnostics) {
     return { code: same.code, frames: nameRuns(names).join(', '), ...same };
   });
   const findingTotals = Object.fromEntries([...totals].map(([code, { count, frames }]) => [code, `${count ? `${code === 'isolated' ? plural(count, 'pixel') : count} in ` : ''}${frames.length <= DIAGNOSTIC_ROWS ? nameRuns(frames).join(', ') : plural(frames.length, 'frame')}`]));
-  if (colours.size) {
+  for (const [code, { colours, frames: paletteFrames, unlisted }] of paletteTotals) {
     // The colours in the most frames first; past eight, how many more.
     const listed = [...colours].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)), shown = listed.slice(0, 8).map(([color, frames]) => `${color} in ${plural(frames, 'frame')}`), more = listed.length - shown.length;
     // A frame lists its first 32 colours, so one with more may hold colours no frame names.
     if (more || unlisted) shown.push(`${more ? `${more}${unlisted ? ' or more' : ''} ` : ''}other colour${more === 1 && !unlisted ? '' : 's'}`);
-    findingTotals.palette = `${shown.join(', ')}${paletteFrames.length <= DIAGNOSTIC_ROWS ? `; in ${nameRuns(paletteFrames).join(', ')}` : ''}`;
+    findingTotals[code] = `${shown.join(', ')}${paletteFrames.length <= DIAGNOSTIC_ROWS ? `; in ${nameRuns(paletteFrames).join(', ')}` : ''}`;
   }
   return { advisory: rest.advisory, frameTotals: { frames: frames.length, visible: range('visible'), colors: range('colors'), corners: sum('corners'), strays: sum('strays') }, frames: most, omitted: frames.length - most.length, ...(rest.animations && { animations: rest.animations }), findings, ...(Object.keys(findingTotals).length && { findingTotals }) };
 }

@@ -548,12 +548,13 @@ test('diagnostics of a long recipe whose only findings are off-palette colours n
   // kept were frames with none, and the colours were totalled with no frame named.
   const source = JSON.parse(readFileSync(path.join(root, 'examples', 'cannon-smoke.fluid.json'), 'utf8'));
   const { diagnostics } = inspectProject(renderProject(COMPILERS[source.format](source).recipe), { diagnostics: true });
-  const flagged = diagnostics.findings.filter(finding => finding.code === 'palette').map(finding => finding.frame);
+  const flagged = diagnostics.findings.filter(finding => finding.code === 'alpha-blend').map(finding => finding.frame);
+  assert.ok(!diagnostics.findings.some(finding => finding.code === 'palette'));
   assert.deepEqual(flagged, Array.from({ length: 6 }, (_, i) => `cannon-smoke-${i}`));
   const brief = briefDiagnostics(diagnostics), kept = brief.frames.map(row => row.frame);
   assert.ok(kept.every(frame => flagged.includes(frame)), kept.join());
   assert.deepEqual(brief.findings.map(finding => finding.frame).sort(), [...kept].sort());
-  const named = /; in (.*)$/.exec(brief.findingTotals.palette)[1];
+  const named = /; in (.*)$/.exec(brief.findingTotals['alpha-blend'])[1];
   // What is listed and what is named are the six frames, each once.
   assert.equal(named, 'cannon-smoke-0 … cannon-smoke-2');
   assert.deepEqual([...kept, 'cannon-smoke-0', 'cannon-smoke-1', 'cannon-smoke-2'].sort(), [...flagged].sort());

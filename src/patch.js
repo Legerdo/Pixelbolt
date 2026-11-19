@@ -1,5 +1,5 @@
 // Browser-compatible recipe patching: targeted edits addressed by readable paths. No I/O.
-import { parseColor, renderProject, fail, isObject, sameWidth, CANVAS_SIDE, FRAME_PIXELS } from './core.js';
+import { parseColor, renderProject, fail, isObject, sameWidth, layerOffset, CANVAS_SIDE, FRAME_PIXELS } from './core.js';
 import { pixelId, colorOf, idsOf, cleanupIds } from './craft.js';
 
 const define = (target, key, value) => Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
@@ -75,7 +75,7 @@ function tooManyCorrections(frame, verb, count, kept, added) {
   const top = layers.findLastIndex(layer => isObject(layer) && layer.visible !== false && layer.opacity !== 0);
   let route = `the frame's operations (a set of ${f}.ops or an insert at ${f}.ops[-])`;
   if (top >= 0) {
-    const layer = layers[top], plain = (layer.opacity ?? 1) === 1 && !layer.x && !layer.y && layer.palette === undefined && layer.sort === undefined;
+    const layer = layers[top], plain = (layer.opacity ?? 1) === 1 && !layerOffset(layer, frame.groups).some(Boolean) && layer.palette === undefined && layer.sort === undefined;
     const named = layer.name, unique = typeof named === 'string' && /^[a-zA-Z][\w-]*$/.test(named) && layers.filter(item => isObject(item) && item.name === named).length === 1;
     const ops = `${f}.layers[${unique ? named : top}].ops`;
     route = plain ? `its top layer's operations (a set of ${ops} or an insert at ${ops}[-])` : `operations in a new top layer (an insert at ${f}.layers[-] of {"ops": [...]})`;
