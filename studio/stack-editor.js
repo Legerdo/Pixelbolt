@@ -1,7 +1,7 @@
 // Edit stack faces and shared decal grids. A pointer gesture commits once. A refresh of the
 // same document preserves its active pointer, undo history and model-space review pin.
 import { prepareStack } from '/stack.js';
-import { parseColor } from '/core.js';
+import { parseColor, renderProject } from '/core.js';
 import { traceLine } from '/craft.js';
 import { $, toast } from '/page.js';
 
@@ -64,9 +64,10 @@ export function stackEditor(seek, rest) {
     if (!pin || comparisonKey === heading) return;
     const review = prepared.comparison(pin.face, pin.at, heading);
     if (!review) { pin = null; marker.hidden = true; $('stack-comparison').hidden = true; return; }
-    const items = review.frames.map(frame => {
+    const items = renderProject(review).frames.map(frame => {
       const figure = document.createElement('figure'), tile = document.createElement('canvas'), caption = document.createElement('figcaption');
-      drawRows(tile, frame.ops[0].rows);
+      tile.width = review.width; tile.height = review.height;
+      tile.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.data),tile.width,tile.height),0,0);
       caption.textContent = `${frame.name.slice('heading-'.length)}°`;
       figure.append(tile, caption); return figure;
     });
@@ -201,12 +202,13 @@ export function stackEditor(seek, rest) {
     finish(); cursor = [0,0]; controls(); draw();
   };
   $('stack-unpin').onclick = () => { pin = null; comparison(); };
+  $('stack-socket').onchange = () => seek(Number(slider.value));
   slider.oninput = () => seek(Number(slider.value));
 
   function reset() {
     stroke = null; pin = null; comparisonKey = null; written = null; prepared = null;
     sourceText = null; undo.length = redo.length = 0; cursor = [0,0];
-    target.value = ''; tool.value = 'brush'; panel.hidden = true;
+    target.value = ''; tool.value = 'brush'; $('stack-socket').value = ''; panel.hidden = true;
   }
   return {
     reset,
@@ -217,6 +219,9 @@ export function stackEditor(seek, rest) {
         stroke = null; undo.length = redo.length = 0;
         sourceText = editor.value; written = value;
       }
+      const sockets = Object.keys(value.sockets ?? {});
+      selectOptions($('stack-socket'), [['','Off'],...sockets.map(name=>[name,name])]);
+      $('stack-socket-label').hidden = !sockets.length;
       const same = prepared === model;
       prepared = model; palette = resolvedPalette; panel.hidden = false;
       colours = Object.fromEntries(Object.entries(palette).map(([key, hex]) => [key,parseColor(hex)]));
@@ -226,9 +231,15 @@ export function stackEditor(seek, rest) {
       if (!same) comparisonKey = null;
       controls(); if (!stroke) draw();
     },
-    heading(index) {
+    heading(index, context) {
       if (!prepared) return;
       heading = prepared.metadata.headings[index];
+      const name=$('stack-socket').value;
+      if (name && context) {
+        const [x,y]=prepared.attachments(heading)[name];
+        context.fillStyle='#17202a'; context.fillRect(x-4,y-1,9,3); context.fillRect(x-1,y-4,3,9);
+        context.fillStyle='#ffffff'; context.fillRect(x-3,y,7,1); context.fillRect(x,y-3,1,7);
+      }
       slider.value = String(index); $('stack-angle').textContent = `${heading}°`; comparison();
     }
   };

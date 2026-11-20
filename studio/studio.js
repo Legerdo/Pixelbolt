@@ -84,7 +84,7 @@ claimed.catch(() => {});
 let drafts = null, offer = null, offers = [], draftTimer, draftWarned = false;
 const ownOffer = () => offer !== null && offer.id === drafts.id;
 // Each example's frame count is added from its render when the list is built, so a changed example can't leave it stale.
-const examples = [{ file: 'forest-spirit', title: 'Forest spirit', type: 'Character' }, { file: 'ember', title: 'Campfire', type: 'Effect' }, { file: 'coin', title: 'Golden coin', type: 'Collectible' }, { file: 'shrine', title: 'Moonlit shrine', type: 'Dither, rewrite, rim light' }, { file: 'caption', title: 'Caption', type: 'Text, for video' }, { file: 'swing', title: 'Sword swing', type: 'Rotated, tweened poses' }, { file: 'effects', title: 'Particle effects', type: 'Compiled fx' }, { file: 'interference.wave', title: 'Interference', type: 'Paired ripples' }, { file: 'portal.wave', title: 'Portal', type: 'Moving waves, steady rim' }, { file:'copper-rally.stack', title:'Copper Rally', type:'Paintable sprite stack' }];
+const examples = [{ file: 'forest-spirit', title: 'Forest spirit', type: 'Character' }, { file: 'ember', title: 'Campfire', type: 'Effect' }, { file: 'coin', title: 'Golden coin', type: 'Collectible' }, { file: 'shrine', title: 'Moonlit shrine', type: 'Dither, rewrite, rim light' }, { file: 'caption', title: 'Caption', type: 'Text, for video' }, { file: 'swing', title: 'Sword swing', type: 'Rotated, tweened poses' }, { file: 'effects', title: 'Particle effects', type: 'Compiled fx' }, { file: 'interference.wave', title: 'Interference', type: 'Paired ripples' }, { file: 'portal.wave', title: 'Portal', type: 'Moving waves, steady rim' }, { file:'copper-rally.stack', title:'Copper Rally', type:'Paintable sprite stack' }, { file:'lodekeeper-faceted.stack', title:'Lodekeeper', type:'Glass and moving attachments' }];
 const title = name => name.replace(/[-_]/g, ' ').replace(/^./, c => c.toUpperCase());
 function imageCanvas(data, width, height) {
   const c = document.createElement('canvas'); c.width = width; c.height = height;
@@ -173,7 +173,7 @@ function render() {
   shownScale = displayScale;
   canvas.style.width = `${width * displayScale}px`; canvas.style.height = `${height * displayScale}px`;
   canvas.classList.toggle('smooth', displayScale < 1 && !stackOpen);
-  if (stackOpen) stackTools.heading(position);
+  if (stackOpen) stackTools.heading(position, !isSheet && !isMotion ? context : null);
   const board = $('artboard');
   board.classList.toggle('pannable', board.scrollWidth > board.clientWidth || board.scrollHeight > board.clientHeight);
   $('canvas-wrap').style.setProperty('--pixel-size', `${displayScale}px`);

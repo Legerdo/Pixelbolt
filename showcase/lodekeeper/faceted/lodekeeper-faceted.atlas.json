@@ -1,0 +1,3775 @@
+{
+  "frames": {
+    "heading-335": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 75,
+          "y": 131
+        },
+        "sheave": {
+          "x": 180,
+          "y": 62
+        },
+        "grab": {
+          "x": 189,
+          "y": 126
+        }
+      }
+    },
+    "heading-340": {
+      "frame": {
+        "x": 226,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 76,
+          "y": 129
+        },
+        "sheave": {
+          "x": 178,
+          "y": 65
+        },
+        "grab": {
+          "x": 186,
+          "y": 129
+        }
+      }
+    },
+    "heading-345": {
+      "frame": {
+        "x": 452,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 78,
+          "y": 128
+        },
+        "sheave": {
+          "x": 175,
+          "y": 68
+        },
+        "grab": {
+          "x": 183,
+          "y": 133
+        }
+      }
+    },
+    "heading-350": {
+      "frame": {
+        "x": 678,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 80,
+          "y": 126
+        },
+        "sheave": {
+          "x": 171,
+          "y": 70
+        },
+        "grab": {
+          "x": 179,
+          "y": 136
+        }
+      }
+    },
+    "heading-355": {
+      "frame": {
+        "x": 904,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 82,
+          "y": 125
+        },
+        "sheave": {
+          "x": 168,
+          "y": 73
+        },
+        "grab": {
+          "x": 175,
+          "y": 139
+        }
+      }
+    },
+    "heading-0": {
+      "frame": {
+        "x": 1130,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 84,
+          "y": 123
+        },
+        "sheave": {
+          "x": 163,
+          "y": 75
+        },
+        "grab": {
+          "x": 170,
+          "y": 142
+        }
+      }
+    },
+    "heading-5": {
+      "frame": {
+        "x": 1356,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 87,
+          "y": 122
+        },
+        "sheave": {
+          "x": 159,
+          "y": 77
+        },
+        "grab": {
+          "x": 165,
+          "y": 144
+        }
+      }
+    },
+    "heading-10": {
+      "frame": {
+        "x": 1582,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 90,
+          "y": 121
+        },
+        "sheave": {
+          "x": 154,
+          "y": 79
+        },
+        "grab": {
+          "x": 159,
+          "y": 146
+        }
+      }
+    },
+    "heading-15": {
+      "frame": {
+        "x": 1808,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 93,
+          "y": 120
+        },
+        "sheave": {
+          "x": 149,
+          "y": 81
+        },
+        "grab": {
+          "x": 153,
+          "y": 148
+        }
+      }
+    },
+    "heading-20": {
+      "frame": {
+        "x": 0,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 96,
+          "y": 119
+        },
+        "sheave": {
+          "x": 143,
+          "y": 82
+        },
+        "grab": {
+          "x": 147,
+          "y": 149
+        }
+      }
+    },
+    "heading-25": {
+      "frame": {
+        "x": 226,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 99,
+          "y": 119
+        },
+        "sheave": {
+          "x": 137,
+          "y": 83
+        },
+        "grab": {
+          "x": 140,
+          "y": 150
+        }
+      }
+    },
+    "heading-30": {
+      "frame": {
+        "x": 452,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 102,
+          "y": 118
+        },
+        "sheave": {
+          "x": 131,
+          "y": 84
+        },
+        "grab": {
+          "x": 134,
+          "y": 151
+        }
+      }
+    },
+    "heading-35": {
+      "frame": {
+        "x": 678,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 106,
+          "y": 118
+        },
+        "sheave": {
+          "x": 125,
+          "y": 85
+        },
+        "grab": {
+          "x": 127,
+          "y": 151
+        }
+      }
+    },
+    "heading-40": {
+      "frame": {
+        "x": 904,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 109,
+          "y": 118
+        },
+        "sheave": {
+          "x": 119,
+          "y": 85
+        },
+        "grab": {
+          "x": 120,
+          "y": 150
+        }
+      }
+    },
+    "heading-45": {
+      "frame": {
+        "x": 1130,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 113,
+          "y": 118
+        },
+        "sheave": {
+          "x": 113,
+          "y": 86
+        },
+        "grab": {
+          "x": 113,
+          "y": 149
+        }
+      }
+    },
+    "heading-50": {
+      "frame": {
+        "x": 1356,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 116,
+          "y": 118
+        },
+        "sheave": {
+          "x": 106,
+          "y": 85
+        },
+        "grab": {
+          "x": 105,
+          "y": 148
+        }
+      }
+    },
+    "heading-55": {
+      "frame": {
+        "x": 1582,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 119,
+          "y": 118
+        },
+        "sheave": {
+          "x": 100,
+          "y": 85
+        },
+        "grab": {
+          "x": 98,
+          "y": 147
+        }
+      }
+    },
+    "heading-60": {
+      "frame": {
+        "x": 1808,
+        "y": 252,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 123,
+          "y": 118
+        },
+        "sheave": {
+          "x": 94,
+          "y": 84
+        },
+        "grab": {
+          "x": 91,
+          "y": 145
+        }
+      }
+    },
+    "heading-65": {
+      "frame": {
+        "x": 0,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 126,
+          "y": 119
+        },
+        "sheave": {
+          "x": 88,
+          "y": 83
+        },
+        "grab": {
+          "x": 85,
+          "y": 143
+        }
+      }
+    },
+    "heading-70": {
+      "frame": {
+        "x": 226,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 129,
+          "y": 119
+        },
+        "sheave": {
+          "x": 82,
+          "y": 82
+        },
+        "grab": {
+          "x": 78,
+          "y": 140
+        }
+      }
+    },
+    "heading-75": {
+      "frame": {
+        "x": 452,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 133,
+          "y": 120
+        },
+        "sheave": {
+          "x": 77,
+          "y": 81
+        },
+        "grab": {
+          "x": 72,
+          "y": 137
+        }
+      }
+    },
+    "heading-80": {
+      "frame": {
+        "x": 678,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 135,
+          "y": 121
+        },
+        "sheave": {
+          "x": 71,
+          "y": 79
+        },
+        "grab": {
+          "x": 66,
+          "y": 134
+        }
+      }
+    },
+    "heading-85": {
+      "frame": {
+        "x": 904,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 138,
+          "y": 122
+        },
+        "sheave": {
+          "x": 66,
+          "y": 77
+        },
+        "grab": {
+          "x": 60,
+          "y": 130
+        }
+      }
+    },
+    "heading-90": {
+      "frame": {
+        "x": 1130,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 141,
+          "y": 123
+        },
+        "sheave": {
+          "x": 62,
+          "y": 75
+        },
+        "grab": {
+          "x": 55,
+          "y": 127
+        }
+      }
+    },
+    "heading-95": {
+      "frame": {
+        "x": 1356,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 143,
+          "y": 125
+        },
+        "sheave": {
+          "x": 57,
+          "y": 73
+        },
+        "grab": {
+          "x": 50,
+          "y": 123
+        }
+      }
+    },
+    "heading-100": {
+      "frame": {
+        "x": 1582,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 145,
+          "y": 126
+        },
+        "sheave": {
+          "x": 54,
+          "y": 70
+        },
+        "grab": {
+          "x": 46,
+          "y": 119
+        }
+      }
+    },
+    "heading-105": {
+      "frame": {
+        "x": 1808,
+        "y": 504,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 147,
+          "y": 128
+        },
+        "sheave": {
+          "x": 50,
+          "y": 68
+        },
+        "grab": {
+          "x": 42,
+          "y": 114
+        }
+      }
+    },
+    "heading-110": {
+      "frame": {
+        "x": 0,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 149,
+          "y": 129
+        },
+        "sheave": {
+          "x": 47,
+          "y": 65
+        },
+        "grab": {
+          "x": 39,
+          "y": 110
+        }
+      }
+    },
+    "heading-115": {
+      "frame": {
+        "x": 226,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 150,
+          "y": 131
+        },
+        "sheave": {
+          "x": 45,
+          "y": 62
+        },
+        "grab": {
+          "x": 36,
+          "y": 105
+        }
+      }
+    },
+    "heading-120": {
+      "frame": {
+        "x": 452,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 151,
+          "y": 132
+        },
+        "sheave": {
+          "x": 43,
+          "y": 59
+        },
+        "grab": {
+          "x": 34,
+          "y": 101
+        }
+      }
+    },
+    "heading-125": {
+      "frame": {
+        "x": 678,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 152,
+          "y": 134
+        },
+        "sheave": {
+          "x": 42,
+          "y": 56
+        },
+        "grab": {
+          "x": 32,
+          "y": 96
+        }
+      }
+    },
+    "heading-130": {
+      "frame": {
+        "x": 904,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 152,
+          "y": 136
+        },
+        "sheave": {
+          "x": 41,
+          "y": 53
+        },
+        "grab": {
+          "x": 31,
+          "y": 92
+        }
+      }
+    },
+    "heading-135": {
+      "frame": {
+        "x": 1130,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 153,
+          "y": 138
+        },
+        "sheave": {
+          "x": 41,
+          "y": 50
+        },
+        "grab": {
+          "x": 31,
+          "y": 87
+        }
+      }
+    },
+    "heading-140": {
+      "frame": {
+        "x": 1356,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 152,
+          "y": 139
+        },
+        "sheave": {
+          "x": 41,
+          "y": 46
+        },
+        "grab": {
+          "x": 31,
+          "y": 83
+        }
+      }
+    },
+    "heading-145": {
+      "frame": {
+        "x": 1582,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 152,
+          "y": 141
+        },
+        "sheave": {
+          "x": 42,
+          "y": 43
+        },
+        "grab": {
+          "x": 32,
+          "y": 78
+        }
+      }
+    },
+    "heading-150": {
+      "frame": {
+        "x": 1808,
+        "y": 756,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 151,
+          "y": 143
+        },
+        "sheave": {
+          "x": 43,
+          "y": 40
+        },
+        "grab": {
+          "x": 34,
+          "y": 74
+        }
+      }
+    },
+    "heading-155": {
+      "frame": {
+        "x": 0,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 150,
+          "y": 144
+        },
+        "sheave": {
+          "x": 45,
+          "y": 37
+        },
+        "grab": {
+          "x": 36,
+          "y": 70
+        }
+      }
+    },
+    "heading-160": {
+      "frame": {
+        "x": 226,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 149,
+          "y": 146
+        },
+        "sheave": {
+          "x": 47,
+          "y": 34
+        },
+        "grab": {
+          "x": 39,
+          "y": 66
+        }
+      }
+    },
+    "heading-165": {
+      "frame": {
+        "x": 452,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 147,
+          "y": 148
+        },
+        "sheave": {
+          "x": 50,
+          "y": 32
+        },
+        "grab": {
+          "x": 42,
+          "y": 63
+        }
+      }
+    },
+    "heading-170": {
+      "frame": {
+        "x": 678,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 145,
+          "y": 149
+        },
+        "sheave": {
+          "x": 54,
+          "y": 29
+        },
+        "grab": {
+          "x": 46,
+          "y": 60
+        }
+      }
+    },
+    "heading-175": {
+      "frame": {
+        "x": 904,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 143,
+          "y": 150
+        },
+        "sheave": {
+          "x": 57,
+          "y": 26
+        },
+        "grab": {
+          "x": 50,
+          "y": 56
+        }
+      }
+    },
+    "heading-180": {
+      "frame": {
+        "x": 1130,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 141,
+          "y": 152
+        },
+        "sheave": {
+          "x": 62,
+          "y": 24
+        },
+        "grab": {
+          "x": 55,
+          "y": 54
+        }
+      }
+    },
+    "heading-185": {
+      "frame": {
+        "x": 1356,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 138,
+          "y": 153
+        },
+        "sheave": {
+          "x": 66,
+          "y": 22
+        },
+        "grab": {
+          "x": 60,
+          "y": 51
+        }
+      }
+    },
+    "heading-190": {
+      "frame": {
+        "x": 1582,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 135,
+          "y": 154
+        },
+        "sheave": {
+          "x": 71,
+          "y": 20
+        },
+        "grab": {
+          "x": 66,
+          "y": 50
+        }
+      }
+    },
+    "heading-195": {
+      "frame": {
+        "x": 1808,
+        "y": 1008,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 133,
+          "y": 155
+        },
+        "sheave": {
+          "x": 77,
+          "y": 18
+        },
+        "grab": {
+          "x": 72,
+          "y": 48
+        }
+      }
+    },
+    "heading-200": {
+      "frame": {
+        "x": 0,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 129,
+          "y": 156
+        },
+        "sheave": {
+          "x": 82,
+          "y": 17
+        },
+        "grab": {
+          "x": 78,
+          "y": 47
+        }
+      }
+    },
+    "heading-205": {
+      "frame": {
+        "x": 226,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 126,
+          "y": 156
+        },
+        "sheave": {
+          "x": 88,
+          "y": 16
+        },
+        "grab": {
+          "x": 85,
+          "y": 46
+        }
+      }
+    },
+    "heading-210": {
+      "frame": {
+        "x": 452,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 123,
+          "y": 157
+        },
+        "sheave": {
+          "x": 94,
+          "y": 15
+        },
+        "grab": {
+          "x": 91,
+          "y": 45
+        }
+      }
+    },
+    "heading-215": {
+      "frame": {
+        "x": 678,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 119,
+          "y": 157
+        },
+        "sheave": {
+          "x": 100,
+          "y": 14
+        },
+        "grab": {
+          "x": 98,
+          "y": 45
+        }
+      }
+    },
+    "heading-220": {
+      "frame": {
+        "x": 904,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 116,
+          "y": 157
+        },
+        "sheave": {
+          "x": 106,
+          "y": 14
+        },
+        "grab": {
+          "x": 105,
+          "y": 46
+        }
+      }
+    },
+    "heading-225": {
+      "frame": {
+        "x": 1130,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 113,
+          "y": 158
+        },
+        "sheave": {
+          "x": 113,
+          "y": 14
+        },
+        "grab": {
+          "x": 113,
+          "y": 47
+        }
+      }
+    },
+    "heading-230": {
+      "frame": {
+        "x": 1356,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 109,
+          "y": 157
+        },
+        "sheave": {
+          "x": 119,
+          "y": 14
+        },
+        "grab": {
+          "x": 120,
+          "y": 48
+        }
+      }
+    },
+    "heading-235": {
+      "frame": {
+        "x": 1582,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 106,
+          "y": 157
+        },
+        "sheave": {
+          "x": 125,
+          "y": 14
+        },
+        "grab": {
+          "x": 127,
+          "y": 49
+        }
+      }
+    },
+    "heading-240": {
+      "frame": {
+        "x": 1808,
+        "y": 1260,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 102,
+          "y": 157
+        },
+        "sheave": {
+          "x": 131,
+          "y": 15
+        },
+        "grab": {
+          "x": 134,
+          "y": 51
+        }
+      }
+    },
+    "heading-245": {
+      "frame": {
+        "x": 0,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 99,
+          "y": 156
+        },
+        "sheave": {
+          "x": 137,
+          "y": 16
+        },
+        "grab": {
+          "x": 140,
+          "y": 53
+        }
+      }
+    },
+    "heading-250": {
+      "frame": {
+        "x": 226,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 96,
+          "y": 156
+        },
+        "sheave": {
+          "x": 143,
+          "y": 17
+        },
+        "grab": {
+          "x": 147,
+          "y": 56
+        }
+      }
+    },
+    "heading-255": {
+      "frame": {
+        "x": 452,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 93,
+          "y": 155
+        },
+        "sheave": {
+          "x": 149,
+          "y": 18
+        },
+        "grab": {
+          "x": 153,
+          "y": 59
+        }
+      }
+    },
+    "heading-260": {
+      "frame": {
+        "x": 678,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 90,
+          "y": 154
+        },
+        "sheave": {
+          "x": 154,
+          "y": 20
+        },
+        "grab": {
+          "x": 159,
+          "y": 62
+        }
+      }
+    },
+    "heading-265": {
+      "frame": {
+        "x": 904,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 87,
+          "y": 153
+        },
+        "sheave": {
+          "x": 159,
+          "y": 22
+        },
+        "grab": {
+          "x": 165,
+          "y": 65
+        }
+      }
+    },
+    "heading-270": {
+      "frame": {
+        "x": 1130,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 84,
+          "y": 152
+        },
+        "sheave": {
+          "x": 163,
+          "y": 24
+        },
+        "grab": {
+          "x": 170,
+          "y": 69
+        }
+      }
+    },
+    "heading-275": {
+      "frame": {
+        "x": 1356,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 82,
+          "y": 150
+        },
+        "sheave": {
+          "x": 168,
+          "y": 26
+        },
+        "grab": {
+          "x": 175,
+          "y": 73
+        }
+      }
+    },
+    "heading-280": {
+      "frame": {
+        "x": 1582,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 80,
+          "y": 149
+        },
+        "sheave": {
+          "x": 171,
+          "y": 29
+        },
+        "grab": {
+          "x": 179,
+          "y": 77
+        }
+      }
+    },
+    "heading-285": {
+      "frame": {
+        "x": 1808,
+        "y": 1512,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 78,
+          "y": 148
+        },
+        "sheave": {
+          "x": 175,
+          "y": 32
+        },
+        "grab": {
+          "x": 183,
+          "y": 81
+        }
+      }
+    },
+    "heading-290": {
+      "frame": {
+        "x": 0,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 76,
+          "y": 146
+        },
+        "sheave": {
+          "x": 178,
+          "y": 34
+        },
+        "grab": {
+          "x": 186,
+          "y": 86
+        }
+      }
+    },
+    "heading-295": {
+      "frame": {
+        "x": 226,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 75,
+          "y": 144
+        },
+        "sheave": {
+          "x": 180,
+          "y": 37
+        },
+        "grab": {
+          "x": 189,
+          "y": 90
+        }
+      }
+    },
+    "heading-300": {
+      "frame": {
+        "x": 452,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 74,
+          "y": 143
+        },
+        "sheave": {
+          "x": 182,
+          "y": 40
+        },
+        "grab": {
+          "x": 191,
+          "y": 95
+        }
+      }
+    },
+    "heading-305": {
+      "frame": {
+        "x": 678,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 73,
+          "y": 141
+        },
+        "sheave": {
+          "x": 183,
+          "y": 43
+        },
+        "grab": {
+          "x": 193,
+          "y": 100
+        }
+      }
+    },
+    "heading-310": {
+      "frame": {
+        "x": 904,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 73,
+          "y": 139
+        },
+        "sheave": {
+          "x": 184,
+          "y": 46
+        },
+        "grab": {
+          "x": 194,
+          "y": 104
+        }
+      }
+    },
+    "heading-315": {
+      "frame": {
+        "x": 1130,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 73,
+          "y": 138
+        },
+        "sheave": {
+          "x": 185,
+          "y": 50
+        },
+        "grab": {
+          "x": 194,
+          "y": 109
+        }
+      }
+    },
+    "heading-320": {
+      "frame": {
+        "x": 1356,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 73,
+          "y": 136
+        },
+        "sheave": {
+          "x": 184,
+          "y": 53
+        },
+        "grab": {
+          "x": 194,
+          "y": 113
+        }
+      }
+    },
+    "heading-325": {
+      "frame": {
+        "x": 1582,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 73,
+          "y": 134
+        },
+        "sheave": {
+          "x": 183,
+          "y": 56
+        },
+        "grab": {
+          "x": 193,
+          "y": 118
+        }
+      }
+    },
+    "heading-330": {
+      "frame": {
+        "x": 1808,
+        "y": 1764,
+        "w": 226,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 226,
+        "h": 252
+      },
+      "duration": 60,
+      "pivot": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchor": {
+        "x": 0.5,
+        "y": 0.769841
+      },
+      "anchorPx": {
+        "x": 113,
+        "y": 194
+      },
+      "points": {
+        "chassis": {
+          "x": 113,
+          "y": 194
+        },
+        "axle": {
+          "x": 74,
+          "y": 132
+        },
+        "sheave": {
+          "x": 182,
+          "y": 59
+        },
+        "grab": {
+          "x": 191,
+          "y": 122
+        }
+      }
+    }
+  },
+  "animations": {
+    "turn": {
+      "frames": [
+        "heading-335",
+        "heading-340",
+        "heading-345",
+        "heading-350",
+        "heading-355",
+        "heading-0",
+        "heading-5",
+        "heading-10",
+        "heading-15",
+        "heading-20",
+        "heading-25",
+        "heading-30",
+        "heading-35",
+        "heading-40",
+        "heading-45",
+        "heading-50",
+        "heading-55",
+        "heading-60",
+        "heading-65",
+        "heading-70",
+        "heading-75",
+        "heading-80",
+        "heading-85",
+        "heading-90",
+        "heading-95",
+        "heading-100",
+        "heading-105",
+        "heading-110",
+        "heading-115",
+        "heading-120",
+        "heading-125",
+        "heading-130",
+        "heading-135",
+        "heading-140",
+        "heading-145",
+        "heading-150",
+        "heading-155",
+        "heading-160",
+        "heading-165",
+        "heading-170",
+        "heading-175",
+        "heading-180",
+        "heading-185",
+        "heading-190",
+        "heading-195",
+        "heading-200",
+        "heading-205",
+        "heading-210",
+        "heading-215",
+        "heading-220",
+        "heading-225",
+        "heading-230",
+        "heading-235",
+        "heading-240",
+        "heading-245",
+        "heading-250",
+        "heading-255",
+        "heading-260",
+        "heading-265",
+        "heading-270",
+        "heading-275",
+        "heading-280",
+        "heading-285",
+        "heading-290",
+        "heading-295",
+        "heading-300",
+        "heading-305",
+        "heading-310",
+        "heading-315",
+        "heading-320",
+        "heading-325",
+        "heading-330"
+      ],
+      "loop": true,
+      "duration": 4320
+    }
+  },
+  "meta": {
+    "app": "Pixelbolt",
+    "version": "1",
+    "image": "lodekeeper-faceted.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 2034,
+      "h": 2016
+    },
+    "scale": "1",
+    "frameTags": [
+      {
+        "name": "turn",
+        "from": 0,
+        "to": 71,
+        "direction": "forward"
+      }
+    ]
+  }
+}

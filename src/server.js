@@ -45,6 +45,7 @@ const routes = new Map([
   ['/constraints.js', ['./constraints.js', 'text/javascript; charset=utf-8']],
   ['/cloth.js', ['./cloth.js', 'text/javascript; charset=utf-8']],
   ['/territory.js', ['./territory.js', 'text/javascript; charset=utf-8']],
+  ['/stack-facets.js', ['./stack-facets.js', 'text/javascript; charset=utf-8']],
   ['/stack.js', ['./stack.js', 'text/javascript; charset=utf-8']],
   ['/stack-editor.js', ['../studio/stack-editor.js', 'text/javascript; charset=utf-8']],
   ['/wave.js', ['./wave.js', 'text/javascript; charset=utf-8']],
@@ -63,7 +64,7 @@ const routes = new Map([
   ...POWDER_PRESETS.map(({ file }) => [`/examples/${file}.powder.json`, [`../examples/${file}.powder.json`, 'application/json']]),
   // The effects lab compiles these sources in the browser.
   ...EFFECT_PRESETS.map(({ file }) => [`/examples/${file}.fx.json`, [`../examples/${file}.fx.json`, 'application/json']]),
-  ['/examples/copper-rally.stack.json', ['../examples/copper-rally.stack.json', 'application/json']],
+  ...['copper-rally', 'lodekeeper-faceted'].map(name => [`/examples/${name}.stack.json`, [`../examples/${name}.stack.json`, 'application/json']]),
   ...['interference', 'portal'].map(name => [`/examples/${name}.wave.json`, [`../examples/${name}.wave.json`, 'application/json']]),
   ['/schema.json', ['../schema.json', 'application/json']],
   ...['forest-spirit', 'ember', 'coin', 'shrine', 'caption', 'swing', 'effects'].map(name => [`/examples/${name}.json`, [`../examples/${name}.json`, 'application/json']]),

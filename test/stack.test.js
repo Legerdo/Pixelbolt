@@ -100,11 +100,68 @@ test('CLI inspection of a pinned stack cell renders intermediate headings and re
   assert.match(inspect('south,100,0,0').error, /solid cell/);
 });
 
+test('glass voxels tint once per contiguous run and reveal the first opaque surface', () => {
+  const make = row => ({...block, resolution:4, headings:[0], squash:.25,
+    palette:{g:'#a040f080',k:'#183050'}, slices:Array.from({length:4},()=>[...row].map(key=>key.repeat(3)))});
+  for(const [row,expected] of [['ggg',[160,64,240,128]],['g.g',[160,64,240,192]],['kgg',[92,56,160,255]]]) {
+    const image=renderProject(compileStack(make(row)).recipe);
+    const data=image.frames[0].data, i=(Math.floor(image.height/2)*image.width+Math.floor(image.width/2))*4;
+    assert.deepEqual([...data.slice(i,i+4)],expected,row);
+  }
+});
+
+test('clear face paint exposes the voxel and clear depth paint opens a gap', () => {
+  const source = { ...block, palette: { ...block.palette, a:'#0000' }, slices:[['ksk']] };
+  const cover = { face:'west', rows:['s'] }, clear = { face:'west', rows:['a'] };
+  assert.deepEqual(stackSide({ ...source, paint:[cover, clear] }, 'west'), ['k']);
+  assert.deepEqual(stackSide({ ...source, paint:[{ ...clear, depth:1 }] }, 'west'), ['s']);
+  assert.deepEqual(stackSide({ ...source, paint:[{ ...clear, depth:3 }] }, 'south'), ['...']);
+});
+
+test('socket-mounted faces have crisp shared edges, true alpha and stable projection', () => {
+  const face={color:'g',socket:'lift',points:[[0,0,0],[3,0,0],[3,3,0],[0,3,0]]};
+  const source={...block,headings:[0,90,180],slices:Array.from({length:4},()=>['...','...','...']),palette:{g:'#dd55aa80'},
+    sockets:{lift:{at:[0,0,1],keys:[{heading:0},{heading:180,offset:[0,0,2]}]}},facets:[face]};
+  const model=prepareStack(source), full=model.recipe(), rendered=renderProject(full);
+  for(const f of rendered.frames) {
+    const alpha=new Set(f.data.filter((_,i)=>i%4===3));
+    assert.deepEqual(alpha,new Set([0,128]));
+  }
+  assert.deepEqual(model.recipe(1).frames,[full.frames[1]]);
+  const middle=model.attachments(90).lift;
+  const baked=prepareStack({...source,sockets:{lift:{at:[0,0,2]}}});
+  assert.deepEqual(model.frame(1).ops,baked.frame(1).ops);
+  assert.deepEqual(full.frames[1].points.lift,middle);
+  const glassOnMetal={...source,slices:[['kkk','kkk','kkk']],palette:{...source.palette,k:'#182838'}};
+  const solid=renderProject(compileStack(glassOnMetal).recipe);
+  assert.ok(solid.frames[0].data.some((x,i)=>i%4===0 && x===123),'glass mixes with metal beneath');
+  const bad=[{facets:[{...face,socket:'absent'}]},{facets:[{...face,color:'missing'}]},
+    {sockets:{lift:{at:[0,1],keys:[]}}},{sockets:{lift:{at:[0,0,0],keys:[{heading:30},{heading:10}]}}}];
+  for(const patch of bad) assert.throws(()=>prepareStack({...source,...patch}),/stack\./);
+});
+
+test('two crossing faces swap visibility with depth and a triangulated glass square owns its diagonal once', () => {
+  const panel=[[0,1,0],[4,1,0],[4,1,4],[0,1,4]];
+  const base={...block,palette:{g:'#bb66dd80',m:'#184866'},slices:[['....','....','....']],
+    squash:.5,headings:[0,180],facets:[
+      {color:'g',twoSided:true,points:panel},
+      {color:'m',twoSided:true,points:[[0,.2,0],[4,1.8,0],[4,1.8,4],[0,.2,4]]}]};
+  const recipe=compileStack(base).recipe, project=renderProject(recipe);
+  for(const frame of project.frames) {
+    const y=recipe.anchor[1]-8, pixels=x=>[...frame.data.slice((y*project.width+x)*4,(y*project.width+x+1)*4)];
+    const pair=[pixels(recipe.anchor[0]-3),pixels(recipe.anchor[0]+3)];
+    assert.ok(pair.some(p=>p.join() === '24,72,102,255'),frame.name);
+    assert.ok(pair.some(p=>p.join() === '106,87,162,255'),frame.name);
+  }
+  const single=renderProject(compileStack({...base,facets:[base.facets[0]]}).recipe);
+  for(const frame of single.frames) assert.equal(frame.data.filter((v,i)=>i%4===3&&v===128).length,16*16);
+});
+
 test('invalid sources and excessive projections are refused before drawing', () => {
   for (const [change, field] of [
     [{ resolution: 1.5 }, 'resolution'], [{ projection: 'iso', squash: 1 }, 'squash'],
     [{ headings: [0, 0] }, 'headings'], [{ pivot: [3,0] }, 'pivot'],
-    [{ palette: { k: '#1117' } }, 'palette'], [{ slices: [['k'], ['kk']] }, 'slices'], [{ decals:null }, 'decals'],
+    [{ palette: { k: '#xx17' } }, 'palette'], [{ slices: [['k'], ['kk']] }, 'slices'], [{ decals:null }, 'decals'],
     [{ paint: [{ face:'north', at:[1,1], rows:['sss'] }] }, 'paint'],
     [{ resolution:8, slices:[Array(128).fill('k'.repeat(128))] }, 'resolution'],
     [{ name:'CON' }, 'name']
@@ -150,6 +207,18 @@ golden.test('Copper Rally keeps two connected silver rims throughout the turn, w
     const projected = side * Math.abs(cosDeg(angle));
     for (const size of sizes) assert.ok(Math.abs(size - projected) <= 24, `${angle}°: ${size} vs ${projected}`);
   }
+});
+
+golden.test('the faceted crane keeps transmissive glass and a shared ground pivot through every pose', async () => {
+  const source=JSON.parse(await readFile(new URL('../examples/lodekeeper-faceted.stack.json',import.meta.url),'utf8'));
+  const model=prepareStack(source), recipe=model.recipe(), {frames}=renderProject(recipe);
+  const pixels=createHash('sha256');
+  assert.equal(frames.length,72);
+  for(const frame of frames) {
+    pixels.update(frame.data);
+    assert.ok(frame.data.some((v,i)=>i%4===3 && v>0 && v<255),frame.name);
+  }
+  golden.equal('lodekeeper-faceted',pixels.digest('hex'),{recipe});
 });
 
 test('scene placements share the pivot, occlude as whole sprites, and retain the editable source on export', async () => {

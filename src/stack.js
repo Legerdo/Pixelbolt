@@ -1,13 +1,14 @@
 // Orthographic sprite stacks. Each nonblank cell occupies one solid unit cube. Trace one ray
-// per output pixel through the original slices, sampling the first visible face. All headings
-// share a ground pivot and canvas. Palette values survive exactly at any rendering resolution.
+// per output pixel. Composite glass and attached facets in depth order on one shared ground
+// pivot and canvas. Opaque voxel-only sources retain their original single-grid fast path.
 import { fail, frameFits, frameTotalProblem, isObject, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
+import { stackGeometry, projectPoint, projectFacets, socketPose, stackFragments, drawFacets } from './stack-facets.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -26,12 +27,16 @@ function surface(model, face, u, row) {
 function readModel(source) {
   fields(source, sourceFields, 'stack');
   if (source.format !== 'pixelforge-stack' || source.version !== 1) fail('stack', 'expected version-1 pixelforge-stack');
-  if (!isObject(source.palette)) fail('stack.palette', 'expected a palette of opaque colours');
+  if (!isObject(source.palette)) fail('stack.palette', 'expected a palette of colours');
   // Reuse the recipe's portable-name and palette limits before allocating the volume.
   renderProject({ version: 1, name: source.name, width: 1, height: 1, palette: source.palette, frames: [{ name: 'check' }] });
+  const alpha = new Uint8Array(65536);
+  let translucent = false;
   for (const [key, color] of Object.entries(source.palette)) {
     if (key.length !== 1 || blank(key) || key.charCodeAt(0) === 0) fail('stack.palette', 'use single nonblank grid characters');
-    if (parseColor(color, {}, `stack.palette.${key}`)[3] !== 255) fail(`stack.palette.${key}`, 'solid cells need opaque colours; use dots for air');
+    const a = parseColor(color, {}, `stack.palette.${key}`)[3];
+    alpha[key.charCodeAt(0)] = a;
+    translucent ||= a < 255;
   }
   if (!Array.isArray(source.slices) || !source.slices.length || source.slices.length > 64) fail('stack.slices', 'expected 1–64 grids, ground first');
   let width, height, cells;
@@ -41,9 +46,9 @@ function readModel(source) {
     if (!z) { width = grid.width; height = grid.height; cells = new Uint16Array(width * height * levels); }
     if (width !== grid.width || height !== grid.height) fail(path, 'all slices must have the same dimensions');
     let i = z * width * height;
-    for (const row of rows) for (const key of row) cells[i++] = blank(key) ? 0 : key.charCodeAt(0);
+    for (const row of rows) for (const key of row) cells[i++] = blank(key) || !alpha[key.charCodeAt(0)] ? 0 : key.charCodeAt(0);
   });
-  const model = { width, height, levels, cells, decals: faces.map(() => new Map()) };
+  const model = { width, height, levels, cells, alpha, translucent, geometry:stackGeometry(source), decals: faces.map(() => new Map()) };
   const library = source.decals ?? {};
   if (!isObject(library) || Object.keys(library).length > 256) fail('stack.decals', 'expected at most 256 named grids');
   const grids = new Map();
@@ -103,8 +108,10 @@ function readModel(source) {
         const hit = surface(model, face, u + x, v + y);
         if (!hit) continue;
         const color = row.charCodeAt(x);
-        model.decals[face].set(hit.at, color);
-        for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = color;
+        if (alpha[color]) model.decals[face].set(hit.at, color);
+        else model.decals[face].delete(hit.at);
+        const fill = alpha[color] ? color : 0;
+        for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = fill;
       }
     });
   }
@@ -130,7 +137,7 @@ function sideRows(model, side) {
 
 // Grid traversal from the camera. Clip to the volume first, then advance directly to cell
 // boundaries. At a corner cross all tied axes together; the top face wins a visibility tie.
-function raster(model, view, angle, budget) {
+function raster(model, view, angle, heading, budget) {
   const { width: w, height: h, levels, cells, decals } = model;
   const { resolution, squash, spacing, anchor, pivot, width, height } = view;
   const c = cosDeg(angle), s = sinDeg(angle), top = (levels - 1) * spacing + 1;
@@ -138,6 +145,8 @@ function raster(model, view, angle, budget) {
   const deltaX = dx ? 1 / Math.abs(vx) : Infinity, deltaY = dy ? 1 / Math.abs(vy) : Infinity;
   const faceX = dx > 0 ? 0 : 1, faceY = dy > 0 ? 2 : 3;
   let visits = 0;
+  const layered = model.translucent || model.geometry.facets.length > 0;
+  const fragments = layered ? stackFragments(width, height, model.alpha) : null;
   const rows = [];
   for (let py = 0; py < height; py++) {
     const row = new Uint16Array(width).fill(46), sy = (py + .5 - anchor[1]) / resolution / squash;
@@ -157,24 +166,35 @@ function raster(model, view, angle, budget) {
       let tx = dx ? (x + (dx > 0 ? 1 : 0) - ox) / vx : Infinity;
       let ty = dy ? (y + (dy > 0 ? 1 : 0) - oy) / vy : Infinity;
       let tz = top - z, face = enter === 0 ? -1 : enterX >= enterY ? faceX : faceY;
+      let entry = enter, glass = false;
       while (x >= 0 && x < w && y >= 0 && y < h && z >= 0) {
         visits++;
-        if (z % spacing === 0) {
-          const index = (z / spacing * h + y) * w + x;
-          if (cells[index]) { row[px] = (face >= 0 && decals[face].get(index)) || cells[index]; break; }
-        }
+        const index = (z / spacing * h + y) * w + x;
+        const ink = z % spacing === 0 ? cells[index] : 0;
+        if (ink) {
+          const paint = face >= 0 ? decals[face].get(index) : 0;
+          if (!layered) { row[px] = paint || ink; break; }
+          const at = py*width+px, depth = top-entry;
+          if (!glass || model.alpha[ink]===255) fragments.add(at,depth,ink);
+          if (paint && paint!==ink) fragments.add(at,depth,paint);
+          if (model.alpha[ink]===255 || model.alpha[paint]===255) break;
+          glass = true;
+        } else glass = false;
         const next = Math.min(tx, ty, tz);
         if (next >= leave) break;
+        entry = next;
         if (tx <= next + 1e-10) { x += dx; tx += deltaX; face = faceX; }
         if (ty <= next + 1e-10) { y += dy; ty += deltaY; face = faceY; }
         if (tz <= next + 1e-10) { z--; tz++; face = -1; }
       }
     }
     if (visits > budget.left) fail('stack.headings', 'stack exceeds 96 million ray steps; use fewer headings or a lower resolution');
-    rows.push(String.fromCharCode(...row));
+    if (!layered) rows.push(String.fromCharCode(...row));
   }
   budget.left -= visits;
-  return rows;
+  if (!layered) return [{op:'grid', rows}];
+  drawFacets(projectFacets(model.geometry,heading,view,angle),view,fragments,budget);
+  return fragments.ops(budget);
 }
 
 export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
@@ -197,14 +217,25 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   // The top and bottom of the four footprint corners bound every visible cell. Round outwards
   // once for all requested headings, so even an off-centre pivot stays still throughout a turn.
   const sidesX = [-pivot[0] - .5, w - pivot[0] - .5], sidesY = [-pivot[1] - .5, h - pivot[1] - .5];
-  for (const angle of angles) {
+  for (const [index,angle] of angles.entries()) {
     const c = cosDeg(angle), s = sinDeg(angle);
+    const bounds = {pivot,anchor:[0,0],resolution,squash};
+    for (const {origin} of socketPose(model.geometry.sockets,headings[index]).values()) {
+      const [u,v] = projectPoint(origin,bounds,c,s);
+      left=Math.min(left,Math.floor(u)); right=Math.max(right,Math.ceil(u));
+      roof=Math.min(roof,Math.floor(v)); bottom=Math.max(bottom,Math.ceil(v));
+    }
+    for (const facet of projectFacets(model.geometry,headings[index],bounds,angle)) for (const [u,v] of facet.points) {
+      left=Math.min(left,Math.floor(u)); right=Math.max(right,Math.ceil(u));
+      roof=Math.min(roof,Math.floor(v)); bottom=Math.max(bottom,Math.ceil(v));
+    }
     for (const x of sidesX) for (const y of sidesY) {
       const u = (x * c - y * s) * resolution, v = (x * s + y * c) * squash * resolution;
       left = Math.min(left, Math.floor(u)); right = Math.max(right, Math.ceil(u));
       roof = Math.min(roof, Math.floor(v - tall * resolution)); bottom = Math.max(bottom, Math.ceil(v));
     }
   }
+  if (model.geometry.facets.length || model.geometry.sockets.size) { left-=2; right+=2; roof-=2; bottom+=2; }
   const width = right - left, height = bottom - roof, anchor = [-left, -roof];
   if (!frameFits(width, height) || frameTotalProblem(angles.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${angles.length} headings exceeds the recipe budget; reduce resolution, spacing or heading count`);
   if (width * height * angles.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
@@ -213,7 +244,13 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, footprint: [w, h], levels, spacing, pivot, anchor, headings };
   function frame(index) {
     integer(index, 'stack.frame', 0, angles.length - 1);
-    return frames[index] ??= { name: `heading-${headings[index]}`, duration, ops: [{ op: 'grid', rows: raster(model, view, angles[index], budget) }] };
+    if (!frames[index]) {
+      const heading = headings[index];
+      frames[index] = {name:`heading-${heading}`, duration,
+        ...(model.geometry.sockets.size && {points:attachments(heading)}),
+        ops:raster(model,view,angles[index],heading,budget)};
+    }
+    return frames[index];
   }
   function recipe(index) {
     const drawn = index === undefined ? headings.map((_, i) => frame(i)) : [frame(index)];
@@ -237,7 +274,8 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     const left = Math.floor(anchor[0] + (x*c - y*s)*resolution - size/2);
     const top = Math.floor(anchor[1] + ((x*s + y*c)*squash - z)*resolution - size/2);
     const crop = { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] };
-    return { left, top, rows: raster(model, crop, angle, { left: 96000000 }) };
+    const ops = raster(model, crop, angle, heading, { left: 96000000 });
+    return { left, top, rows:ops[0].rows, ops };
   }
   function comparison(side, at, heading) {
     integer(heading, 'stack.detail.heading', 0, 359);
@@ -245,11 +283,16 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     for (let offset = -2; offset <= 2; offset++) {
       const angle = (heading + offset + 360) % 360, crop = detail(side, at, angle, size);
       if (!crop) return null;
-      frames.push({ name: `heading-${angle}`, duration, ops: [{ op: 'grid', rows: crop.rows }] });
+      frames.push({ name: `heading-${angle}`, duration, ops: crop.ops });
     }
     return { version: 1, name: source.name, width: size, height: size, palette: source.palette, frames, animations: {} };
   }
-  return { metadata, frame, recipe, detail, comparison, side: name => sideRows(model, name) };
+  function attachments(heading) {
+    const angle=cameraAngle(integer(heading,'stack.heading',0,359));
+    return Object.fromEntries([...socketPose(model.geometry.sockets,heading)].map(([name,pose])=>
+      [name,projectPoint(pose.origin,view,cosDeg(angle),sinDeg(angle)).slice(0,2).map(Math.floor)]));
+  }
+  return { metadata, frame, recipe, detail, comparison, attachments, side: name => sideRows(model, name) };
 }
 
 export function compileStack(source, options) {

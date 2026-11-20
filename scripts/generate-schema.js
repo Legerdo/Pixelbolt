@@ -239,9 +239,14 @@ const sliceRows = { ...array({ type:'string', minLength:1, maxLength:128 },128),
 const stackPoint = { ...array(int(0, 127), 2), minItems: 2 };
 const stackFace = {enum:['west','east','north','south']};
 const stackDepth = int(0,128,'0 paints only the face. Positive depth colours contiguous solid cells inward.');
+const stackXYZ = {...array(num(-512,512),3),minItems:3};
+const socketRef = {type:'string',pattern:id.pattern};
+const socketKey = object({heading:int(0,360),offset:stackXYZ,angle:num(-3600,3600)},['heading']);
 const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...object({
   format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
-  palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:opaqueHex}},
+  palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:hex}},
+  sockets:{type:'object',maxProperties:64,propertyNames:socketRef,additionalProperties:object({at:stackXYZ,axis:{enum:['x','y','z']},keys:array(socketKey,64)},['at'])},
+  facets:array(object({color:{type:'string',minLength:1,maxLength:1},socket:socketRef,twoSided:{type:'boolean'},points:{...array({oneOf:[stackXYZ,object({at:stackXYZ,socket:socketRef},['at'])]},16),minItems:3}},['color','points']),2048),
   slices:{...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'},
   decals:{type:'object', maxProperties:256, propertyNames:{type:'string',pattern:id.pattern}, additionalProperties:sliceRows},
   paint:array({oneOf:[

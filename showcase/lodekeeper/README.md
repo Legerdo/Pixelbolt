@@ -1,5 +1,7 @@
 # Lodekeeper
 
+[Faceted edition with a transparent crystal and a working turntable](faceted/README.md)
+
 ![The Lodekeeper salvage crane turning on four jack feet](turn.gif)
 
 A yellow salvage crane winds a teal tether onto its drum and lifts a cluster of violet ore. The eastern mines and tether in [Tetherbore](https://github.com/skulitom/Tetherbore) inspired the design. The crane, grab and crystal were drawn for this asset.

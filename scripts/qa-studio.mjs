@@ -310,6 +310,18 @@ try {
     await click('#stack-unpin'); assert.equal(await evaluate(`document.getElementById('stack-comparison').hidden`),true);
   });
 
+  await check('Lodekeeper turns with real glass and an optional socket marker', async () => {
+    await click('#examples [data-file="lodekeeper-faceted.stack"]');
+    await until(`document.querySelectorAll('.frame').length === 72`, 'all crane headings');
+    await click('#timeline .frame:first-child');
+    const first=await canvas();
+    assert.equal(await evaluate(`(() => { const c=document.getElementById('canvas'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; return d.some((a,i)=>i%4===3 && a>0 && a<255); })()`),true);
+    await choose('stack-socket','grab'); assert.notEqual((await canvas()).hash,first.hash);
+    await choose('stack-socket',''); assert.equal((await canvas()).hash,first.hash);
+    await click('#timeline .frame:nth-child(25)'); assert.notEqual((await canvas()).hash, first.hash);
+    await studio.shot('lodekeeper-glass');
+  });
+
   console.log('Moving figures');
   await check('pose source opens, plays, reviews contacts and saves its editable source', async () => {
     // The R2 rig is a test fixture, not a shipped example: open it as a user would open their own pose source.

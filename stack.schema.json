@@ -33,8 +33,143 @@
       },
       "additionalProperties": {
         "type": "string",
-        "pattern": "^#([a-fA-F0-9]{3}[fF]?|[a-fA-F0-9]{6}([fF]{2})?)$"
+        "pattern": "^(transparent|#([a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))$"
       }
+    },
+    "sockets": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -512,
+              "maximum": 512
+            },
+            "maxItems": 3,
+            "minItems": 3
+          },
+          "axis": {
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ]
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "heading": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 360
+                },
+                "offset": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -512,
+                    "maximum": 512
+                  },
+                  "maxItems": 3,
+                  "minItems": 3
+                },
+                "angle": {
+                  "type": "number",
+                  "minimum": -3600,
+                  "maximum": 3600
+                }
+              },
+              "required": [
+                "heading"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 64
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "facets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "color": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1
+          },
+          "socket": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          },
+          "twoSided": {
+            "type": "boolean"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -512,
+                    "maximum": 512
+                  },
+                  "maxItems": 3,
+                  "minItems": 3
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -512,
+                        "maximum": 512
+                      },
+                      "maxItems": 3,
+                      "minItems": 3
+                    },
+                    "socket": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+                    }
+                  },
+                  "required": [
+                    "at"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "maxItems": 16,
+            "minItems": 3
+          }
+        },
+        "required": [
+          "color",
+          "points"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 2048
     },
     "slices": {
       "type": "array",

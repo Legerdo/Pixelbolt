@@ -80,6 +80,7 @@ function name(value, path) {
   if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value)) fail(path, 'reserved filename; choose a portable name');
   return value;
 }
+export { name as portableName };
 function point(value, path) {
   if (!Array.isArray(value) || value.length !== 2) fail(path, 'expected [x, y]');
   return [integer(value[0], `${path}[0]`), integer(value[1], `${path}[1]`)];
