@@ -9,6 +9,7 @@ import { renderProject, MAX_REQUEST_BYTES, PixelError } from './core.js';
 import { createSequence } from './sequence.js';
 import { prepareScene } from './scene.js';
 import { compilePoses } from './authoring.js';
+import { compileStack } from './stack.js';
 import { compileWaves } from './wave.js';
 import { EFFECT_PRESETS } from '../studio/effects-controls.js';
 import { POWDER_PRESETS } from '../studio/powder-controls.js';
@@ -44,6 +45,8 @@ const routes = new Map([
   ['/constraints.js', ['./constraints.js', 'text/javascript; charset=utf-8']],
   ['/cloth.js', ['./cloth.js', 'text/javascript; charset=utf-8']],
   ['/territory.js', ['./territory.js', 'text/javascript; charset=utf-8']],
+  ['/stack.js', ['./stack.js', 'text/javascript; charset=utf-8']],
+  ['/stack-editor.js', ['../studio/stack-editor.js', 'text/javascript; charset=utf-8']],
   ['/wave.js', ['./wave.js', 'text/javascript; charset=utf-8']],
   ['/page.js', ['../studio/page.js', 'text/javascript; charset=utf-8']],
   ['/effects.html', ['../studio/effects.html', 'text/html; charset=utf-8']],
@@ -60,6 +63,7 @@ const routes = new Map([
   ...POWDER_PRESETS.map(({ file }) => [`/examples/${file}.powder.json`, [`../examples/${file}.powder.json`, 'application/json']]),
   // The effects lab compiles these sources in the browser.
   ...EFFECT_PRESETS.map(({ file }) => [`/examples/${file}.fx.json`, [`../examples/${file}.fx.json`, 'application/json']]),
+  ['/examples/copper-rally.stack.json', ['../examples/copper-rally.stack.json', 'application/json']],
   ...['interference', 'portal'].map(name => [`/examples/${name}.wave.json`, [`../examples/${name}.wave.json`, 'application/json']]),
   ['/schema.json', ['../schema.json', 'application/json']],
   ...['forest-spirit', 'ember', 'coin', 'shrine', 'caption', 'swing', 'effects'].map(name => [`/examples/${name}.json`, [`../examples/${name}.json`, 'application/json']]),
@@ -95,7 +99,7 @@ export async function startStudio({ port = STUDIO_PORT, fallback = false, projec
   const scene = project?.format === 'pixelforge-scene';
   if (project) {
     if (scene) prepareScene(project);
-    else renderProject(project.format === 'pixelforge-poses' ? compilePoses(project).recipe : project.format === 'pixelforge-wave' ? compileWaves(project).recipe : project);
+    else renderProject(project.format === 'pixelforge-stack' ? compileStack(project).recipe : project.format === 'pixelforge-poses' ? compilePoses(project).recipe : project.format === 'pixelforge-wave' ? compileWaves(project).recipe : project);
   }
   const server = http.createServer(async (req, res) => {
     const address = server.address(), hosts = [`127.0.0.1:${address.port}`, `localhost:${address.port}`];

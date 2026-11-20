@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pixelbolt sprite stack",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "pixelforge-stack"
+    },
+    "version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+      "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+    },
+    "palette": {
+      "type": "object",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "const": "$ref"
+          },
+          {
+            "pattern": "^[^ .\\u0000]$"
+          }
+        ]
+      },
+      "properties": {
+        "$ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^#([a-fA-F0-9]{3}[fF]?|[a-fA-F0-9]{6}([fF]{2})?)$"
+      }
+    },
+    "slices": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "maxItems": 128,
+        "minItems": 1
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "description": "Equal-size top-down grids, lowest first. Dot or space is air."
+    },
+    "paint": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "face": {
+            "enum": [
+              "west",
+              "east",
+              "north",
+              "south"
+            ]
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 127
+            },
+            "maxItems": 2,
+            "minItems": 2
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 128,
+            "minItems": 1
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 128,
+            "description": "0 paints just the visible face; positive depth also colours that many contiguous solid cells inward."
+          }
+        },
+        "required": [
+          "face",
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1024
+    },
+    "pivot": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 127
+      },
+      "maxItems": 2,
+      "minItems": 2
+    },
+    "projection": {
+      "enum": [
+        "oblique",
+        "iso"
+      ]
+    },
+    "squash": {
+      "type": "number",
+      "minimum": 0.25,
+      "maximum": 1
+    },
+    "resolution": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "description": "Output pixels per slice cell; default 4."
+    },
+    "spacing": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "headings": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 359
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "duration": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60000
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "name",
+    "palette",
+    "slices"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "required": [
+      "projection"
+    ],
+    "properties": {
+      "projection": {
+        "const": "iso"
+      }
+    }
+  },
+  "then": {
+    "not": {
+      "required": [
+        "squash"
+      ]
+    }
+  }
+}

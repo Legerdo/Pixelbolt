@@ -3,7 +3,6 @@ import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { inspectMotion } from '../src/motion.js';
 import { expandPoses } from '../src/authoring.js';
-import { compileWaves } from '../src/wave.js';
 import { PixelError, isObject, largestScale, columnsOfCall, meant, frameTotalProblem } from '../src/core.js';
 import { readExpect, checkDelivery, briefCheck } from '../src/check.js';
 import { readSize, resizeRecipe, resizeWarning, resizeMargins, keepFrames, keepAnimations } from '../src/resize.js';
@@ -313,7 +312,7 @@ const bundleFiles = (directory, files, options) => { const { files: listed, remo
 // The documents whose shared-palette link carries over to the recipe they are or compile to (a normal source's recipe
 // and a scene's assets do not): every kind src/resolve.js resolves a palette for but powder, whose source has no
 // palette to link (its colours are its materials', and the compiler refuses a `palette` field).
-const LINKED_SOURCES = ['poses', 'autotile', 'fx', 'fluid', 'wave', 'crystal', 'bodies', 'project'];
+const LINKED_SOURCES = ['stack', 'poses', 'autotile', 'fx', 'fluid', 'wave', 'crystal', 'bodies', 'project'];
 // Compiled output keeps a shared-palette link, rewritten relative to where the output is written.
 function linkPalette(recipe, input, outFile) {
   const link = input.resolution.palettes.find(entry => LINKED_SOURCES.includes(entry.where));
@@ -547,9 +546,9 @@ try {
       // The studio shows and saves documents as written, so the files they name stay named: a scene's light settings are
       // saved into the scene, and Save JSON writes a recipe or pose source with its link to a shared palette file.
       let project = input?.document, source = input?.original;
-      // Preserve editable pose and wave sources; other authoring formats open as compiled recipes, which keep
+      // Preserve editable pose, wave and stack sources; other authoring formats open as compiled recipes, which keep
       // the link as `pixelbolt compile` writes it beside the source.
-      if (project && !['pixelforge-poses', 'pixelforge-wave'].includes(project.format) && Object.hasOwn(COMPILERS, project.format ?? '')) {
+      if (project && !['pixelforge-poses', 'pixelforge-wave', 'pixelforge-stack'].includes(project.format) && Object.hasOwn(COMPILERS, project.format ?? '')) {
         project = COMPILERS[project.format](project).recipe; source = linkPalette(project, input, input.file);
       }
       // The page draws a linked recipe with the palette file as read here; it reads no file itself.
@@ -687,8 +686,9 @@ try {
       if (options.full && !options.diagnostics) throw new Error('--full goes with --diagnostics: it lists the counts of every frame');
       if (options.motion) for (const key of ['frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
-      recipeOnly('inspect', input.document, positional[0], ['pixelforge-poses', 'pixelforge-wave']);
-      const compiled = input.document.format === 'pixelforge-poses' ? compilePoses(input.document) : input.document.format === 'pixelforge-wave' ? compileWaves(input.document) : null;
+      recipeOnly('inspect', input.document, positional[0], ['pixelforge-poses', 'pixelforge-wave', 'pixelforge-stack']);
+      const compiled = Object.hasOwn(COMPILERS, input.document.format ?? '') ? COMPILERS[input.document.format](input.document) : null;
+      if (input.document.format === 'pixelforge-stack' && options.motion) throw new Error('--motion reviews character poses; inspect a stack without --motion');
       if (input.document.format === 'pixelforge-wave' && options.motion) throw new Error('--motion reviews character poses; inspect a wave without --motion');
       if (compiled && options.metadata) throw new Error('A pose source supplies its own metadata; omit --metadata');
       const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || options.palette) && { owners: true }) });
@@ -773,7 +773,7 @@ try {
       // refused (an fx source's frame total or operations, counted over every effect) is --animation compiled alone.
       const input = await readResolved(positional[0]), warnings = [];
       let compiled = null;
-      if (options.preset !== undefined) {
+      if (options.preset !== undefined || input.document?.format === 'pixelforge-stack') {
         const settings = { frames: options.frames === undefined ? undefined : frameCount(options.frames) };
         try { compiled = compilePreset(input.document, settings); }
         catch (error) {
@@ -822,6 +822,7 @@ try {
       print({ ok: true, ...gif, bytes: data.length, ...written });
     } else {
       const input = await readResolved(positional[0]);
+      if (input.document?.format === 'pixelforge-stack') input.document = COMPILERS[input.document.format](input.document).recipe;
       recipeOnly(command, input.document, positional[0]);
       if (command === 'validate') { const project = renderProject(input.document); print({ ok: true, ...summary(project, input.document), ...(options.fps !== undefined && { frameGrid: frameGrid(project, options.fps) }), ...referenced(input) }); }
       else {

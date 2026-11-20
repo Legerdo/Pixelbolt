@@ -121,7 +121,8 @@ export async function createSceneBundle(source) {
     files.set(`${directory}/sprite_frames.tres`, Buffer.from(spriteFrames(atlas.metadata, entry.canvasTexture ? { image: 'canvas_texture.tres' } : {}).text));
     // An asset that is a tile set joins the scene's TileSet as an atlas source, named by its id and drawn through its
     // CanvasTexture when it has one, so Light2D nodes light the tiles.
-    const value = source.assets[id], spec = value?.recipe ?? value;
+    const value = source.assets[id], authored = value?.recipe ?? value;
+    const spec = authored.format === 'pixelforge-stack' ? asset.recipe : authored;
     const set = tileSource(spec, asset.recipe, atlas, { name: id, image: entry.canvasTexture ?? `${directory}/color.png` });
     if (set) tiles.push({ id, set });
     // And a Tiled tileset of its own beside its colour pass, since a Tiled tileset cuts one image: a tile set's with its
@@ -204,7 +205,7 @@ export async function createSceneBundle(source) {
   files.set('review.json', Buffer.from(JSON.stringify({ placements: view.placements, warnings: [...view.warnings, ...tileWarnings] }, null, 2) + '\n'));
   // The page that replays the scene, with what it runs on in player/: the folder's top level is what a game takes
   // (scene.tscn, scene.tmx, planes/, assets/), not a dozen engine modules among it.
-  for (const file of ['core.js', 'craft.js', 'font.js', 'authoring.js', 'pose-geometry.js', 'motions.js', 'autotile.js', 'terrain.js', 'slopes.js', 'scene.js']) files.set(`player/${file}`, await readFile(new URL(file, import.meta.url)));
+  for (const file of ['core.js', 'craft.js', 'font.js', 'authoring.js', 'pose-geometry.js', 'motions.js', 'autotile.js', 'terrain.js', 'slopes.js', 'stack.js', 'scene.js']) files.set(`player/${file}`, await readFile(new URL(file, import.meta.url)));
   for (const file of ['scene-player.js', 'scene.css']) files.set(`player/${file}`, await readFile(new URL(`../studio/${file}`, import.meta.url)));
   const page = await readFile(new URL('../studio/scene.html', import.meta.url), 'utf8'), placed = page.replace('href="./scene.css"', 'href="./player/scene.css"').replace('src="./scene-player.js"', 'src="./player/scene-player.js"');
   if (placed === page || !placed.includes('./player/scene.css') || !placed.includes('./player/scene-player.js')) throw new Error('studio/scene.html no longer names scene.css and scene-player.js as the scene export expects');

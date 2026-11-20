@@ -89,6 +89,8 @@ A team colour, a season, an enemy version, an arctic fox: the same sprite or cha
 
 ## Isometric
 
+For a turning vehicle or prop, use a [sprite stack](agent-guide.md#sprite-stacks) with `projection: "iso"`. Paint lettering and wheel hubs in side view with depth zero. Scrub a side-on, a grazing and an end-on heading. A thin feature should narrow with its face and disappear at the edge. The built-in `copper-rally` preset is a working example.
+
 Start from `examples/iso-tiles.json` (the tile set) and `examples/iso-glade.scene.json` (the scene that lays it out), and change them: `pixelbolt presets iso-glade --out <new.scene.json>` and `presets iso-tiles --out iso-tiles.json` save both to edit.
 
 - **Frames:** one canvas for the whole set, 32×64 on a `tile: [32, 16]` grid, each frame's cell in its last 16 rows. A ground tile is the cell's diamond 10 pixels up, over 10 pixels of earth. Draw one base tile and start the others `from` it, with every detail inside the diamond, so nothing crosses a seam or hangs off the map's edge.

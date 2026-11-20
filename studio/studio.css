@@ -1054,3 +1054,8 @@ dialog code{
     resize:none
   }
 }
+
+#stack-tools { margin: 12px 0; padding: 10px; border: 1px solid #869898; border-radius: 6px; }
+#stack-tools label { display: inline-flex; align-items: center; gap: 4px; margin: 3px; }
+#stack-depth { width: 4em; }
+#stack-side { display: block; width: 100%; height: auto; margin: 8px 0; background: #293948; image-rendering: pixelated; touch-action: none; cursor: crosshair; }

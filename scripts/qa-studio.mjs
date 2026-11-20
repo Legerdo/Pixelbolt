@@ -199,7 +199,8 @@ try {
   const samples = await (async () => { await studio.size(1440, 900); await studio.goto(`${origin}/`); await ready(); return evaluate(`[...document.querySelectorAll('#examples .example')].map(button => ({ file: button.dataset.file, title: button.querySelector('strong').textContent, type: button.querySelector('small').textContent }))`); })();
   // How many frames a sample's example renders to: Node renders the file the studio serves, as the page compiles it.
   const { compileWaves } = await import(pathToFileURL(path.join(path.resolve(options.app), 'src', 'wave.js')));
-  const framesOf = async file => { const value = await (await fetch(`${origin}/examples/${file}.json`)).json(); return renderProject(value.format === 'pixelforge-poses' ? compilePoses(value).recipe : value.format === 'pixelforge-wave' ? compileWaves(value).recipe : value).frames.length; };
+  const { compileStack } = await import(pathToFileURL(path.join(path.resolve(options.app), 'src', 'stack.js')));
+  const framesOf = async file => { const value = await (await fetch(`${origin}/examples/${file}.json`)).json(); return renderProject(value.format === 'pixelforge-stack' ? compileStack(value).recipe : value.format === 'pixelforge-poses' ? compilePoses(value).recipe : value.format === 'pixelforge-wave' ? compileWaves(value).recipe : value).frames.length; };
 
   console.log('Samples and playback');
   await check('the studio loads with its samples listed and counted, and the first one drawn', async () => {
@@ -226,6 +227,27 @@ try {
     const [drawn, frames, hidden, status] = [(await canvas()).drawn, await evaluate(`document.getElementById('timeline').children.length`), await evaluate(`document.getElementById('error').hidden`), await text('compile-status')];
     assert.ok(drawn > 0 && frames > 0 && hidden, `drawn ${drawn}, frames ${frames}, error hidden ${hidden}`);
     await studio.shot(`sample-${sample.file.replace('/', '-')}`); return `${frames} frames, ${status.replace('● ', '')}`;
+  });
+
+  await check('the rally car keeps its heading while painting an editable side stroke', async () => {
+    await click('#examples [data-file="copper-rally.stack"]');
+    await until(`!document.getElementById('stack-tools').hidden && document.getElementById('timeline').children.length === 60`, 'the rally car to open');
+    await evaluate(`(() => { const slider = document.getElementById('stack-heading'); slider.value = '59'; slider.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await text('stack-angle'), '24°');
+    assert.equal(await evaluate(`document.getElementById('native-canvas').parentElement.hidden`), true);
+    await choose('stack-face', 'south'); await choose('stack-ink', 'i');
+    await evaluate(`document.getElementById('stack-depth').value = '2'`);
+    const before = await canvas();
+    await evaluate(`document.getElementById('source').addEventListener('pixelbolt:rendered', () => { window.rallyPainted = true; }, { once: true })`);
+    await click('#stack-side');
+    await until(`JSON.parse(document.getElementById('source').value).paint.length === 5 && document.getElementById('compile-status').textContent.includes('All pixels accounted for')`, 'the side stroke to compile');
+    await until(`window.rallyPainted && document.querySelector('#timeline .frame:last-child').getAttribute('aria-pressed') === 'true'`, 'the edited heading to stay selected');
+    assert.notEqual((await canvas()).hash, before.hash);
+    const saved = await download(() => click('#save'));
+    assert.match(saved, /copper-rally\.stack\.json$/);
+    const { paint } = JSON.parse(await readFile(saved, 'utf8'));
+    assert.deepEqual(paint.at(-1), { face: 'south', at: [27,7], rows: ['i'], depth: 2 });
+    await studio.shot('rally-side-paint');
   });
 
   console.log('Moving figures');

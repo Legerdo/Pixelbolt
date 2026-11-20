@@ -8,7 +8,7 @@ import { formatJSON } from './export.js';
 export const QUICK_START = '../docs/agent-quick-start.md';
 export const HELP_TOPICS = {
   guide: '../docs/agent-guide.md', workflow: '../docs/art-workflow.md', craft: '../docs/agent-craft.md', schema: '../schema.json', example: '../examples/forest-spirit.json',
-  poses: '../poses.schema.json', scenes: '../scene.schema.json', autotile: '../autotile.schema.json', fx: '../fx.schema.json', fluid: '../fluid.schema.json', wave: '../wave.schema.json', crystal: '../crystal.schema.json', powder: '../powder.schema.json', bodies: '../bodies.schema.json', normals: '../normals.schema.json'
+  stack: '../stack.schema.json', poses: '../poses.schema.json', scenes: '../scene.schema.json', autotile: '../autotile.schema.json', fx: '../fx.schema.json', fluid: '../fluid.schema.json', wave: '../wave.schema.json', crystal: '../crystal.schema.json', powder: '../powder.schema.json', bodies: '../bodies.schema.json', normals: '../normals.schema.json'
 };
 export const TOPICS = [...Object.keys(HELP_TOPICS), 'presets', 'preset'];
 // A topic that is none, with the topics. A shell's command name (`help inspect`) also says where the command's options

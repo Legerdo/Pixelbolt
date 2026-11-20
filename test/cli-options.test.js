@@ -154,7 +154,7 @@ test('a call whose output cannot be written leaves none of its outputs, and says
 
 test('every source that can link a shared palette compiles to a recipe that keeps the link', async t => {
   const dir = await temp(t, 'palette-link'), at = name => path.join(dir, name);
-  const examples = { poses: 'slime-idle.poses.json', autotile: 'ground.autotile.json', fx: 'slash-hit.fx.json', fluid: 'smoke-puff.fluid.json', wave: 'portal.wave.json', crystal: 'pyrite.crystal.json', bodies: 'bouncing-pixel.bodies.json', powder: 'rain-on-fire.powder.json' };
+  const examples = { stack: 'copper-rally.stack.json', poses: 'slime-idle.poses.json', autotile: 'ground.autotile.json', fx: 'slash-hit.fx.json', fluid: 'smoke-puff.fluid.json', wave: 'portal.wave.json', crystal: 'pyrite.crystal.json', bodies: 'bouncing-pixel.bodies.json', powder: 'rain-on-fire.powder.json' };
   // The kinds src/resolve.js resolves a palette for: a kind added there has to be added here.
   const sidecars = /const sidecars = \{([^}]+)\}/.exec(await readFile(path.join(root, 'src/resolve.js'), 'utf8'))[1];
   assert.deepEqual([...sidecars.matchAll(/'pixelforge-[a-z]+': '([a-z]+)'/g)].map(match => match[1]).sort(), Object.keys(examples).sort());

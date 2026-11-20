@@ -12,6 +12,7 @@ export { spriteFrames, godotTiming, GODOT_MAX_FPS } from './godot.js';
 export { compilePoses, expandPoses, draftViews, compileAutotile, compileNormals, NORMAL_DIRECTIONS } from './authoring.js';
 export { inspectMotion } from './motion.js';
 export { compileEffects } from './fx.js';
+export { compileStack, stackSide } from './stack.js';
 export { compileWaves, WAVE_KINDS } from './wave.js';
 export { compileCrystals, CRYSTAL_HABITS } from './crystal.js';
 export { compilePowder, createLivePowder, POWDER_STATES, POWDER_INPUTS, SANDBOX, sandboxSource, packStrokes, unpackStrokes, replayStrokes, applyStroke } from './powder.js';

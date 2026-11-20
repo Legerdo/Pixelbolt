@@ -15,6 +15,7 @@ import { resolveReferences } from './resolve.js';
 import { compilePoses, compileAutotile, compileNormals } from './authoring.js';
 import { compileEffects } from './fx.js';
 import { compileFluid } from './fluid.js';
+import { compileStack } from './stack.js';
 import { compileWaves } from './wave.js';
 import { compileCrystals } from './crystal.js';
 import { compilePowder } from './powder.js';
@@ -24,12 +25,12 @@ import { FLUID_PRESETS } from '../studio/fluid-controls.js';
 import { POWDER_PRESETS } from '../studio/powder-controls.js';
 
 export const PRESET_FOLDER = fileURLToPath(new URL('../examples/', import.meta.url));
-const SOURCE = /^(.+)\.(fluid|fx|wave|crystal|powder|bodies|poses|autotile)\.json$/;
+const SOURCE = /^(.+)\.(fluid|fx|wave|crystal|powder|bodies|poses|autotile|stack)\.json$/;
 // A shipped scene is no preset (nothing compiles it to a recipe), but it is the example to start a scene from, so its
 // name finds its source too.
 const SCENE = /^(.+)\.scene\.json$/;
 // What compiles each source format: the one table, which the CLI and the MCP server use too.
-export const COMPILERS = { 'pixelforge-poses': compilePoses, 'pixelforge-autotile': compileAutotile, 'pixelforge-fx': compileEffects, 'pixelforge-fluid': compileFluid, 'pixelforge-wave': compileWaves, 'pixelforge-crystal': compileCrystals, 'pixelforge-powder': compilePowder, 'pixelforge-bodies': compileBodies, 'pixelforge-normals': compileNormals };
+export const COMPILERS = { 'pixelforge-stack': compileStack, 'pixelforge-poses': compilePoses, 'pixelforge-autotile': compileAutotile, 'pixelforge-fx': compileEffects, 'pixelforge-fluid': compileFluid, 'pixelforge-wave': compileWaves, 'pixelforge-crystal': compileCrystals, 'pixelforge-powder': compilePowder, 'pixelforge-bodies': compileBodies, 'pixelforge-normals': compileNormals };
 const TITLES = new Map([...FLUID_PRESETS.map(entry => [`fluid:${entry.file}`, entry]), ...EFFECT_PRESETS.map(entry => [`fx:${entry.file}`, entry]), ...POWDER_PRESETS.map(entry => [`powder:${entry.file}`, entry])]);
 
 // How to use the listing. Fewer frames come from compiling with `frames`: a source's own `frames` is its simulation
@@ -157,6 +158,7 @@ function about(entry, source, animations) {
     return `A tile set for a terrain brush (Godot TileSet, Tiled tileset): ${layers.length ? `${listNames(layers)} and the tiles where they meet` : `one terrain, ${source.mode ?? 'blob'} tiles`}${extras.length ? `, ${extras.join(', ')}` : ''}.`;
   }
   if (entry.kind === 'fx') return `Particles and effect shapes: ${listNames(names)}.`;
+  if (entry.kind === 'stack') return `Rotating sprite with ${source.slices.length} horizontal slices and painted side views.`;
   if (entry.kind === 'wave') return `A looping wave pattern: ${listNames(names)}.`;
   if (entry.kind === 'crystal') {
     // What grows: each habit counted with the crystals of its clusters.

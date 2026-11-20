@@ -2,6 +2,8 @@ import { renderProject, buildAtlas, parseColor, reviewPixels, onionPixels, partC
 import { animationGIF } from '/gif.js';
 import { createDraftStore, claimTab, openTabs } from '/draft.js';
 import { compilePoses } from '/authoring.js';
+import { compileStack } from '/stack.js';
+import { stackEditor } from '/stack-editor.js';
 import { compileWaves } from '/wave.js';
 import { inspectMotion } from '/motion.js';
 import { $, toast, download, playButton } from '/page.js';
@@ -21,12 +23,14 @@ let sharedPalette = null;
 const isLinked = value => value?.palette !== null && typeof value?.palette === 'object' && Object.hasOwn(value.palette, '$ref');
 function withSharedPalette(value) {
   if (!isLinked(value)) return value;
-  const where = `${value.format === 'pixelforge-poses' ? 'poses' : value.format === 'pixelforge-wave' ? 'wave' : 'project'}.palette.$ref`, reference = JSON.stringify(value.palette.$ref);
+  const where = `${value.format === 'pixelforge-stack' ? 'stack' : value.format === 'pixelforge-poses' ? 'poses' : value.format === 'pixelforge-wave' ? 'wave' : 'project'}.palette.$ref`, reference = JSON.stringify(value.palette.$ref);
   if (!sharedPalette) throw new Error(`${where}: the studio reads a shared palette file only for the recipe pixelbolt preview opened, so it cannot draw ${reference}. Open this recipe with pixelbolt preview <file>, or put its colours in the palette.`);
   if (sharedPalette.$ref !== value.palette.$ref) throw new Error(`${where}: the studio has only ${JSON.stringify(sharedPalette.$ref)}, the palette file of the recipe pixelbolt preview opened, so it cannot draw ${reference}. Open this recipe with pixelbolt preview <file>.`);
   return inlineSharedPalette(value, sharedPalette);
 }
-const compileSource = value => { const drawn = withSharedPalette(value); return drawn?.format === 'pixelforge-poses' ? compilePoses(drawn) : drawn?.format === 'pixelforge-wave' ? compileWaves(drawn) : { recipe: drawn, metadata: null }; };
+const stackTools = stackEditor(index => document.querySelectorAll('.frame')[index]?.click());
+let stackOpen = false;
+const compileSource = value => { const drawn = withSharedPalette(value); return drawn?.format === 'pixelforge-stack' ? compileStack(drawn) : drawn?.format === 'pixelforge-poses' ? compilePoses(drawn) : drawn?.format === 'pixelforge-wave' ? compileWaves(drawn) : { recipe: drawn, metadata: null }; };
 let elapsed = 0, lastTime = 0, zoom = 12, dirty = false, valid = false, compileTimer, loadVersion = 0;
 // Whether an Export assets request is on its way: the one thing the button's packing label and its being off while it
 // packs are drawn from. Otherwise the button is on exactly when the recipe is valid. Whatever compiles meanwhile
@@ -60,8 +64,8 @@ function sequenceScale(width, height) {
   while (scale > 1 && (width * scale > SEQUENCE_SIDE || height * scale > SEQUENCE_SIDE || width * scale * height * scale > SEQUENCE_CANVAS_PIXELS)) scale--;
   return scale;
 }
-function fitZoom(next) {
-  const wasLarge = project ? isLarge(project) : false, large = isLarge(next);
+function fitZoom(next, isStack) {
+  const wasLarge = stackOpen || Boolean(project && isLarge(project)), large = isStack || isLarge(next);
   if (large === wasLarge) return;
   if (large) { spriteZoom = zoom; zoom = 'fit'; } else zoom = spriteZoom;
   $('zoom').value = String(zoom);
@@ -80,7 +84,7 @@ claimed.catch(() => {});
 let drafts = null, offer = null, offers = [], draftTimer, draftWarned = false;
 const ownOffer = () => offer !== null && offer.id === drafts.id;
 // Each example's frame count is added from its render when the list is built, so a changed example can't leave it stale.
-const examples = [{ file: 'forest-spirit', title: 'Forest spirit', type: 'Character' }, { file: 'ember', title: 'Campfire', type: 'Effect' }, { file: 'coin', title: 'Golden coin', type: 'Collectible' }, { file: 'shrine', title: 'Moonlit shrine', type: 'Dither, rewrite, rim light' }, { file: 'caption', title: 'Caption', type: 'Text, for video' }, { file: 'swing', title: 'Sword swing', type: 'Rotated, tweened poses' }, { file: 'effects', title: 'Particle effects', type: 'Compiled fx' }, { file: 'interference.wave', title: 'Interference', type: 'Paired ripples' }, { file: 'portal.wave', title: 'Portal', type: 'Moving waves, steady rim' }];
+const examples = [{ file: 'forest-spirit', title: 'Forest spirit', type: 'Character' }, { file: 'ember', title: 'Campfire', type: 'Effect' }, { file: 'coin', title: 'Golden coin', type: 'Collectible' }, { file: 'shrine', title: 'Moonlit shrine', type: 'Dither, rewrite, rim light' }, { file: 'caption', title: 'Caption', type: 'Text, for video' }, { file: 'swing', title: 'Sword swing', type: 'Rotated, tweened poses' }, { file: 'effects', title: 'Particle effects', type: 'Compiled fx' }, { file: 'interference.wave', title: 'Interference', type: 'Paired ripples' }, { file: 'portal.wave', title: 'Portal', type: 'Moving waves, steady rim' }, { file:'copper-rally.stack', title:'Copper Rally', type:'Paintable sprite stack' }];
 const title = name => name.replace(/[-_]/g, ' ').replace(/^./, c => c.toUpperCase());
 function imageCanvas(data, width, height) {
   const c = document.createElement('canvas'); c.width = width; c.height = height;
@@ -153,13 +157,14 @@ function render() {
   // The native-size preview shows a sprite at 1× beside the zoomed view. A large picture, a still or a big animation
   // frame, would not fit the playback bar: zoom 1 shows it at 1×.
   const native = $('native-canvas');
-  native.parentElement.hidden = isLarge(project);
-  if (!isLarge(project)) { native.width = project.width; native.height = project.height; native.getContext('2d').drawImage(frameImages[selected], 0, 0); }
+  native.parentElement.hidden = isLarge(project) || project.height > 38; // 59 px bar minus padding and border.
+  if (!native.parentElement.hidden) { native.width = project.width; native.height = project.height; native.getContext('2d').drawImage(frameImages[selected], 0, 0); }
   const fit = Math.max(1, Math.floor(($('artboard').clientWidth - 48) / width));
   const displayScale = zoom === 'fit' ? fittedScale(width, height) : isSheet || isMotion ? Math.min(zoom, fit) : zoom;
   shownScale = displayScale;
   canvas.style.width = `${width * displayScale}px`; canvas.style.height = `${height * displayScale}px`;
-  canvas.classList.toggle('smooth', displayScale < 1);
+  canvas.classList.toggle('smooth', displayScale < 1 && !stackOpen);
+  if (stackOpen) stackTools.heading(position);
   const board = $('artboard');
   board.classList.toggle('pannable', board.scrollWidth > board.clientWidth || board.scrollHeight > board.clientHeight);
   $('canvas-wrap').style.setProperty('--pixel-size', `${displayScale}px`);
@@ -183,7 +188,7 @@ function animationChanged() {
     const button = document.createElement('button'); button.className = 'frame'; button.title = `${frame.name} · ${frame.duration}ms`; button.setAttribute('aria-label', `Select position ${sequencePosition + 1}: ${frame.name}`);
     const block = document.createElement('div'); block.className = 'frame-image';
     const number = document.createElement('span'); number.className = 'number'; number.textContent = String(sequencePosition + 1).padStart(2, '0');
-    const image = thumbnail(frameImages[index]); image.classList.toggle('smooth', isLarge(project));
+    const image = thumbnail(frameImages[index]); image.classList.toggle('smooth', isLarge(project) && !stackOpen);
     block.append(image, number);
     const caption = document.createElement('small');
     const label = document.createElement('span'); label.textContent = frame.name;
@@ -204,7 +209,11 @@ function compile() {
   try {
     const nextSpec = JSON.parse(source.value.replace(/^\uFEFF/, ''));
     const compiled = compileSource(nextSpec), nextProject = renderProject(compiled.recipe), nextAtlas = buildAtlas(nextProject);
-    fitZoom(nextProject);
+    const isStack = nextSpec.format === 'pixelforge-stack';
+    const keepHeading = isStack && stackOpen && !playing ? project?.frames[selected]?.name : null;
+    fitZoom(nextProject, isStack);
+    stackOpen = isStack;
+    stackTools.update(isStack ? withSharedPalette(nextSpec) : null, nextProject.frames.map(f=>f.name));
     spec = compiled.recipe; poseMetadata = compiled.metadata?.format === 'pixelforge-pose-metadata' ? compiled.metadata : null; project = nextProject; atlas = nextAtlas;
     motionReview = null; ownedProject = null; partsView = null;
     // Stills ("animations": {}) keep their flipbook to step through, but have no animation to pick, make a GIF of,
@@ -222,7 +231,7 @@ function compile() {
     frameImages = project.frames.map(f => imageCanvas(f.data, project.width, project.height));
     $('project-name').textContent = title(project.name);
     $('dimensions').textContent = `${project.width} × ${project.height} px`;
-    $('source-filename').textContent = `${project.name}${poseMetadata ? '.poses' : nextSpec.format === 'pixelforge-wave' ? '.wave' : ''}.json`;
+    $('source-filename').textContent = `${project.name}${poseMetadata ? '.poses' : nextSpec.format === 'pixelforge-wave' ? '.wave' : isStack ? '.stack' : ''}.json`;
     const oldAnimation = $('animation').value;
     $('animation').replaceChildren(...Object.keys(project.animations).map(key => { const option = document.createElement('option'); option.value = key; option.textContent = title(key); return option; }));
     if (project.animations[oldAnimation]) $('animation').value = oldAnimation;
@@ -242,8 +251,13 @@ function compile() {
     const warnings = [...(compiled.warnings ?? []), ...project.warnings];
     $('compile-status').textContent = warnings.length ? warnings.join(' ') : '● All pixels accounted for';
     valid = true; showExport(); animationChanged(); setMode(mode);
+    if (keepHeading) {
+      const index=nextProject.frames.findIndex(f=>f.name===keepHeading);
+      if(index>=0) document.querySelectorAll('.frame')[index]?.click();
+    }
     source.dispatchEvent(new CustomEvent('pixelbolt:rendered'));
   } catch (error) {
+    stackTools.update(null);
     valid = false; $('error').textContent = error.message; $('error').hidden = false;
     $('compile-status').textContent = 'Fix the recipe to update the preview'; showExport();
   }
@@ -415,7 +429,7 @@ $('new').addEventListener('click', () => {
 function savedName() {
   let format;
   try { format = JSON.parse(source.value.replace(/^﻿/, ''))?.format; } catch { /* Broken drafts can still be saved. */ }
-  return `${project?.name ?? 'sprite'}.${format === 'pixelforge-poses' ? 'poses' : format === 'pixelforge-wave' ? 'wave' : 'pixel'}.json`;
+  return `${project?.name ?? 'sprite'}.${format === 'pixelforge-poses' ? 'poses' : format === 'pixelforge-wave' ? 'wave' : format === 'pixelforge-stack' ? 'stack' : 'pixel'}.json`;
 }
 // The browser may ask where to save, and the page never learns whether the file was kept, so nothing is settled here:
 // the draft stays until the user edits again (the draft then follows) or confirms replacing or leaving the recipe.
@@ -506,10 +520,10 @@ async function boot() {
   let failure = null;
   const part = async run => { try { return await run(); } catch (error) { failure ??= error; return null; } };
   for (const example of examples) await part(async () => {
-    const response = await fetch(`/examples/${example.file}.json`); const value = await response.json(), preview = renderProject(compileSource(value).recipe);
+    const response = await fetch(`/examples/${example.file}.json`); const value = await response.json(), preview = renderProject(compileSource(value.format === 'pixelforge-stack' ? { ...value, headings:[value.headings?.[0] ?? 0] } : value).recipe);
     const button = document.createElement('button'); button.className = 'example'; button.dataset.file = example.file;
     const label = document.createElement('span'), strong = document.createElement('strong'), small = document.createElement('small');
-    const count = preview.frames.length;
+    const count = value.format === 'pixelforge-stack' ? value.headings?.length ?? 16 : preview.frames.length;
     strong.textContent = example.title; small.textContent = `${example.type} · ${count} frame${count === 1 ? '' : 's'}`; label.append(strong, small);
     button.append(thumbnail(imageCanvas(preview.frames[0].data, preview.width, preview.height)), label);
     button.addEventListener('click', () => loadExample(example)); $('examples').append(button);

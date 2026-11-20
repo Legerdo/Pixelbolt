@@ -235,13 +235,26 @@ const assetSide = int(1, 1024, 'A scene asset is at most 1024 pixels a side and 
 const sceneRecipe = { ...recipeSchema, properties: { ...recipeSchema.properties, width: assetSide, height: assetSide } }; delete sceneRecipe.if; delete sceneRecipe.then;
 const themePalette = description => ({ oneOf: [{ type: 'string', description: 'Palette file, resolved by the CLI relative to the scene or inside the MCP root.' }, { type: 'object', additionalProperties: { type: 'string', pattern: hex } }], description });
 const cueTime = (maximum, description) => ({ oneOf: [int(0, maximum), { type: 'string', pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}([+-][0-9]{1,5})?$' }], description });
+const sliceRows = { ...array({ type:'string', minLength:1, maxLength:128 },128), minItems:1 };
+const stackPoint = { ...array(int(0, 127), 2), minItems: 2 };
+const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...object({
+  format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
+  palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:opaqueHex}},
+  slices:{...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'},
+  paint:array(object({face:{enum:['west','east','north','south']}, at:stackPoint, rows:sliceRows,
+    depth:int(0,128,'0 paints just the visible face; positive depth also colours that many contiguous solid cells inward.')}, ['face','rows']),1024),
+  pivot:stackPoint, projection:{enum:['oblique','iso']}, squash:num(.25,1), resolution:int(1,8,'Output pixels per slice cell; default 4.'),
+  spacing:int(1,8), headings:{...array(int(0,359),256),minItems:1,uniqueItems:true}, duration:int(1,60000)
+},['format','version','name','palette','slices']),
+  if:{required:['projection'],properties:{projection:{const:'iso'}}},then:{not:{required:['squash']}} };
 const assetRef = { oneOf: [ref('recipe'), { type: 'string', description: 'Recipe file, resolved by the CLI relative to the scene or inside the MCP root.' }, object({ revision: { type: 'string', pattern: '^[a-f0-9]{12}$' } }, ['revision'])] };
+const stackAsset = { oneOf: [...assetRef.oneOf, ref('stack')] };
 const scene = {
   $schema: schema.$schema, title: 'Pixelbolt scene review',
   ...object({ format: { const: 'pixelforge-scene' }, version: { const: 1 }, name: id, width: { ...int(1, 1024), description: 'The view, up to 1024 a side and 262,144 pixels in all.' }, height: int(1, 1024), background: color, duration: int(1, 60000),
     palette: themePalette('A theme for every asset: colours for palette keys the recipes share (keys a recipe lacks are ignored), or a palette file resolved by the CLI and MCP.'),
     cues: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: int(0, 60000), description: 'Named times in milliseconds; sequence and trajectory times may say "name", "name+90" or "name-20".' },
-    assets: { type: 'object', maxProperties: 64, description: 'Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.', additionalProperties: { oneOf: [assetRef, object({ recipe: assetRef, normal: assetRef, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
+    assets: { type: 'object', maxProperties: 64, description: 'Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.', additionalProperties: { oneOf: [stackAsset, object({ recipe: stackAsset, normal: assetRef, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
     instances: array(object({ name: { type: 'string' }, asset: { type: 'string' }, at: point,
       anchor: { oneOf: [point, { const: 'frame' }], description: '[x, y] in asset pixels placed at `at` (default [0, 0]), or "frame" to place every drawn frame by its own atlas anchor, so animated placements follow per-frame anchors. Tilemaps take [x, y] only.' }, scale: int(1, 16), frame: id, animation: id,
       hidden: { type: 'boolean', description: 'Start hidden; a later frame or animation cue shows the placement.' },
@@ -274,7 +287,7 @@ const scene = {
         keys: { ...array(object({ time: cueTime(60000, 'Milliseconds or a named cue such as "strike+70".'), strength: num(0, 8, 'Default: the light\'s strength.'), radius: int(1, 512, 'Default: the light\'s radius.'), ease: { ...ease, description: `Shape of the change from this key to the next: ${ease.description}` } }, ['time']), 64), minItems: 1,
           description: 'Strength and radius over time, held before the first key and after the last: a flash on a hit, a lamp that lights later. Times increase strictly.' }
       }), anyOf: [{ required: ['at'] }, { required: ['follow'] }, { required: ['sun'] }] }, 8) })
-  }, ['format', 'version', 'name', 'width', 'height', 'assets', 'instances']), $defs: { ...schema.$defs, recipe: sceneRecipe }
+  }, ['format', 'version', 'name', 'width', 'height', 'assets', 'instances']), $defs: { ...schema.$defs, recipe: sceneRecipe, stack }
 };
 // A terrain draws an autotile template from a description: a fill repeated every tile and an edge per side.
 const paletteKey = { type: 'string', minLength: 1, maxLength: 1, description: 'A one-character palette key (template rows hold one character per pixel).' };
@@ -967,4 +980,4 @@ const normals = {
     faces: { type: 'object', minProperties: 1, additionalProperties: { enum: NORMAL_KEYS }, description: 'Flat faces by colour: maps the colour recipe\'s palette keys to one direction each, so a box, wall or building gets flat planes instead of a cushion. Pixels drawn in that key\'s colour take the direction; all others are rounded as usual. Side view: tops w, fronts 5. 3/4 top-down: tops w or 8, south faces 2 or 5. Isometric 2:1: tops w, left faces z, right faces c.' }
   }, ['format', 'version', 'recipe']), $defs: { ...schema.$defs, recipe: recipeSchema }
 };
-for (const [file, value] of [['poses.schema.json', poses], ['scene.schema.json', scene], ['autotile.schema.json', autotile], ['fx.schema.json', fx], ['fluid.schema.json', fluid], ['wave.schema.json', wave], ['crystal.schema.json', crystal], ['powder.schema.json', powder], ['bodies.schema.json', bodies], ['normals.schema.json', normals]]) await writeFile(new URL(`../${file}`, import.meta.url), JSON.stringify(value, null, 2) + '\n');
+for (const [file, value] of [['stack.schema.json', stack], ['poses.schema.json', poses], ['scene.schema.json', scene], ['autotile.schema.json', autotile], ['fx.schema.json', fx], ['fluid.schema.json', fluid], ['wave.schema.json', wave], ['crystal.schema.json', crystal], ['powder.schema.json', powder], ['bodies.schema.json', bodies], ['normals.schema.json', normals]]) await writeFile(new URL(`../${file}`, import.meta.url), JSON.stringify(value, null, 2) + '\n');

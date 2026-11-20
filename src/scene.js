@@ -1,7 +1,8 @@
 // Bounded scene review, not a game engine. In-memory recipes only; no filesystem or network access.
-import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
+import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_AREA, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
 import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
 import { fields, point, number, integer } from './authoring.js';
+import { compileStack } from './stack.js';
 import { expandTilemap, isoLayout } from './autotile.js';
 
 // A scene is one view: up to SCENE_SIDE pixels a side and SCENE_AREA in all (1024×256, 640×360, 512×512), so a level
@@ -166,13 +167,25 @@ export function prepareScene(source) {
     }
   }
   if (!source.assets || Array.isArray(source.assets) || typeof source.assets !== 'object' || Object.keys(source.assets).length > 64) fail('scene.assets', 'expected at most 64 inlined assets');
+  // Bake stack assets once, as whole sprites with a ground pivot shared by every heading.
+  const stackNames = new Set();
+  const assetSpecs = { ...source.assets };
+  let stackBudget = FRAME_AREA;
+  for (const [id, value] of Object.entries(assetSpecs)) {
+    const stack = value?.recipe ?? value;
+    if (stack?.format !== 'pixelforge-stack') continue;
+    const { recipe } = compileStack(stack, { maxPixels: stackBudget });
+    stackBudget -= recipe.width * recipe.height * recipe.frames.length;
+    assetSpecs[id] = value.recipe ? { ...value, recipe } : recipe;
+    stackNames.add(id);
+  }
   // Ramp shifters per asset (kept apart from the passes, which exports iterate as images).
   // used: the pixels each asset's passes render (every frame of each), which together stay within 4,194,304.
   const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(); let sourceArea = 0;
   // Every asset's pixels a frame (over all its passes) and in all, counted before any renders, so a refusal names a
   // frame count that fits beside the whole scene, not only the passes before it.
   const whole = new Map(); let sceneArea = 0;
-  for (const [id, value] of Object.entries(source.assets)) {
+  for (const [id, value] of Object.entries(assetSpecs)) {
     const entry = value?.recipe ? value : { recipe: value };
     let frame = 0, all = 0;
     for (const key of ['recipe', 'normal', 'emissive']) {
@@ -181,7 +194,7 @@ export function prepareScene(source) {
     }
     whole.set(id, { frame, all, count: entry.recipe?.frames?.length }); sceneArea += all;
   }
-  for (const [id, value] of Object.entries(source.assets)) {
+  for (const [id, value] of Object.entries(assetSpecs)) {
     if (typeof value === 'string' || typeof value?.recipe === 'string' || typeof value?.normal === 'string' || typeof value?.emissive === 'string' || value?.revision !== undefined) fail(`scene.assets.${id}`, 'file and revision references are resolved by the CLI and MCP; inline the recipe to render here');
     const entry = value?.recipe ? value : { recipe: value };
     fields(entry, ['recipe', 'normal', 'emissive', 'palette'], `scene.assets.${id}`);
@@ -234,6 +247,7 @@ export function prepareScene(source) {
     if (instance.lit !== undefined && typeof instance.lit !== 'boolean') fail(`${path}.lit`, 'expected a boolean');
     if (instance.lit === false && instance.shade !== undefined) fail(`${path}.lit`, 'a shade placement draws no colours of its own to keep');
     if (typeof instance.asset !== 'string' || !Object.hasOwn(assets, instance.asset)) fail(`${path}.asset`, 'unknown asset');
+    if (stackNames.has(instance.asset) && !instance.tilemap) instance = { anchor: 'frame', sort: 'ground', ...instance };
     const project = assets[instance.asset].recipe;
     // `anchor: "frame"` places every drawn frame by its own atlas anchor (per-frame or recipe-level), so an animated
     // placement follows anchors that change between poses. Otherwise the anchor is one fixed [x, y] in asset pixels.
