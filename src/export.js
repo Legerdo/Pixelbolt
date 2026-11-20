@@ -151,15 +151,17 @@ export async function createBundle(spec, { normal } = {}) {
 }
 // The top-level files an export writes only sometimes (a tile set's TileSet and Tiled tileset; an animated recipe's
 // SpriteFrames, CSS and player), each with how to tell that an export of this recipe wrote it: the text Pixelbolt writes
-// there, naming this recipe's sheet, which an editor that saves the file over changes. A forced export over an earlier
-// one removes those it no longer writes. player.js is every sprite's in the folder, so it goes only when no other
-// export is there.
+// there, naming this recipe's sheet (a lit SpriteFrames names its CanvasTexture instead), which an editor that saves
+// the file over changes. A forced export over an earlier one removes those it no longer writes. player.js is every
+// sprite's in the folder, so it goes only when no other export is there. A normal pass's CanvasTexture and normal maps
+// are never removed: a TileSet, SpriteFrames or scene an editor saved, which stays, may draw through them, and left
+// behind they are files nothing this export writes names.
 const bundleResources = name => {
-  const sheet = `\n[ext_resource type="Texture2D" path="${name}.png" id="1_sheet"]\n`, tileset = /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<tileset version="[\d.]+" name="([^"]*)" /;
+  const sheet = image => `\n[ext_resource type="Texture2D" path="${image}" id="1_sheet"]\n`, tileset = /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<tileset version="[\d.]+" name="([^"]*)" /;
   return [
-    { file: `${name}.tileset.tres`, wrote: text => text.startsWith('[gd_resource type="TileSet" format=3]\n') && text.includes(sheet) },
+    { file: `${name}.tileset.tres`, wrote: text => text.startsWith('[gd_resource type="TileSet" format=3]\n') && text.includes(sheet(`${name}.png`)) },
     { file: `${name}.tsx`, wrote: text => tileset.exec(text)?.[1] === name && text.includes(`\n <image source="${name}.png" `) && !text.includes('tiledversion=') },
-    { file: `${name}.tres`, wrote: text => text.startsWith('[gd_resource type="SpriteFrames" format=3]\n') && text.includes(sheet) },
+    { file: `${name}.tres`, wrote: text => text.startsWith('[gd_resource type="SpriteFrames" format=3]\n') && (text.includes(sheet(`${name}.png`)) || text.includes(sheet(`${name}.canvas.tres`))) },
     { file: `${name}.css`, wrote: text => text.startsWith('/* Pixelbolt: ') && text.includes(`\n.pf-${name} {\n`) },
     { file: 'player.js', shared: true, wrote: async text => text === await readFile(new URL('./runtime.js', import.meta.url), 'utf8') }
   ];
