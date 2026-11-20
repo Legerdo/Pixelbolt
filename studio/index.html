@@ -42,11 +42,23 @@
       <div class="inspector-heading"><h2>Source</h2><button id="save" class="text-button">Save JSON</button></div>
       <p class="source-description">An editable recipe for every sprite.<br>Changes appear as you type.</p>
       <div id="draft" class="draft" role="status" hidden><p id="draft-text"></p><div class="draft-actions"><button id="draft-restore" class="text-button">Restore draft</button><button id="draft-discard" class="text-button">Discard draft</button></div></div>
-      <fieldset id="stack-tools" hidden><legend>Paint a stack face</legend>
+      <fieldset id="stack-tools" hidden><legend>Stack painting</legend>
+        <label>Tool <select id="stack-tool"><option value="brush">Brush</option><option value="erase">Eraser</option><option value="stamp">Place decal</option><option value="pin">Pin detail</option></select></label>
         <label>Face <select id="stack-face"><option value="south">South</option><option value="north">North</option><option value="west">West</option><option value="east">East</option></select></label>
-        <label>Colour <select id="stack-ink"></select></label><label title="0 paints the face only. Higher values also colour that many solid cells inward.">Depth <input id="stack-depth" type="number" required step="1" min="0" max="128" value="0"></label>
-        <canvas id="stack-side" tabindex="0" aria-label="Side painting. Drag to paint, or move with arrow keys and paint with Space."></canvas>
-        <output id="stack-cell" aria-live="polite"></output><label>Heading <input id="stack-heading" type="range" min="0" value="0"><output id="stack-angle"></output></label>
+        <label id="stack-target-label">Drawing <select id="stack-target"><option value="">Face</option></select></label>
+        <label id="stack-ink-label">Colour <select id="stack-ink"></select></label>
+        <label id="stack-depth-label" title="0 paints the face only. Higher values also colour solid cells inward.">Depth <input id="stack-depth" type="number" required step="1" min="0" max="128" value="0"></label>
+        <span id="stack-stamp-tools" hidden><label>Decal <select id="stack-decal"></select></label>
+          <label><input type="checkbox" id="stack-flip-x">Mirror X</label><label><input type="checkbox" id="stack-flip-y">Mirror Y</label></span>
+        <div id="stack-drawing"><canvas id="stack-side" tabindex="0" aria-label="Stack drawing. Drag to draw, or use the arrow keys and Space."></canvas><span id="stack-pin-marker" hidden aria-hidden="true"></span></div>
+        <output id="stack-cell" aria-live="polite"></output>
+        <div><button type="button" id="stack-undo">Undo</button> <button type="button" id="stack-redo">Redo</button>
+          <button type="button" id="stack-make-decal" title="Reuse the last face stroke as a named drawing">Make decal</button></div>
+        <label>Heading <input id="stack-heading" type="range" min="0" value="0"><output id="stack-angle"></output></label>
+        <section id="stack-comparison" hidden aria-label="Pinned heading comparison">
+          <div><span id="stack-pin-label"></span> <button type="button" id="stack-unpin">Unpin</button></div>
+          <div id="stack-detail-strip"></div>
+        </section>
       </fieldset>
       <div class="source-toolbar"><span id="source-filename">forest-spirit.json</span><span>JSON</span></div>
       <textarea id="source" aria-label="Project JSON source" aria-describedby="source-keys" aria-busy="true" placeholder="Loading the recipe…" spellcheck="false" wrap="off" readonly></textarea>

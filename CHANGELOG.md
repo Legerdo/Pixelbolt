@@ -6,6 +6,8 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ### Rotating sprite stacks
 
+- A drag in the stack editor is one undoable stroke. The selected heading updates first and other headings bake between gestures. Named decals support mirrored placements, and a face eraser reveals earlier paint. Pin a wheel in Studio or run `pixelbolt inspect examples/copper-rally.stack.json --pin south,12,10,90` to compare five neighbouring angles.
+
 - Sprite stacks render solid slices at 4× resolution by default and keep exact palette colours. Side paintings follow the visible surface around a turn. Studio can paint a face, set the brush depth and scrub headings. Isometric stacks share a ground anchor and sort with other scene actors. [Copper Rally turntable and pit lane](showcase/copper-rally/README.md) · [Authoring guide](docs/agent-guide.md#sprite-stacks)
 
 ### Poke the pixels: a live fluid toy

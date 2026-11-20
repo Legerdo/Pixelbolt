@@ -49,7 +49,7 @@ function section(x, y, z) {
 const slices=Array.from({length:15},(_,z)=>Array.from({length:29},(_,y)=>
   Array.from({length:55},(_,x)=>section(x-27,y-14,z)).join('')));
 const hub=['..mmm..','.mcccm.','mcclccm','mcllmcm','mccmccm','.mcccm.','..mmm..'];
-const paint=['north','south'].flatMap(face=>[12,42].map(center=>({face,at:[center-3,7],rows:hub})));
+const paint=['north','south'].flatMap(face=>[12,42].map(center=>({face,at:[center-3,7],decal:'hub'})));
 const source={format:'pixelforge-stack',version:1,name:'copper-rally',palette,pivot:[27,14],squash:.60,
-  headings:Array.from({length:60},(_,i)=>(30+i*6)%360),duration:70,slices,paint};
+  headings:Array.from({length:60},(_,i)=>(30+i*6)%360),duration:70,slices,decals:{hub},paint};
 await writeFile(new URL('../examples/copper-rally.stack.json',import.meta.url), JSON.stringify(source,null,2)+'\n');

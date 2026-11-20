@@ -2,12 +2,12 @@
 // per output pixel through the original slices, sampling the first visible face. All headings
 // share a ground pivot and canvas. Palette values survive exactly at any rendering resolution.
 import { fail, frameFits, frameTotalProblem, isObject, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
-import { fields, integer, number, point } from './authoring.js';
+import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'paint'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -44,21 +44,60 @@ function readModel(source) {
     for (const row of rows) for (const key of row) cells[i++] = blank(key) ? 0 : key.charCodeAt(0);
   });
   const model = { width, height, levels, cells, decals: faces.map(() => new Map()) };
+  const library = source.decals ?? {};
+  if (!isObject(library) || Object.keys(library).length > 256) fail('stack.decals', 'expected at most 256 named grids');
+  const grids = new Map();
+  let libraryCells = 0;
+  for (const [name, rows] of Object.entries(library)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) fail('stack.decals', 'use 1–64 letters, digits, underscores or hyphens, starting with a letter');
+    const grid = readRows(rows, `stack.decals.${name}`, source.palette, 128);
+    libraryCells += grid.width * grid.height;
+    if (libraryCells > 262144) fail('stack.decals', 'decal drawings exceed 262,144 cells');
+    grids.set(name, grid);
+  }
   const paint = source.paint ?? [];
   if (!Array.isArray(paint) || paint.length > 1024) fail('stack.paint', 'expected at most 1,024 side paintings');
   let paintCells = 0;
-  paint.forEach((stroke, i) => {
+  const strokes = paint.map((stroke, i) => {
     const path = `stack.paint[${i}]`;
-    fields(stroke, ['face', 'at', 'rows', 'depth'], path);
+    fields(stroke, ['face', 'at', 'rows', 'depth', 'decal', 'flipX', 'flipY', 'erase'], path);
     const face = faces.indexOf(stroke.face);
     if (face < 0) fail(`${path}.face`, `expected ${faces.join(', ')}`);
     const [u, v] = point(stroke.at ?? [0, 0], `${path}.at`);
-    const grid = readRows(stroke.rows, `${path}.rows`, source.palette, 128);
+    if (['rows', 'erase', 'decal'].filter(key => key in stroke).length !== 1) fail(path, 'choose one of rows, decal or erase');
+    const erase = 'erase' in stroke;
+    if (erase && 'depth' in stroke) fail(`${path}.depth`, 'an eraser removes the previous mark including its depth');
+    if (!('decal' in stroke) && ('flipX' in stroke || 'flipY' in stroke)) fail(path, 'flips apply to a named decal');
+    const grid = 'decal' in stroke ? grids.get(stroke.decal)
+      : erase ? readRows(stroke.erase, `${path}.erase`, { x: '#fff' }, 128) : readRows(stroke.rows, `${path}.rows`, source.palette, 128);
+    if (!grid) fail(`${path}.decal`, 'unknown decal');
     const depth = integer(stroke.depth ?? 0, `${path}.depth`, 0, 128);
     if (u < 0 || v < 0 || u + grid.width > (face < 2 ? height : width) || v + grid.height > levels) fail(path, 'painting must fit inside the side view');
     paintCells += grid.width * grid.height;
     if (paintCells > 262144) fail('stack.paint', 'side paintings exceed 262,144 cells');
-    stroke.rows.forEach((row, y) => {
+    let rows = grid.rows;
+    if (boolean(stroke.flipX ?? false, `${path}.flipX`)) rows = rows.map(row => [...row].reverse().join(''));
+    if (boolean(stroke.flipY ?? false, `${path}.flipY`)) rows = [...rows].reverse();
+    return { face, u, v, rows, depth, erase };
+  });
+  // Walk backwards to match each eraser cell to its preceding mark on this face.
+  // Replay surviving marks forwards so intersecting depth strokes keep their original order.
+  if (strokes.some(stroke => stroke.erase)) {
+    const skips = faces.map(() => new Uint16Array(128 * levels));
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      const stroke = strokes[i], skip = skips[stroke.face];
+      stroke.rows = stroke.rows.map((row, y) => [...row].map((key, x) => {
+        if (blank(key)) return key;
+        const at = (stroke.v + y) * 128 + stroke.u + x;
+        if (stroke.erase) skip[at]++;
+        else if (skip[at]) { skip[at]--; return '.'; }
+        return key;
+      }).join(''));
+    }
+  }
+  for (const { face, u, v, rows, depth, erase } of strokes) {
+    if (erase) continue;
+    rows.forEach((row, y) => {
       for (let x = 0; x < row.length; x++) {
         if (blank(row[x])) continue;
         const hit = surface(model, face, u + x, v + y);
@@ -68,12 +107,16 @@ function readModel(source) {
         for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = color;
       }
     });
-  });
+  }
   return model;
 }
 
 export function stackSide(source, side) {
-  const model = readModel(source), face = faces.indexOf(side);
+  return sideRows(readModel(source), side);
+}
+
+function sideRows(model, side) {
+  const face = faces.indexOf(side);
   if (face < 0) fail('stack.face', `expected ${faces.join(', ')}`);
   return Array.from({ length: model.levels }, (_, row) => {
     let line = '';
@@ -134,7 +177,7 @@ function raster(model, view, angle, budget) {
   return rows;
 }
 
-export function compileStack(source, { maxPixels = FRAME_AREA } = {}) {
+export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const model = readModel(source), { width: w, height: h, levels } = model;
   const projection = source.projection ?? 'oblique';
   if (!['oblique', 'iso'].includes(projection)) fail('stack.projection', 'expected oblique or iso');
@@ -147,7 +190,8 @@ export function compileStack(source, { maxPixels = FRAME_AREA } = {}) {
   const headings = source.headings ?? Array.from({ length: 16 }, (_, i) => Math.round(i * 360 / 16));
   if (!Array.isArray(headings) || !headings.length || headings.length > 256 || new Set(headings).size !== headings.length) fail('stack.headings', 'expected 1–256 distinct angles in degrees');
   const duration = integer(source.duration ?? 80, 'stack.duration', 1, 60000);
-  const angles = headings.map((a, i) => (integer(a, `stack.headings[${i}]`, 0, 359) + (projection === 'iso' ? 45 : 0)) % 360);
+  const cameraAngle = heading => (heading + (projection === 'iso' ? 45 : 0)) % 360;
+  const angles = headings.map((a, i) => cameraAngle(integer(a, `stack.headings[${i}]`, 0, 359)));
   let left = 0, right = 0, bottom = 0, roof = 0;
   const tall = (levels - 1) * spacing + 1;
   // The top and bottom of the four footprint corners bound every visible cell. Round outwards
@@ -165,15 +209,50 @@ export function compileStack(source, { maxPixels = FRAME_AREA } = {}) {
   if (!frameFits(width, height) || frameTotalProblem(angles.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${angles.length} headings exceeds the recipe budget; reduce resolution, spacing or heading count`);
   if (width * height * angles.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
   const view = { resolution, squash, spacing, anchor, pivot, width, height }, budget = { left: 96000000 };
-  const frames = angles.map((angle, i) => ({
-    name: `heading-${headings[i]}`, duration, ops: [{ op: 'grid', rows: raster(model, view, angle, budget) }]
-  }));
-  const recipe = {
-    version: 1, name: source.name, width, height, anchor, palette: source.palette, frames,
-    animations: { turn: { frames: frames.map(frame => frame.name), loop: true } }
-  };
-  return {
-    recipe, warnings: [],
-    metadata: { format: 'pixelforge-stack-metadata', resolution, projection, footprint: [w, h], levels, spacing, pivot, anchor, headings }
-  };
+  const frames = new Array(angles.length);
+  const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, footprint: [w, h], levels, spacing, pivot, anchor, headings };
+  function frame(index) {
+    integer(index, 'stack.frame', 0, angles.length - 1);
+    return frames[index] ??= { name: `heading-${headings[index]}`, duration, ops: [{ op: 'grid', rows: raster(model, view, angles[index], budget) }] };
+  }
+  function recipe(index) {
+    const drawn = index === undefined ? headings.map((_, i) => frame(i)) : [frame(index)];
+    return { version: 1, name: source.name, width, height, anchor, palette: source.palette, frames: drawn,
+      animations: { turn: { frames: drawn.map(f => f.name), loop: true } } };
+  }
+  // Follow the centre of the picked vertical face in model space. Keep the original sample
+  // lattice and occlusion, even when the face turns away or the angle is between saved frames.
+  function detail(side, at, heading, size = 32) {
+    const face = faces.indexOf(side);
+    if (face < 0) fail('stack.face', 'unknown side');
+    const [u, v] = point(at, 'stack.detail.at');
+    integer(size, 'stack.detail.size', 1, 128);
+    const angle = cameraAngle(integer(heading, 'stack.detail.heading', 0, 359));
+    if (u < 0 || u >= (face < 2 ? h : w) || v < 0 || v >= levels) return null;
+    const hit = surface(model, face, u, v);
+    if (!hit) return null;
+    const x = hit.at % w - pivot[0] + (face === 0 ? -.5 : face === 1 ? .5 : 0);
+    const y = Math.floor(hit.at / w) % h - pivot[1] + (face === 2 ? -.5 : face === 3 ? .5 : 0);
+    const z = (levels - 1 - v) * spacing + .5, c = cosDeg(angle), s = sinDeg(angle);
+    const left = Math.floor(anchor[0] + (x*c - y*s)*resolution - size/2);
+    const top = Math.floor(anchor[1] + ((x*s + y*c)*squash - z)*resolution - size/2);
+    const crop = { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] };
+    return { left, top, rows: raster(model, crop, angle, { left: 96000000 }) };
+  }
+  function comparison(side, at, heading) {
+    integer(heading, 'stack.detail.heading', 0, 359);
+    const size = 9 * resolution, frames = [];
+    for (let offset = -2; offset <= 2; offset++) {
+      const angle = (heading + offset + 360) % 360, crop = detail(side, at, angle, size);
+      if (!crop) return null;
+      frames.push({ name: `heading-${angle}`, duration, ops: [{ op: 'grid', rows: crop.rows }] });
+    }
+    return { version: 1, name: source.name, width: size, height: size, palette: source.palette, frames, animations: {} };
+  }
+  return { metadata, frame, recipe, detail, comparison, side: name => sideRows(model, name) };
+}
+
+export function compileStack(source, options) {
+  const stack = prepareStack(source, options);
+  return { recipe: stack.recipe(), warnings: [], metadata: stack.metadata };
 }

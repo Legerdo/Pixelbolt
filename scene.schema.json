@@ -3438,51 +3438,156 @@
           "minItems": 1,
           "description": "Equal-size top-down grids, lowest first. Dot or space is air."
         },
+        "decals": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "maxItems": 128,
+            "minItems": 1
+          }
+        },
         "paint": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "face": {
-                "enum": [
-                  "west",
-                  "east",
-                  "north",
-                  "south"
-                ]
-              },
-              "at": {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 127
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "face": {
+                    "enum": [
+                      "west",
+                      "east",
+                      "north",
+                      "south"
+                    ]
+                  },
+                  "at": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "maxItems": 2,
+                    "minItems": 2
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "maxItems": 128,
+                    "minItems": 1
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128,
+                    "description": "0 paints only the face. Positive depth colours contiguous solid cells inward."
+                  }
                 },
-                "maxItems": 2,
-                "minItems": 2
+                "required": [
+                  "face",
+                  "rows"
+                ],
+                "additionalProperties": false
               },
-              "rows": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128
+              {
+                "type": "object",
+                "properties": {
+                  "face": {
+                    "enum": [
+                      "west",
+                      "east",
+                      "north",
+                      "south"
+                    ]
+                  },
+                  "at": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "maxItems": 2,
+                    "minItems": 2
+                  },
+                  "decal": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+                  },
+                  "flipX": {
+                    "type": "boolean"
+                  },
+                  "flipY": {
+                    "type": "boolean"
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128,
+                    "description": "0 paints only the face. Positive depth colours contiguous solid cells inward."
+                  }
                 },
-                "maxItems": 128,
-                "minItems": 1
+                "required": [
+                  "face",
+                  "decal"
+                ],
+                "additionalProperties": false
               },
-              "depth": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 128,
-                "description": "0 paints just the visible face; positive depth also colours that many contiguous solid cells inward."
+              {
+                "type": "object",
+                "properties": {
+                  "face": {
+                    "enum": [
+                      "west",
+                      "east",
+                      "north",
+                      "south"
+                    ]
+                  },
+                  "at": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "maxItems": 2,
+                    "minItems": 2
+                  },
+                  "erase": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[x. ]+$"
+                    },
+                    "maxItems": 128,
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "face",
+                  "erase"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "face",
-              "rows"
-            ],
-            "additionalProperties": false
+            ]
           },
           "maxItems": 1024
         },

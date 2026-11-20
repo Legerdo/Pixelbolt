@@ -237,12 +237,18 @@ const themePalette = description => ({ oneOf: [{ type: 'string', description: 'P
 const cueTime = (maximum, description) => ({ oneOf: [int(0, maximum), { type: 'string', pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}([+-][0-9]{1,5})?$' }], description });
 const sliceRows = { ...array({ type:'string', minLength:1, maxLength:128 },128), minItems:1 };
 const stackPoint = { ...array(int(0, 127), 2), minItems: 2 };
+const stackFace = {enum:['west','east','north','south']};
+const stackDepth = int(0,128,'0 paints only the face. Positive depth colours contiguous solid cells inward.');
 const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...object({
   format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
   palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:opaqueHex}},
   slices:{...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'},
-  paint:array(object({face:{enum:['west','east','north','south']}, at:stackPoint, rows:sliceRows,
-    depth:int(0,128,'0 paints just the visible face; positive depth also colours that many contiguous solid cells inward.')}, ['face','rows']),1024),
+  decals:{type:'object', maxProperties:256, propertyNames:{type:'string',pattern:id.pattern}, additionalProperties:sliceRows},
+  paint:array({oneOf:[
+    object({face:stackFace, at:stackPoint, rows:sliceRows, depth:stackDepth}, ['face','rows']),
+    object({face:stackFace, at:stackPoint, decal:{type:'string',pattern:id.pattern}, flipX:{type:'boolean'}, flipY:{type:'boolean'}, depth:stackDepth}, ['face','decal']),
+    object({face:stackFace, at:stackPoint, erase:{...sliceRows, items:{...sliceRows.items, pattern:'^[x. ]+$'}}}, ['face','erase'])
+  ]},1024),
   pivot:stackPoint, projection:{enum:['oblique','iso']}, squash:num(.25,1), resolution:int(1,8,'Output pixels per slice cell; default 4.'),
   spacing:int(1,8), headings:{...array(int(0,359),256),minItems:1,uniqueItems:true}, duration:int(1,60000)
 },['format','version','name','palette','slices']),

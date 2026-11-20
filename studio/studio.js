@@ -2,7 +2,7 @@ import { renderProject, buildAtlas, parseColor, reviewPixels, onionPixels, partC
 import { animationGIF } from '/gif.js';
 import { createDraftStore, claimTab, openTabs } from '/draft.js';
 import { compilePoses } from '/authoring.js';
-import { compileStack } from '/stack.js';
+import { compileStack, prepareStack } from '/stack.js';
 import { stackEditor } from '/stack-editor.js';
 import { compileWaves } from '/wave.js';
 import { inspectMotion } from '/motion.js';
@@ -28,8 +28,8 @@ function withSharedPalette(value) {
   if (sharedPalette.$ref !== value.palette.$ref) throw new Error(`${where}: the studio has only ${JSON.stringify(sharedPalette.$ref)}, the palette file of the recipe pixelbolt preview opened, so it cannot draw ${reference}. Open this recipe with pixelbolt preview <file>.`);
   return inlineSharedPalette(value, sharedPalette);
 }
-const stackTools = stackEditor(index => document.querySelectorAll('.frame')[index]?.click());
-let stackOpen = false;
+const stackTools = stackEditor(index => document.querySelectorAll('.frame')[index]?.click(), resumeStackBake);
+let stackOpen = false, pendingStack = null;
 const compileSource = value => { const drawn = withSharedPalette(value); return drawn?.format === 'pixelforge-stack' ? compileStack(drawn) : drawn?.format === 'pixelforge-poses' ? compilePoses(drawn) : drawn?.format === 'pixelforge-wave' ? compileWaves(drawn) : { recipe: drawn, metadata: null }; };
 let elapsed = 0, lastTime = 0, zoom = 12, dirty = false, valid = false, compileTimer, loadVersion = 0;
 // Whether an Export assets request is on its way: the one thing the button's packing label and its being off while it
@@ -143,6 +143,15 @@ function render() {
   context.imageSmoothingEnabled = false;
   const animation = project.animations[$('animation').value], view = $('review-view').value;
   // Parts colours one frame at a time, onion skin or not; the sheet and the motion review stay in colour.
+  // Scrubbing during a paint bake gives that heading priority too.
+  if (pendingStack && !isSheet && !pendingStack.shown.has(selected)) {
+    const single = pendingStack.model.recipe(selected), fresh = renderProject(single).frames[0];
+    spec.frames[selected] = single.frames[0];
+    project.frames[selected] = fresh;
+    frameImages[selected] = imageCanvas(fresh.data, width, height);
+    pendingStack.shown.add(selected);
+    ownedProject = null; partsView = null;
+  }
   const parts = view === 'parts' && !isSheet && !isMotion;
   $('parts-legend').hidden = !parts;
   const pixels = parts ? reviewParts().pixels.get(selected) ?? project.frames[selected].data : isMotion ? review.nativeSheet.data : isSheet ? atlas.data : $('onion').getAttribute('aria-pressed') === 'true' ? onionPixels(project, animation, position) : project.frames[selected].data;
@@ -208,12 +217,16 @@ function compile() {
   clearTimeout(compileTimer);
   try {
     const nextSpec = JSON.parse(source.value.replace(/^\uFEFF/, ''));
-    const compiled = compileSource(nextSpec), nextProject = renderProject(compiled.recipe), nextAtlas = buildAtlas(nextProject);
     const isStack = nextSpec.format === 'pixelforge-stack';
+    const resolved = isStack ? withSharedPalette(nextSpec) : null;
+    const model = isStack ? pendingStack?.model ?? prepareStack(resolved) : null;
+    pendingStack = null;
+    const compiled = model ? { recipe: model.recipe() } : compileSource(nextSpec);
+    const nextProject = renderProject(compiled.recipe), nextAtlas = buildAtlas(nextProject);
     const keepHeading = isStack && stackOpen && !playing ? project?.frames[selected]?.name : null;
     fitZoom(nextProject, isStack);
     stackOpen = isStack;
-    stackTools.update(isStack ? withSharedPalette(nextSpec) : null, nextProject.frames.map(f=>f.name));
+    stackTools.update(isStack ? nextSpec : null, model, resolved?.palette);
     spec = compiled.recipe; poseMetadata = compiled.metadata?.format === 'pixelforge-pose-metadata' ? compiled.metadata : null; project = nextProject; atlas = nextAtlas;
     motionReview = null; ownedProject = null; partsView = null;
     // Stills ("animations": {}) keep their flipbook to step through, but have no animation to pick, make a GIF of,
@@ -257,10 +270,32 @@ function compile() {
     }
     source.dispatchEvent(new CustomEvent('pixelbolt:rendered'));
   } catch (error) {
-    stackTools.update(null);
-    valid = false; $('error').textContent = error.message; $('error').hidden = false;
-    $('compile-status').textContent = 'Fix the recipe to update the preview'; showExport();
+    compileError(error);
   }
+}
+function compileError(error) {
+  pendingStack = null; stackTools.reset();
+  valid = false; $('error').textContent = error.message; $('error').hidden = false;
+  $('compile-status').textContent = 'Fix the recipe to update the preview'; showExport();
+}
+// Yield between headings. A new edit supersedes queued work. A held pointer resumes the
+// same job on release or cancel, without rebuilding the drawing canvas under the brush.
+function resumeStackBake() {
+  const job = pendingStack;
+  if (!job || job.scheduled || stackTools.busy) return;
+  job.scheduled = true;
+  const step = deadline => {
+    job.scheduled = false;
+    if (pendingStack !== job || stackTools.busy) return;
+    try {
+      const count = job.model.metadata.headings.length;
+      do { job.model.frame(job.index++); }
+      while (job.index < count && deadline && deadline.timeRemaining() > 8);
+      if (job.index === count) compile(); else resumeStackBake();
+    } catch (error) { compileError(error); }
+  };
+  if (window.requestIdleCallback) window.requestIdleCallback(step, { timeout: 200 });
+  else setTimeout(step, 16);
 }
 // Keeps the edited recipe as this tab's draft. When it cannot, the user is told once: the browser refused it, or
 // start-up ended without a draft store (while the studio starts there is none yet, and nothing can be typed).
@@ -287,7 +322,7 @@ function offerDraft(next) {
     : `A draft of ${offer.name} from another tab, last edited ${when}, is kept in this browser.${more ? ` ${more} more from other tabs ${more === 1 ? 'is' : 'are'} offered after it.` : ''}`;
 }
 function setSource(value, exampleFile) {
-  loadVersion++;
+  pendingStack = null; stackTools.reset(); loadVersion++;
   source.value = JSON.stringify(value, null, 2); settle();
   document.querySelectorAll('.example').forEach(button => button.classList.toggle('active', button.dataset.file === exampleFile));
   compile(); playState();
@@ -310,7 +345,16 @@ function setMode(next) {
   $('artboard-caption').textContent = mode === 'motion' ? 'Movement at left · poses at right · limb arcs below them · yellow marks planted feet' : mode === 'sheet' ? 'Export layout · transparent padding' : 'Transparent background';
   render();
 }
-source.addEventListener('input', () => { dirty = true; valid = false; showExport(); clearTimeout(compileTimer); compileTimer = setTimeout(compile, 20); clearTimeout(draftTimer); draftTimer = setTimeout(keepDraft, 400); });
+source.addEventListener('input', event => {
+  dirty = true; valid = false; showExport();
+  clearTimeout(compileTimer); clearTimeout(draftTimer); draftTimer = setTimeout(keepDraft, 400);
+  pendingStack = null;
+  if (!event.detail?.stack) { compileTimer = setTimeout(compile, 20); return; }
+  pendingStack = { model: event.detail.stack, index: 0, shown: new Set(), scheduled: false };
+  playing = false; playState();
+  $('compile-status').textContent = 'Updating headings…';
+  try { setMode('animation'); resumeStackBake(); } catch (error) { compileError(error); }
+});
 // Tab indents, as in any code editor, but must not trap the keyboard: Shift+Tab always moves back, and Escape lets
 // the next Tab move on.
 let leavingEditor = false;
@@ -472,7 +516,7 @@ $('frames-export').addEventListener('click', async () => {
 });
 $('draft-restore').addEventListener('click', () => {
   if (!mayReplace('Replace your edited recipe with the draft? Save JSON first if you want to keep it.')) return;
-  loadVersion++; source.value = offer.text; dirty = true;
+  pendingStack = null; stackTools.reset(); loadVersion++; source.value = offer.text; dirty = true;
   // A closed tab's draft becomes this tab's: it is kept under this tab's id before the closed tab's copy goes.
   if (!ownOffer() && drafts.save(offer.text, offer.name)) drafts.forget(offer.id);
   // Other closed tabs' drafts stay kept and are offered on the next visit.

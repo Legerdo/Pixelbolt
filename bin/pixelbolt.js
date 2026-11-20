@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { prepareStack } from '../src/stack.js';
 import { inspectMotion } from '../src/motion.js';
 import { expandPoses } from '../src/authoring.js';
 import { PixelError, isObject, largestScale, columnsOfCall, meant, frameTotalProblem } from '../src/core.js';
@@ -125,6 +126,7 @@ before/after image beside --out, and the pixels that changed);
 --step n [--offset k] keeps every nth cell from position k (0 is the first); --region x,y,w,h crops;
 --animation name --every 100 draws a cell per 100 ms of playback, so holds and quick steps show as they play,
 and lists the pixels each step changes;
+--pin face,u,row,heading on a sprite stack follows that side cell across five headings one degree apart.
 --grid adds palette-key rows; --scale 1-16 and --background color style the sheet.
 --stack body+plate+fin,body+plate2 draws each group of frames laid over one another in one cell, the first at
 the bottom: parts a game stacks, seen as it stacks them. --under ground.json:tile draws that frame of another
@@ -174,7 +176,7 @@ const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'ope
 const OPTIONS = {
   init: ['force'],
   validate: ['fps'],
-  inspect: ['frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
+  inspect: ['pin', 'frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
   patch: ['changes', 'out', 'image', 'force'],
   render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'columns', 'normal'],
   gif: ['out', 'animation', 'scale', 'background', 'force', 'preset', 'size', 'frames', 'sheet', 'fps'],
@@ -684,10 +686,18 @@ try {
       const layerOptions = options.layers === undefined ? {} : { layers: options.layers.split(',') };
       if (!options.motion && ['speed', 'ground', 'metadata'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground and --metadata require --motion');
       if (options.full && !options.diagnostics) throw new Error('--full goes with --diagnostics: it lists the counts of every frame');
-      if (options.motion) for (const key of ['frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
+      if (options.motion) for (const key of ['pin', 'frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
       recipeOnly('inspect', input.document, positional[0], ['pixelforge-poses', 'pixelforge-wave', 'pixelforge-stack']);
-      const compiled = Object.hasOwn(COMPILERS, input.document.format ?? '') ? COMPILERS[input.document.format](input.document) : null;
+      let compiled;
+      if (options.pin !== undefined) {
+        if (input.document?.format !== 'pixelforge-stack') throw new Error('--pin requires a sprite stack source');
+        const pin = /^(north|south|west|east),(\d+),(\d+),(\d+)$/.exec(options.pin);
+        if (!pin) throw new Error('--pin expects face,u,row,heading, for example south,12,10,90');
+        const recipe = prepareStack(input.document).comparison(pin[1], [Number(pin[2]), Number(pin[3])], Number(pin[4]));
+        if (!recipe) throw new Error('--pin must select a solid cell in the side view');
+        compiled = { recipe };
+      } else if (Object.hasOwn(COMPILERS, input.document.format ?? '')) compiled = COMPILERS[input.document.format](input.document);
       if (input.document.format === 'pixelforge-stack' && options.motion) throw new Error('--motion reviews character poses; inspect a stack without --motion');
       if (input.document.format === 'pixelforge-wave' && options.motion) throw new Error('--motion reviews character poses; inspect a wave without --motion');
       if (compiled && options.metadata) throw new Error('A pose source supplies its own metadata; omit --metadata');

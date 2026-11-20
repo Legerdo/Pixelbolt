@@ -250,6 +250,66 @@ try {
     await studio.shot('rally-side-paint');
   });
 
+  await check('two brush gestures survive a held refresh; undo, erase, shared decals and pinned headings follow the source', async () => {
+    await click('#examples [data-file="copper-rally.stack"]');
+    const state = () => evaluate(`JSON.parse(document.getElementById('source').value)`);
+    await until(`JSON.parse(document.getElementById('source').value).paint.length === 4`, 'the original four wheels');
+    const at = async (x,y) => evaluate(`(() => {
+      const c=document.getElementById('stack-side'); c.scrollIntoView({block:'center'});
+      const b=c.getBoundingClientRect(); return {x:b.left+(${x}+.5)*b.width/c.width, y:b.top+(${y}+.5)*b.height/c.height};
+    })()`);
+    const mouse = (type, point) => studio.page('Input.dispatchMouseEvent', {type, ...point, button:'left', buttons:type==='mouseReleased'?0:1, clickCount:1});
+    const tap = async (x,y) => { const p=await at(x,y); await mouse('mousePressed',p); await mouse('mouseReleased',p); };
+    const scrub = index => evaluate(`(() => { const s=document.getElementById('stack-heading'); s.value=${index}; s.dispatchEvent(new Event('input')); })()`);
+    await scrub(59);
+    // Hold the idle queue so the second drag is down exactly when the first bake would resume.
+    await evaluate(`window.rallyIdle=[]; window.realIdle=window.requestIdleCallback; window.requestIdleCallback=fn=>window.rallyIdle.push(fn)`);
+    try {
+      await choose('stack-ink','i'); const before = await canvas();
+      await tap(27,7);
+      assert.notEqual((await canvas()).hash, before.hash, 'the selected heading has already changed');
+      assert.equal(await text('compile-status'), 'Updating headings…');
+      const p=await at(28,7), q=await at(30,7);
+      await mouse('mousePressed',p);
+      await evaluate(`window.rallyIdle.shift()({timeRemaining:()=>0})`);
+      await mouse('mouseMoved',q); await mouse('mouseReleased',q);
+      assert.deepEqual((await state()).paint.slice(4).map(({at,rows})=>[at,rows]), [[[27,7],['i']],[[28,7],['iii']]]);
+      await evaluate(`document.getElementById('stack-side').focus()`);
+      await key('z',90,2); assert.equal((await state()).paint.length,5);
+      await key('Z',90,10); assert.equal((await state()).paint.length,6);
+      await evaluate(`window.rallyPrompt=window.prompt; window.prompt=()=>'stripe'`);
+      try { await click('#stack-make-decal'); } finally { await evaluate(`window.prompt=window.rallyPrompt`); }
+      assert.deepEqual((await state()).decals.stripe,['iii']);
+      assert.equal((await state()).paint.at(-1).decal,'stripe');
+      await click('#stack-undo');
+      assert.equal((await state()).decals.stripe,undefined);
+      assert.deepEqual((await state()).paint.at(-1).rows,['iii']);
+      await choose('stack-tool','erase'); await tap(27,7);
+      assert.deepEqual((await state()).paint.at(-1),{face:'south',at:[27,7],erase:['x']});
+      // Change the master directly and place a fifth, mirrored copy.
+      await choose('stack-tool','brush'); await choose('stack-target','hub'); await tap(3,3);
+      assert.equal((await state()).decals.hub[3][3],'i');
+      assert.equal((await state()).paint.filter(p=>p.decal==='hub').length,4);
+      await choose('stack-tool','stamp'); await click('#stack-flip-x'); await tap(23,6);
+      assert.deepEqual((await state()).paint.at(-1),{face:'south',at:[23,6],decal:'hub',depth:Number(await evaluate(`document.getElementById('stack-depth').value`)),flipX:true});
+      await click('#stack-undo'); assert.equal((await state()).paint.length,7);
+      await choose('stack-tool','pin'); await tap(12,10);
+      await scrub(10); // 90 degrees in Copper Rally.
+      const angles = () => evaluate(`[...document.querySelectorAll('#stack-detail-strip figcaption')].map(c=>c.textContent)`);
+      assert.deepEqual(await angles(),['88°','89°','90°','91°','92°']);
+      await studio.shot('rally-pinned-wheel');
+      await scrub(55); assert.deepEqual(await angles(),['358°','359°','0°','1°','2°']);
+      assert.match(await text('stack-pin-label'),/south \(12, 10\)/);
+    } finally {
+      await evaluate(`window.requestIdleCallback=window.realIdle; for(const cb of window.rallyIdle.splice(0)) cb({timeRemaining:()=>0})`);
+    }
+    await until(`!document.getElementById('export').disabled`, 'the last document to finish baking');
+    assert.equal(await text('stack-angle'),'0°');
+    const saved = await download(() => click('#save'));
+    assert.deepEqual(JSON.parse(await readFile(saved,'utf8')),await state());
+    await click('#stack-unpin'); assert.equal(await evaluate(`document.getElementById('stack-comparison').hidden`),true);
+  });
+
   console.log('Moving figures');
   await check('pose source opens, plays, reviews contacts and saves its editable source', async () => {
     // The R2 rig is a test fixture, not a shipped example: open it as a user would open their own pose source.
