@@ -388,6 +388,29 @@ test('with air on, a sealed bottle glugs as it pours; without, it empties in one
   assert.ok(glug[119] < glug[40] / 2, `${glug[119]} left at the end`);
 });
 
+test('the last of a glugging bottle runs out: nothing draws it back up to the roof', async () => {
+  // The glug preset's bottle (inside x 13–26, y 2–33) at the default stiffness, over three seeds. Its air went missing
+  // twice over: a pocket that split off a piece as that piece opened to the outside shared its air by the pieces' sizes,
+  // so all outdoors took nearly all of it, and one that closed round open air and a small pocket kept only the small
+  // pocket's. Left at the hardest pull the gas law gives, the bottle drew its last plug of water up to its roof (seed 3:
+  // ten pixels of water back in the dry upper part). And a film between two pockets at different pressures was shot up
+  // the bottle (seeds 1 and 4: the level leapt 12 and 26 rows in a frame) until thin films let air through.
+  const source = await read('examples/glug.fluid.json'), wet = char => char === 'b' || char === 'c';
+  const row = (grid, y) => { let n = 0; for (let x = 13; x <= 26; x++) if (wet(grid[y][x])) n++; return n; };
+  for (const seed of [1, 3, 4]) {
+    const frames = grids(compileFluid({ ...source, effects: { glug: { ...source.effects.glug, seed, air: { ...source.effects.glug.air, stiffness: 40 } } } }).recipe, 40, 56);
+    // The upper part, once dry, stays dry.
+    const upper = frames.map(grid => { let n = 0; for (let y = 2; y <= 14; y++) n += row(grid, y); return n; }), dry = upper.findIndex((n, f) => f > 40 && n === 0);
+    assert.ok(dry > 40 && Math.max(...upper.slice(dry)) === 0, `seed ${seed}: dry at frame ${dry}, then ${Math.max(...upper.slice(dry))} pixels of water`);
+    // The level (the highest row more than half across with water) never leaps up.
+    const level = frames.map(grid => { for (let y = 2; y <= 33; y++) if (row(grid, y) >= 8) return y; return 34; });
+    let leap = 0;
+    for (let f = 1; f < level.length; f++) leap = Math.max(leap, level[f - 1] - level[f]);
+    assert.ok(leap <= 3, `seed ${seed}: the level leaps ${leap} rows in a frame`);
+    assert.equal(upper[upper.length - 1] + frames[frames.length - 1].slice(15, 34).reduce((n, _, k) => n + row(frames[frames.length - 1], 15 + k), 0), 0, `seed ${seed}: the bottle ends empty`);
+  }
+});
+
 test('a pocket squeezed too small to show lets its air go, as bubbles when air says how to draw them', () => {
   // Stiffness 2 cannot hold the cup's pocket under fifteen pixels of water: it shrinks below three cells and floods.
   const squeezed = bubbles => compileFluid(cupSource({ stiffness: 2, ...(bubbles && { bubbles }) }));

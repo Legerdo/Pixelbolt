@@ -2588,16 +2588,27 @@ function stepLiquid(state, effect, dt) {
 // ---- Air pockets -----------------------------------------------------------------------------------------------------
 // Air is every cell that is neither solid nor holding liquid. Air joined to an open canvas edge is at zero pressure, as
 // before. With `air` on, a sealed region of air is a pocket that keeps its air: it is tracked from step to step by the
-// cells it shares with the last step's regions (pockets that merge add their air; one that splits shares its air by
-// volume), and its pressure follows the gas law, in pixels of head: stiffness × (air / volume − 1), where its air is the
-// volume it had at zero pressure and its volume counts its empty cells and the empty share of the liquid cells around it.
+// cells it shares with the last step's regions, and its pressure follows the gas law, in pixels of head: stiffness ×
+// (air / volume − 1), where its air is the volume it had at zero pressure and its volume counts its empty cells and the
+// empty share of the liquid cells around it. The air goes with the cells: pockets that merge add their air, one that
+// splits shares its air by how many of its cells each piece holds (a piece that has opened to the outside takes its
+// cells' share with it and no more), and a pocket that closes round open air takes that air in, a cell's worth a cell.
+// (Shared by the pieces' whole sizes, a pocket that split off a piece just as it opened gave nearly all its air to
+// the outdoors, and one that closed round open air and a small pocket kept only the small pocket's: either way a bottle
+// was left at the hardest pull the gas law gives and drew the last of its water up to its roof.)
 // A bubble is a pocket too small for the grid to show, so a sealed region becomes a pocket only once it holds
 // POCKET_START cells' worth. A smaller one with no pocket before it, air a splash or a pour has trapped, lets its air go
 // once, as bubbles (when `air.bubbles` says how to draw them) that start in the liquid at its edge, and closes as before;
 // gaps under POCKET_END between jostling particles just close. A pocket squeezed below POCKET_END, which the 3 × 3 blur
 // that draws the surface would fill in anyway, lets its air go the same way. Bubbles that rise into a pocket give it
 // their air back (see absorber). Returns each cell's pocket pressure in the solver's units.
-const POCKET_START = 12, POCKET_END = 3;
+// A film of liquid is not thrown by the air on its two sides: across a seal up to SEAL cells thick (straight through
+// the liquid, along a row or a column) between two pockets, or a pocket and the open air, air passes until the two
+// pressures differ by no more than the film's own head, a pixel a cell. That is the most a film at rest holds (its
+// thickness lying over or under the air, nothing standing beside it), so nothing at rest loses air by it. (Pocket air is
+// soft, so a pocket's pull is worth many cells of air: the last thin plug in a bottle's neck, or a film between a
+// stretched pocket and a fresh one, was shot up the bottle instead.)
+const POCKET_START = 12, POCKET_END = 3, SEAL = 4;
 function sealAir(state, effect, dt) {
   const { g, fluid, cells, air } = state, { W, H, N, solid, uFixed, vFixed } = g, X = W + 1, room = g.geo ? g.geo.open : null;
   const label = air.before, before = air.label, { stack, pressure } = air, old = air.regions, regions = [];
@@ -2633,14 +2644,19 @@ function sealAir(state, effect, dt) {
       : j > 0 && !vFixed[c] && label[c - W] >= 0 ? label[c - W] : j < H - 1 && !vFixed[c + W] && label[c + W] >= 0 ? label[c + W] : -1;
     if (r >= 0) regions[r].volume += empty;
   }
-  // Which of the last step's pockets each region holds part of, and which regions hold part of one that has let its air go.
-  const links = new Set(), from = regions.map(() => []), into = old.map(() => []);
+  // What each region holds of the last step's air, by the cells they share: how many of each pocket's cells (`links`,
+  // out of the `kept` cells of that pocket that are still air), how many that stood in open air (`fresh`), and whether
+  // any of a region that has let its air go.
+  const links = new Map(), from = regions.map(() => []), kept = new Float64Array(old.length), fresh = new Float64Array(regions.length);
   for (let c = 0; c < N; c++) {
     const r = label[c], q = before[c];
     if (r < 0 || q < 0 || !old[q]) continue;
     if (old[q].spent) regions[r].spent = true;
-    if (!old[q].tracked || links.has(q * N + r)) continue;
-    links.add(q * N + r); from[r].push(q); into[q].push(r);
+    if (old[q].open) fresh[r]++;
+    if (!old[q].tracked) continue;
+    const key = q * N + r, shared = links.get(key);
+    if (shared === undefined) from[r].push(q);
+    links.set(key, (shared ?? 0) + 1); kept[q]++;
   }
   // Its air rises as bubbles from the fullest liquid cell beside it, if that is at least half full; one with no liquid
   // around it (the last of a bottle draining) makes none.
@@ -2649,7 +2665,7 @@ function sealAir(state, effect, dt) {
     const e = region.edge;
     if (effect.air.bubbles && volume > 0.5 && e >= 0 && cells[e] >= PER_CELL / 2) air.release.push(e % W + 0.5, Math.floor(e / W) + 0.5, volume);
   };
-  old.forEach((q, n) => { if (q.tracked && !into[n].length) release(q, q.volume); });
+  old.forEach((q, n) => { if (q.tracked && !kept[n]) release(q, q.volume); });
   // Bubbles that gathered under a ceiling into a pocket's worth (see carvePocket) bring their air to the region their cells
   // are in now: a new pocket starts with it, one they joined adds it, and in open air it is gone (vented).
   const made = new Float64Array(regions.length);
@@ -2658,18 +2674,49 @@ function sealAir(state, effect, dt) {
   regions.forEach((region, r) => {
     if (region.open) return;
     if (from[r].length) {
-      for (const q of from[r]) { const shared = into[q].reduce((sum, n) => sum + regions[n].volume, 0); region.air += old[q].air * region.volume / shared; }
-      region.air += made[r];
+      for (const q of from[r]) region.air += old[q].air * links.get(q * N + r) / kept[q];
+      region.air += made[r] + fresh[r];
       region.tracked = true;
     } else if (made[r]) { region.air = made[r]; region.tracked = true; }
     else if (region.volume >= POCKET_START) { region.air = region.volume; region.tracked = true; }
     else if (region.volume >= POCKET_END && !region.spent) release(region, region.volume);
     if (region.tracked && region.volume < POCKET_END) { release(region, region.volume); region.tracked = false; }
   });
+  // Thin seals (see SEAL): the thinnest between each pair of regions, found from each air cell rightwards and downwards,
+  // and then the air that passes, pair by pair in the order found. The open air gives and takes without changing.
+  const stiffness = effect.air.stiffness, seals = new Map(), holds = r => regions[r].tracked || regions[r].open;
+  for (let c = 0; c < N; c++) {
+    const r = label[c];
+    if (r < 0 || !holds(r)) continue;
+    for (const down of [false, true]) {
+      for (let d = c, thick = 0; thick <= SEAL;) {
+        const i = d % W, j = (d - i) / W;
+        if (down ? j === H - 1 || vFixed[d + W] : i === W - 1 || uFixed[j * X + i + 1]) break;
+        d += down ? W : 1;
+        if (solid[d]) break;
+        const q = label[d];
+        if (q < 0) { thick++; continue; }
+        if (thick && q !== r && holds(q) && (regions[r].tracked || regions[q].tracked)) {
+          const key = Math.min(r, q) * regions.length + Math.max(r, q);
+          if (!(seals.get(key) <= thick)) seals.set(key, thick);
+        }
+        break;
+      }
+    }
+  }
+  for (const [key, thick] of seals) {
+    const b = key % regions.length, a = (key - b) / regions.length;
+    const at = r => (regions[r].tracked ? stiffness * (regions[r].air / regions[r].volume - 1) : 0), gap = at(a) - at(b);
+    if (Math.abs(gap) <= thick) continue;
+    const from = regions[gap > 0 ? a : b], to = regions[gap > 0 ? b : a];
+    const passes = (Math.abs(gap) - thick) / (stiffness * ((from.tracked ? 1 / from.volume : 0) + (to.tracked ? 1 / to.volume : 0)));
+    if (from.tracked) from.air -= passes;
+    if (to.tracked) to.air += passes;
+  }
   // The gas law, in pixels of head, scaled to the solver's pressure (gravity × depth per step): Pn now and its slope P'.
   // A pocket inside the law's range is an unknown of the solve (see projectLiquid); one squeezed or stretched past four
   // times pushes no harder and holds that pressure, so a nearly closed pocket cannot fling the liquid.
-  const [gx, gy] = effect.gravity, head = dt * Math.max(0.05, Math.sqrt(gx * gx + gy * gy)), stiffness = effect.air.stiffness;
+  const [gx, gy] = effect.gravity, head = dt * Math.max(0.05, Math.sqrt(gx * gx + gy * gy));
   const index = regions.map(() => -1), Pn = [], C = [];
   pressure.fill(0);
   regions.forEach((region, r) => {
