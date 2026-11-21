@@ -29,6 +29,26 @@ function session(options) {
 }
 const strip = { version: 1, name: 'strip', width: 4, height: 2, palette: { k: '#000' }, frames: [{ name: 'a', ops: [{ op: 'pixel', x: 3, y: 1, color: 'k' }] }, { name: 'b', duration: 90 }] };
 
+test('pose matrix axes and pixels agree across CLI, MCP and a reused stack revision', async t => {
+  const dir=await temp(t,'pose-matrix'), mcp=session({directory:dir,root:dir});
+  t.after(()=>{mcp.input.end();return mcp.running;});
+  await mcp.init();
+  const source={format:'pixelforge-stack',version:1,name:'matrix',palette:{k:'#fffa'},slices:[['.']],
+    paths:{digit:{colors:'k',nodes:[{name:'base',radius:1,at:[0,0,1]},{name:'tip',radius:0,at:[0,0,5]}]}},
+    poses:{open:{},curl:{digit:{base:50}}}};
+  const poseSheet={poses:['curl','open'],headings:[15,60,120],focus:'digit',size:28};
+  const first=await mcp.call('pixel_inspect',{source,poseSheet,scale:1});
+  assert.ok(first.info.ok,first.info.error);
+  assert.deepEqual([first.info.sheet.rows,first.info.sheet.columns],[2,3]);
+  assert.deepEqual(first,await mcp.call('pixel_inspect',{revision:first.info.sourceRevision,poseSheet,scale:1}));
+  assert.equal((await mcp.call('pixel_compile',{source})).info.sourceRevision,first.info.sourceRevision);
+  const output=path.join(dir,'sheet.png');
+  const cli=spawnSync(process.execPath,[path.join(root,'bin/pixelbolt.js'),'inspect','-','--pose-sheet',JSON.stringify(poseSheet),'--scale','1','--out',output],{input:JSON.stringify(source),encoding:'utf8'});
+  assert.equal(cli.status,0,cli.stderr);
+  assert.deepEqual(JSON.parse(cli.stdout).headings,poseSheet.headings);
+  assert.equal((await readFile(output)).toString('base64'),first.result.content[1].data);
+});
+
 test('an agent inspects a socket sweep, reuses the model by id and gets the same pixels as the CLI', async t => {
   const dir = await temp(t, 'spin'), mcp = session({ directory:dir, root:dir });
   t.after(() => { mcp.input.end(); return mcp.running; });

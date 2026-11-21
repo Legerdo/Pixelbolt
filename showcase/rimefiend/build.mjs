@@ -1,8 +1,9 @@
-// Sculpt the body into palette-painted slices. The face, leather, wing membranes and
-// hooked crystals are model-space facets; only the wings turn about their shoulder sockets.
+// Sculpt the body into palette-painted slices. Named paths bend each finger and its
+// crystal nail together. Both wing webs follow the posed ribs at the shoulder sockets.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { sinDeg, cosDeg } from '../../src/craft.js';
+import { pathFrames } from '../../src/stack-paths.js';
 import { formatJSON } from '../../src/export.js';
 
 const palette = {
@@ -27,7 +28,8 @@ const clamp=(x,l,h)=>Math.max(l,Math.min(h,x));
 const light=unit([-.57,.54,.76]);
 const width=52, depth=30, height=51, origin=[25.5,9.5,0];
 const facets=[];
-const wings={};
+const wings={}, paths={}, membranes=[];
+const poses={open:{},half:{},curled:{},folded:{}};
 function face(points,color,socket='body',twoSided=false) {
   facets.push({socket,color,points:points.map(round),...(twoSided && {twoSided})});
 }
@@ -190,28 +192,36 @@ for(const s of [-1,1]) {
 }
 
 // Five separate rays of the outstretched hand, with softer flesh up to the nail bed.
-function talon(finger, nail, radius) {
-  sweep(finger,'1234567',{sides:7});
-  crystal([[...finger.at(-1).slice(0,3),radius],...nail],{sides:6,phase:22});
+function talon(name, finger, nail, radius) {
+  const centres=finger.map(p=>p.slice(0,3)), tip=centres.at(-1), tipAxes=pathFrames(centres).at(-1);
+  paths[name]={socket:'body',colors:'4566542',sides:7,nodes:finger.map(([x,y,z,r],i)=>({
+    name:['knuckle','middle','tip'][i],at:[x,y,z],radius:r,axis:[1,0,.57]
+  }))};
+  paths[name+'-nail']={attach:name,colors:name==='index'?'CGFDCHB':'CGFDABI',sides:7,roll:name==='index'?145:22,nodes:[
+    {name:'bed',at:[0,0,0],radius},
+    ...nail.map(([x,y,z,r],i)=>({name:'facet-'+i,at:tipAxes.map(axis=>dot(sub([x,y,z],tip),axis)),radius:r}))
+  ]};
 }
+poses.half.index={knuckle:-20,middle:-29,tip:-15};
+poses.curled.index={knuckle:-41,middle:-72,tip:-54};
 sweep([[19,12,33,2.1,1.75],[20.2,13.3,34.3,2.9,1.8],[21,14.65,36.1,3.65,1.65],[21.1,15.4,36.95,3.3,1.18]],'1234567',{sides:9});
-talon([[18.52,15.2,36.55,1.1],[16.74,16.15,39.2,1.1],[14.94,17.65,41.63,.91]],[[13.57,18.55,43.47,1.0],[12.23,19.4,44.61,.62],[10.95,20.8,44.02,.02]],1.11);
-talon([[20.1,15.6,36.85,1.19],[20.02,16.81,40.15,1.14],[19.56,18.49,43.22,.96]],[[19.6,19.71,45.53,1.04],[19.3,20.65,47.13,.61],[18.64,22.58,46.96,.02]],1.19);
-talon([[22.37,15.48,36.7,1.12],[23.63,16.6,39.59,1.09],[25.04,17.92,41.9,.92]],[[26.7,18.83,43.53,1],[28.16,19.65,44.45,.61],[29.12,21.1,44.02,.02]],1.13);
-talon([[24.12,14.65,36.5,.99],[26.5,15.18,38.16,1.0],[28.57,16.47,39.24,.78]],[[30.37,17.47,40.28,.84],[31.68,18.8,40.46,.55],[32.39,20.31,39.66,.02]],.99);
-talon([[18.95,13.8,34.85,1.4],[16.8,14.85,33.98,1.26],[15.1,16.45,33.4,1.0]],[[13.66,17.15,33.22,.98],[12.6,18.56,33.65,.66],[12.18,20.25,34.84,.02]],1.17);
+talon('index',[[18.52,15.2,36.55,1.1],[16.74,16.15,39.2,1.1],[14.94,17.65,41.63,.91]],[[13.57,18.55,43.47,1.0],[12.23,19.4,44.61,.62],[10.95,20.8,44.02,.02]],1.11);
+talon('middle',[[20.1,15.6,36.85,1.19],[20.02,16.81,40.15,1.14],[19.56,18.49,43.22,.96]],[[19.6,19.71,45.53,1.04],[19.3,20.65,47.13,.61],[18.64,22.58,46.96,.02]],1.19);
+talon('ring',[[22.37,15.48,36.7,1.12],[23.63,16.6,39.59,1.09],[25.04,17.92,41.9,.92]],[[26.7,18.83,43.53,1],[28.16,19.65,44.45,.61],[29.12,21.1,44.02,.02]],1.13);
+talon('little',[[24.12,14.65,36.5,.99],[26.5,15.18,38.16,1.0],[28.57,16.47,39.24,.78]],[[30.37,17.47,40.28,.84],[31.68,18.8,40.46,.55],[32.39,20.31,39.66,.02]],.99);
+talon('thumb',[[18.95,13.8,34.85,1.4],[16.8,14.85,33.98,1.26],[15.1,16.45,33.4,1.0]],[[13.66,17.15,33.22,.98],[12.6,18.56,33.65,.66],[12.18,20.25,34.84,.02]],1.17);
 
 // Dropped hand: knuckles first, then the finger pads fold back towards the palm.
 sweep([[-20.15,6.2,23.58,2.05,1.65],[-20.85,7.2,21.33,2.72,1.7],[-21.48,7.96,19.27,2.4,1.25]],'1234567',{sides:8});
 for(const [i,dx] of [-1.91,-.65,.65,1.87].entries()) {
   const x=-21.4+dx,z=18.96+Math.abs(dx)*.2;
-  talon([[x,7.8,z+.65,.84],[x-.55,8.82,z-.92,.82],[x-.4,9.34,z-2.15+(i===0?.7:0),.63]],
+  talon('hanging-'+i,[[x,7.8,z+.65,.84],[x-.55,8.82,z-.92,.82],[x-.4,9.34,z-2.15+(i===0?.7:0),.63]],
     [[x-.04,9.96,z-2.62,.54],[x+.56,10.36,z-1.48,.02]],.73);
 }
-talon([[-18.8,7.48,21.2,1.1],[-18.15,9.05,19.95,.93],[-18.24,10.25,18.94,.68]],[[-18.63,11.25,18.49,.59],[-19.53,11.48,19.11,.02]],.79);
+talon('hanging-thumb',[[-18.8,7.48,21.2,1.1],[-18.15,9.05,19.95,.93],[-18.24,10.25,18.94,.68]],[[-18.63,11.25,18.49,.59],[-19.53,11.48,19.11,.02]],.79);
 for(const [x,y,z] of feet) for(const off of [-1.63,0,1.63]) {
   const middle=off===0?.72:0;
-  talon([[x+off*.73,y-.76,z+.18,1.26],[x+off,y+.79,z-.02,1.14],[x+off*1.42,y+2.03+middle,z-.19,.83]],
+  talon('toe-'+(x<0?'left':'right')+'-'+(off<0?'inner':off>0?'outer':'middle'),[[x+off*.73,y-.76,z+.18,1.26],[x+off,y+.79,z-.02,1.14],[x+off*1.42,y+2.03+middle,z-.19,.83]],
     [[x+off*1.57,y+3.12+middle,z-.33,.68],[x+off*1.75,y+4.28+middle,.38,.018]],.88);
 }
 
@@ -228,35 +238,19 @@ for(const s of [-1,1]) {
     [wrist,[21.9,-12.2,47.9],[23.4,-15.9,39.45],[24.5,-17.15,30.75]],
     [wrist,[17.65,-12.9,47.35],[16.85,-15.7,38.3],[15.25,-16.1,29.45]],
     [wrist,[13.6,-9.45,47.1],[9.4,-7.35,41.25],[5.6,-4.0,36.1]]];
-  for(let k=0;k<ribs.length-1;k++) {
-    // Interpolate the rib coordinates before rounding so adjacent webs share exact vertices.
-    const web=(row,t)=>{
-      const p=mix(ribs[k][row],ribs[k+1][row],t), bow=4*t*(1-t);
-      p[1]-=bow*[0,1.05,1.75,.65][row];p[2]+=bow*[0,.24,1.28,4.35][row];
-      return loc(p);
-    };
-    for(let row=0;row<3;row++) for(let j=0;j<4;j++){
-      const a=web(row,j/4),b=web(row,(j+1)/4),c=web(row+1,(j+1)/4),d=web(row+1,j/4);
-      const colors=[['r','o','r','b'],['r','o','o','r'],['b','r','r','b']];
-      const ink=colors[row][j];
-      face(row===0?[a,c,d]:[a,b,c,d],ink,socket,true);
-    }
-    // Fine branches follow the far side of each batten. Their two ends taper
-    // short of the silhouette and the centre folds into the painted membrane.
-    const branch=(u,v,w)=>{
-      const row=Math.floor(u), frac=u-row;
-      return [v-w,v+w].map(t=>add(mix(web(row,t),web(row+1,t),frac),[0,.12,0]));
-    };
-    for(const spine of [[[1.04,.04,.012],[1.58,.19,.021],[2.09,.32,.012],[2.53,.39,.002]],
-                        [[1.73,.22,.009],[2.14,.28,.013],[2.56,.29,.002]]]) {
-      const rims=spine.map(args=>branch(...args));
-      for(let i=1;i<rims.length;i++) face([...rims[i-1],rims[i][1],rims[i][0]],'p',socket,true);
-    }
-  }
-  for(const [i,path] of ribs.entries()) {
+  const names=ribs.map((rib,i)=>{
+    const name=socket+'-rib-'+i;
     const radii=i===0?[1.43,1.04,.69,.10]:i===4?[1.5,1.75,2.03,2.17]:[.94,.68,.48,.10];
-    sweep(path.map((p,k)=>loc([...p,radii[k]])),i===0||i===4?'123456':'brrov',{sides:5,socket});
-  }
+    paths[name]={socket,sides:5,colors:i===0||i===4?'34543':'broor',
+      nodes:rib.map((p,k)=>({name:['wrist','joint','bend','end'][k],at:loc(p),radius:radii[k],axis:[0,s,0]}))};
+    if(i<4) poses.folded[name]={wrist:[26,17,8,3][i],joint:[15,11,6,2][i]};
+    return name;
+  });
+  for(let i=1;i<names.length;i++) membranes.push({
+    ribs:[names[i-1],names[i]],colors:'roorb',sag:-1.45,scallop:4.35,
+    veins:[{color:'p',points:[[.35,.04,.012],[.53,.19,.022],[.70,.32,.012],[.85,.39,.002]]},
+      {color:'p',points:[[.58,.22,.01],[.71,.28,.014],[.85,.29,.002]]}]
+  });
   // A skin cuff and a crystalline wing thumb share the same wrist pivot.
   sweep([[18.4,-8.15,53.5,1.74],[19.1,-8.0,54.8,1.35]].map(loc),'23456',{sides:7,socket});
   crystal([[19.0,-8.05,54.4,1.28],[19.45,-7.75,55.83,1.04],[20.33,-7.02,57.12,.66],[21.55,-6.4,57.6,.02]].map(loc),{socket,phase:11});
@@ -325,7 +319,9 @@ for(const z of [42,39.45,36.9,34.35,31.8,29.25,26.85]) {
 
 const source={format:'pixelforge-stack',version:1,name:'rimefiend',projection:'iso',resolution:3,
   pivot:[25,9],headings:Array.from({length:60},(_,i)=>(297+6*i)%360),duration:70,palette,slices,
-  sockets:{body:{at:origin},...wings},facets};
+  sockets:{body:{at:origin},...wings},facets,paths,membranes,poses,
+  poseKeys:[[0,'curled'],[60,'half'],[120,'open'],[180,'folded'],[240,'open'],[297,'open'],[330,'half'],[360,'curled']]
+    .map(([heading,pose])=>({heading,pose}))};
 if (!process.argv[2]) throw Error('Supply a new .stack.json filename.');
 await mkdir(dirname(process.argv[2]),{recursive:true});
 await writeFile(process.argv[2],formatJSON(source,160),{flag:'wx'});

@@ -1876,10 +1876,10 @@ function drawPartLegend(sheet, legend) {
 // `rows` are [{ label, cells: [{ rows, anchor, points } | null] }].
 const ANCHOR_MARK = [255, 64, 224, 255], POINT_MARK = [64, 224, 255, 255], LABEL_INK = [230, 234, 238, 255];
 const FONT_GLYPHS = new Set(FONT_CHARACTERS), inFont = text => [...String(text).normalize('NFC')].map(c => FONT_GLYPHS.has(c) ? c : '?').join('');
-export function pictureSheet({ palette = {}, headings = [], rows: lines, scale = 6 }) {
+export function pictureSheet({ palette = {}, headings = [], rows: lines, scale = 6, background = null, exactScale = false }) {
   // How far a picture reaches from its anchor pixel, in its own pixels: left and up before it, right and down from it.
   const reach = c => {
-    const marks = Object.values(c.points ?? {}), xs = [0, c.rows[0].length - 1, ...marks.map(p => p[0])], ys = [0, c.rows.length - 1, ...marks.map(p => p[1])];
+    const marks = Object.values(c.points ?? {}), xs = [0, (c.width ?? c.rows[0].length) - 1, ...marks.map(p => p[0])], ys = [0, (c.height ?? c.rows.length) - 1, ...marks.map(p => p[1])];
     return { left: c.anchor[0] - Math.min(...xs), right: Math.max(...xs) + 1 - c.anchor[0], up: c.anchor[1] - Math.min(...ys), down: Math.max(...ys) + 1 - c.anchor[1] };
   };
   const cells = lines.flatMap(line => line.cells.filter(Boolean).map(reach));
@@ -1888,7 +1888,8 @@ export function pictureSheet({ palette = {}, headings = [], rows: lines, scale =
     const shown = line.cells.filter(Boolean).map(reach);
     return { up: Math.max(0, ...shown.map(c => c.up)) + 1, down: Math.max(1, ...shown.map(c => c.down)) + 1 };
   });
-  const s = Math.max(1, Math.min(integer(scale, 'scale', 1, 16), Math.floor(256 / Math.max(across, ...heights.map(h => h.up + h.down))))), t = Math.max(1, Math.min(2, Math.floor(s / 3)));
+  const requested = integer(scale, 'scale', 1, 16);
+  const s = exactScale ? requested : Math.max(1, Math.min(requested, Math.floor(256 / Math.max(across, ...heights.map(h => h.up + h.down))))), t = Math.max(1, Math.min(2, Math.floor(s / 3)));
   const pad = 3 * t, gap = Math.max(2, s), labels = lines.map(line => layoutText(inFont(line.label))), heads = headings.map(text => layoutText(inFont(text)));
   const labelWidth = Math.max(0, ...labels.map(text => text.width)) * t + 2 * pad, headHeight = heads.length ? (FONT_HEIGHT + 2) * t + 2 * pad : gap;
   const columns = Math.max(heads.length, ...lines.map(line => line.cells.length)), cellWidth = Math.max(across * s, Math.max(0, ...heads.map(text => text.width)) * t + 2 * pad);
@@ -1910,15 +1911,17 @@ export function pictureSheet({ palette = {}, headings = [], rows: lines, scale =
     line.cells.forEach((cell, c) => {
       const x0 = labelWidth + gap + c * (cellWidth + gap), square = Math.max(2, Math.ceil(8 / s)) * s;
       if (!cell) return;
-      for (let y = 0; y < rowHeight; y++) for (let x = 0; x < cellWidth; x++) data.set(checkerColors[(Math.floor(x / square) + Math.floor(y / square)) % 2], ((top + y) * width + x0 + x) * 4);
+      for (let y = 0; y < rowHeight; y++) for (let x = 0; x < cellWidth; x++) data.set(background ?? checkerColors[(Math.floor(x / square) + Math.floor(y / square)) % 2], ((top + y) * width + x0 + x) * 4);
       // The anchor's top-left corner in the cell, in sheet pixels.
       const ax = x0 + Math.floor((cellWidth - across * s) / 2) + (left + 1) * s, ay = top + Math.floor((rowHeight - (heights[r].up + heights[r].down) * s) / 2) + up * s;
-      cell.rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) {
-        const key = row[x];
-        if (key === '.' || key === ' ') continue;
-        const color = colourOf(key), px = ax + (x - cell.anchor[0]) * s, py = ay + (y - cell.anchor[1]) * s;
+      const cellWidthPx = cell.width ?? cell.rows[0].length, cellHeightPx = cell.height ?? cell.rows.length;
+      for (let y = 0; y < cellHeightPx; y++) for (let x = 0; x < cellWidthPx; x++) {
+        const at = (y * cellWidthPx + x) * 4, key = cell.rows?.[y][x];
+        if (cell.data ? cell.data[at+3] === 0 : key === '.' || key === ' ') continue;
+        const color = cell.data ? cell.data.subarray(at, at+4) : colourOf(key), px = ax + (x - cell.anchor[0]) * s, py = ay + (y - cell.anchor[1]) * s;
         if (color[3]) for (let yy = py; yy < py + s; yy++) for (let xx = px; xx < px + s; xx++) if (xx >= 0 && yy >= 0 && xx < width && yy < height) blend(data, (yy * width + xx) * 4, color);
-      } });
+      }
+      if (cell.data) return;
       for (const p of Object.values(cell.points ?? {})) ring(ax + (p[0] - cell.anchor[0]) * s, ay + (p[1] - cell.anchor[1]) * s, POINT_MARK);
       ring(ax, ay, ANCHOR_MARK);
     });

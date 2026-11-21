@@ -4,7 +4,7 @@ import { fail, isObject, portableName } from './core.js';
 import { fields, number, integer, boolean } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
 
-function triple(value, path) {
+export function triple(value, path) {
   if (!Array.isArray(value) || value.length !== 3) fail(path, 'expected [x,y,z]');
   return value.map((n, i) => number(n, path + '[' + i + ']', -512, 512));
 }
@@ -84,7 +84,7 @@ export function socketPose(sockets, heading) {
   return posed;
 }
 
-function placed({ xyz, socket }, pose) {
+export function placed({ xyz, socket }, pose) {
   if (!socket) return xyz;
   const { origin, axis, c, s } = pose.get(socket),
     [x, y, z] = xyz;
@@ -180,7 +180,7 @@ const edge = (a, b, x, y) => (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a
 const inclusive = (a, b) => a[1] > b[1] || (a[1] === b[1] && a[0] < b[0]);
 export function drawFacets(faces, view, fragments, budget) {
   for (const face of faces) {
-    const points = face.points.map(([x, y, z]) => [Math.round(x * 256), Math.round(y * 256), z]);
+    const points = face.points.map(([x, y, z], i) => [Math.round(x * 256), Math.round(y * 256), z, ...(face.paint?.uv[i] ?? [])]);
     for (let i = 1; i < points.length - 1; i++) {
       let a = points[0],
         b = points[i],
@@ -196,7 +196,7 @@ export function drawFacets(faces, view, fragments, budget) {
       const top = Math.max(0, Math.ceil((Math.min(a[1], b[1], c[1]) - 128) / 256));
       const bottom = Math.min(view.height - 1, Math.floor((Math.max(a[1], b[1], c[1]) - 128) / 256));
       if (left > right || top > bottom) continue;
-      budget.left -= (right - left + 1) * (bottom - top + 1);
+      budget.left -= (right - left + 1) * (bottom - top + 1) * (1 + (face.paint?.marks.length ?? 0));
       if (budget.left < 0) fail('stack.facets', 'stack exceeds the surface sampling budget');
       const ab = inclusive(a, b),
         bc = inclusive(b, c),
@@ -208,8 +208,20 @@ export function drawFacets(faces, view, fragments, budget) {
           const u = edge(b, c, px, py),
             v = edge(c, a, px, py),
             w = edge(a, b, px, py);
-          if ((u > 0 || (u === 0 && bc)) && (v > 0 || (v === 0 && ca)) && (w > 0 || (w === 0 && ab)))
-            fragments.add(y * view.width + x, (u * a[2] + v * b[2] + w * c[2]) / area, face.ink);
+          if ((u > 0 || (u === 0 && bc)) && (v > 0 || (v === 0 && ca)) && (w > 0 || (w === 0 && ab))) {
+            let ink = face.ink;
+            // Paint the membrane's own hit. Interpolating in its triangle keeps a
+            // thin vein visible on either side without a second, coplanar face.
+            if (face.paint) {
+              const along=(u*a[3]+v*b[3]+w*c[3])/area, across=(u*a[4]+v*b[4]+w*c[4])/area;
+              for (const {a:start,b:end,ink:colour} of face.paint.marks) {
+                if (along<start[0] || along>end[0]) continue;
+                const t=(along-start[0])/(end[0]-start[0]);
+                if (Math.abs(across-start[1]-(end[1]-start[1])*t)<=start[2]+(end[2]-start[2])*t) ink=colour;
+              }
+            }
+            fragments.add(y * view.width + x, (u * a[2] + v * b[2] + w * c[2]) / area, ink);
+          }
         }
     }
   }

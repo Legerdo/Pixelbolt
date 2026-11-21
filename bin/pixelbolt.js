@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareStack } from '../src/stack.js';
+import { prepareStack, inspectPoseSheet } from '../src/stack.js';
 import { inspectMotion } from '../src/motion.js';
 import { expandPoses } from '../src/authoring.js';
 import { PixelError, isObject, largestScale, columnsOfCall, meant, frameTotalProblem } from '../src/core.js';
@@ -129,6 +129,7 @@ and lists the pixels each step changes;
 --pin face,u,row,heading on a sprite stack follows that side cell across five headings one degree apart.
 --rotate socket,heading,degrees holds a stack at that heading (0–359) and rotates one socket by 0–360° from its authored pose.
 Give several offsets to see them together, e.g. --rotate spindle,0,0,90,180,270.
+--pose-sheet <file.json|JSON> draws named pose rows at camera heading columns, e.g. {"poses":["open","curl"],"headings":[315,345,45]}. Optional focus path, size in pixels and fixed socket phase.
 --grid adds palette-key rows; --scale 1-16 and --background color style the sheet.
 --stack body+plate+fin,body+plate2 draws each group of frames laid over one another in one cell, the first at
 the bottom: parts a game stacks, seen as it stacks them. --under ground.json:tile draws that frame of another
@@ -178,7 +179,7 @@ const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'ope
 const OPTIONS = {
   init: ['force'],
   validate: ['fps'],
-  inspect: ['pin', 'rotate', 'frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
+  inspect: ['pin', 'rotate', 'pose-sheet', 'frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
   patch: ['changes', 'out', 'image', 'force'],
   render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'columns', 'normal'],
   gif: ['out', 'animation', 'scale', 'background', 'force', 'preset', 'size', 'frames', 'sheet', 'fps'],
@@ -691,8 +692,14 @@ try {
       if (options.motion) for (const key of ['pin', 'rotate', 'frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
       recipeOnly('inspect', input.document, positional[0], ['pixelforge-poses', 'pixelforge-wave', 'pixelforge-stack']);
-      let compiled;
-      if (options.rotate !== undefined) {
+      let compiled, poseSheet;
+      if (options['pose-sheet'] !== undefined) {
+        for (const key of Object.keys(options)) if (!['pose-sheet','scale','background','out','force'].includes(key))
+          throw new Error('--'+key+' cannot be combined with --pose-sheet');
+        if (input.document?.format !== 'pixelforge-stack') throw new Error('--pose-sheet requires a sprite stack source');
+        poseSheet = await readJSONOption(options['pose-sheet'],'pose-sheet','{"poses":["open"],"headings":[315]}');
+        compiled = {recipe:prepareStack(input.document).poseStudy(poseSheet)};
+      } else if (options.rotate !== undefined) {
         if (options.pin !== undefined) throw new Error('--rotate and --pin select different stack views; choose one');
         if (input.document?.format !== 'pixelforge-stack') throw new Error('--rotate requires a sprite stack source');
         const [socket, heading, ...degrees] = options.rotate.split(',');
@@ -716,7 +723,7 @@ try {
       const besideFiles = options.beside === undefined ? [] : options.beside.split(',').filter(Boolean), share = besideFiles.length ? { sheets: Math.min(9, besideFiles.length + 1) } : undefined;
       // What is drawn in every cell with the frames: in this recipe's cells and in the --beside recipes', the same view.
       const drawnWith = { ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) };
-      const view = options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
+      const view = poseSheet ? inspectPoseSheet(project,poseSheet,inspectOptions(options)) : options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
         ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);
       // --beside: the same view of more recipes under this one, in one image.
@@ -735,7 +742,7 @@ try {
       }
       const { data, ...sheet } = drawn.sheet;
       if (options.out && !/\.png$/i.test(options.out)) throw new Error('inspect --out must name a .png file');
-      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles, options.under === undefined ? undefined : underOf(options.under).file, optionFile(options.guides))]);
+      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles, options.under === undefined ? undefined : underOf(options.under).file, optionFile(options.guides), optionFile(options['pose-sheet']))]);
       if (drawn.diagnostics && !options.full) drawn.diagnostics = briefDiagnostics(drawn.diagnostics);
       // Grid rows line up for reading; a short row of a table (a cell, a frame's counts, a box) stays on one line.
       print({ ok: true, ...summary(project, recipe), ...drawn, cells: briefCells(drawn.cells), warnings: [...(compiled?.warnings ?? []), ...project.warnings], sheet, nativeSheet: view.nativeSheet ? { ...view.nativeSheet, data: undefined } : undefined, ...(options.palette && { palette: paletteUse(project) }), ...(comparison && { comparison: briefComparison(comparisonReport) }), ...written, ...referenced(input) });

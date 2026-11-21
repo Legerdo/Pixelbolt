@@ -6,6 +6,8 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ### Rotating sprite stacks
 
+- Tapered paths bend at named joints and carry attachments in the fingertip frame. Wing membranes follow two posed ribs and keep their veins painted on the surface. Use CLI `inspect --pose-sheet` or MCP `pixel_inspect.poseSheet` to compare named poses across fixed camera headings. [Rimefiendâ€™s crystal index claw](showcase/rimefiend/README.md)
+
 - Inspect a socket through a full revolution with the camera locked. Use `inspect --rotate spindle,0,0,90,180,270` or the MCP `pixel_inspect` tool for a contact sheet. In Studio, choose **Lock camera** and scrub the spindle on [Seamrunner](showcase/seamrunner/README.md).
 
 - Stack facets and named, animated attachments keep machined edges, the reel and the tether aligned through a turn. Glass voxels and facets export with real partial alpha. [Lodekeeper animation and atlas](showcase/lodekeeper/faceted/README.md)

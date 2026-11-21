@@ -242,10 +242,21 @@ const stackDepth = int(0,128,'0 paints only the face. Positive depth colours con
 const stackXYZ = {...array(num(-512,512),3),minItems:3};
 const socketRef = {type:'string',pattern:id.pattern};
 const socketKey = object({heading:int(0,360),offset:stackXYZ,angle:num(-3600,3600)},['heading']);
+const namedStackEntries = (value,maxProperties) => ({type:'object',propertyNames:socketRef,maxProperties,additionalProperties:value});
+const stackBands = {type:'string',minLength:1,maxLength:16,description:'Palette keys in order across the surface.'};
+const pathNode = object({name:socketRef,at:stackXYZ,radius:num(0,128),axis:stackXYZ},['name','at','radius']);
+const stackPath = {...object({nodes:{...array(pathNode,32),minItems:2},colors:stackBands,sides:int(3,16),roll:num(-360,360),
+  socket:socketRef,attach:socketRef},['nodes','colors']),not:{required:['socket','attach']}};
+const veinPoint = {...array(num(0,1),3),minItems:3,description:'Along, across, half-width. Both edges stay within the panel.'};
+const membrane = object({ribs:{...array(socketRef,2),minItems:2,uniqueItems:true},colors:stackBands,sag:num(-64,64),scallop:num(-64,64),
+  veins:array(object({color:{type:'string',minLength:1,maxLength:1},points:{...array(veinPoint,16),minItems:2}},['color','points']),8)},['ribs','colors']);
 const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...object({
   format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
   palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:hex}},
   sockets:{type:'object',maxProperties:64,propertyNames:socketRef,additionalProperties:object({at:stackXYZ,axis:{enum:['x','y','z']},keys:array(socketKey,64)},['at'])},
+  paths:namedStackEntries(stackPath,64), membranes:array(membrane,64),
+  poses:namedStackEntries(namedStackEntries(namedStackEntries(num(-360,360),32),64),64),
+  poseKeys:array(object({heading:int(0,360),pose:socketRef},['heading','pose']),64),
   facets:array(object({color:{type:'string',minLength:1,maxLength:1},socket:socketRef,twoSided:{type:'boolean'},points:{...array({oneOf:[stackXYZ,object({at:stackXYZ,socket:socketRef},['at'])]},16),minItems:3}},['color','points']),2048),
   slices:{...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'},
   decals:{type:'object', maxProperties:256, propertyNames:{type:'string',pattern:id.pattern}, additionalProperties:sliceRows},

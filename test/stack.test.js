@@ -10,13 +10,74 @@ import { readFile } from 'node:fs/promises';
 import { compileStack, prepareStack, stackSide } from '../src/stack.js';
 import { prepareScene, renderScene } from '../src/scene.js';
 import { createSceneBundle } from '../src/scene-export.js';
-import { cosDeg } from '../src/craft.js';
+import { stackPaths } from '../src/stack-paths.js';
+import { cosDeg, sinDeg } from '../src/craft.js';
 
 const golden = goldens(new URL('./goldens/stack.json', import.meta.url));
 const block = {
   format: 'pixelforge-stack', version: 1, name: 'block', palette: { k: '#111', s: '#fff' },
   slices: [['kkk', 'kkk', 'kkk'], ['kkk', 'kkk', 'kkk']], headings: [0, 90, 180, 270]
 };
+test('a tip frame carries a rigid crystal and its seam while a sibling stays put', () => {
+  const path = (at,end) => ({colors:'k',nodes:[
+    {name:'base',at,radius:1},{name:'tip',at:end,radius:.5}
+  ]});
+  const source = {...block, paths:{
+    nail:{...path([0,0,0],[0,0,2]),attach:'index',colors:'g'},
+    index:path([0,0,0],[0,0,3]), other:path([3,0,0],[3,0,3])
+  }, palette:{...block.palette,g:'#8ef8'}, poses:{open:{},hook:{index:{base:90,tip:90}}},
+    poseKeys:[{heading:0,pose:'open'},{heading:180,pose:'hook'}]};
+  const rig=stackPaths(source,new Map(),0);
+  const open=rig.mesh(rig.anglesAt(0)), hook=rig.mesh(rig.anglesAt(180));
+  for (const angle of [0,30,90,150,180]) {
+    const {posed,facets}=rig.mesh(rig.anglesAt(angle)), tip=posed.get('index').centres[1];
+    const nail=posed.get('nail');
+    assert.deepEqual(nail.centres[0],tip);
+    assert.deepEqual(posed.get('other'),open.posed.get('other'));
+    const expected=open.facets.filter(f=>f.ink===103), moved=facets.filter(f=>f.ink===103);
+    for (let i=0;i<expected.length;i++) for (let j=0;j<expected[i].points.length;j++) {
+      const xyz=expected[i].points[j].xyz.map((v,k)=>v-open.posed.get('nail').centres[0][k]);
+      const [x,y,z]=xyz, c=cosDeg(angle), s=sinDeg(angle);
+      const rotated=[x,y*c-z*s,y*s+z*c];
+      for (let k=0;k<3;k++) assert.ok(Math.abs(tip[k]+rotated[k]-moved[i].points[j].xyz[k])<1e-5);
+    }
+  }
+  assert.ok(Math.abs(hook.posed.get('nail').centres[1][2]+2)<1e-6);
+  assert.equal(rig.anglesAt(90).get('index.tip'),45);
+  const edited=structuredClone(source);
+  edited.paths.index.nodes[1].at=[3,0,0];
+  const reshaped=stackPaths(edited,new Map(),0).mesh(new Map());
+  assert.deepEqual(reshaped.posed.get('nail').centres,[[3,0,0],[5,0,0]]);
+  const prepared=prepareStack(source), original=prepared.recipe();
+  const request={poses:['hook','open'],headings:[21,74,122],focus:'index',size:64};
+  const sheet=prepared.poseStudy(request);
+  assert.deepEqual(prepared.recipe(),original);
+  assert.deepEqual(sheet,prepared.poseStudy(request));
+  assert.equal(sheet.frames.length,6);
+  assert.throws(()=>prepared.poseStudy({...request,headings:[21,21]}),/headings/);
+  assert.throws(()=>prepared.poseStudy({...request,focus:'missing'}),/focus/);
+  assert.throws(()=>prepareStack({...source,paths:{index:{...source.paths.index,attach:'nail'},nail:source.paths.nail}}),/cycle/);
+  assert.throws(()=>prepareStack({...source,poses:{bad:{index:{typo:20}}}}),/unknown joint/);
+  assert.throws(()=>prepareStack({...source,paths:{index:path([0,0,0],[0,0,0])}}),/successive centres/);
+});
+
+test('a bent rib stays on the membrane boundary and its vein paints either side', () => {
+  const rib=x=>({colors:'k',nodes:[{name:'root',at:[x,0,0],radius:0},{name:'end',at:[x,0,5],radius:0}]});
+  const membrane={ribs:['a','b'],colors:'s',sag:-1,scallop:1,veins:[{color:'v',points:[[0,.5,.2],[1,.5,.2]]}]};
+  const source={...block,slices:[['.']],paths:{a:rib(0),b:rib(6)},palette:{...block.palette,v:'#ff0000'},
+    membranes:[membrane],poses:{open:{},fold:{b:{root:35}}}};
+  const rig=stackPaths(source,new Map(),0), mesh=rig.mesh(rig.poses.get('fold'));
+  const bands=mesh.facets.filter(f=>f.ink==='s'.charCodeAt(0));
+  assert.equal(bands.length,4);
+  assert.ok(bands[1].points[2].xyz[1]<0,'a one-colour membrane sags between its ribs');
+  assert.deepEqual(bands[0].points[3].xyz,mesh.posed.get('a').centres[1]);
+  assert.deepEqual(bands.at(-1).points[2].xyz,mesh.posed.get('b').centres[1]);
+  assert.deepEqual(bands[0].points[2],bands[1].points[3]);
+  const sheet=renderProject(prepareStack(source).poseStudy({poses:['open','fold'],headings:[0,180]}));
+  for (const frame of sheet.frames) assert.ok(frame.data.some((v,i)=>i%4===0&&v===255&&frame.data[i+1]===0));
+  assert.throws(()=>prepareStack({...source,membranes:[{...membrane,ribs:['a','absent']}]}),/ribs/);
+});
+
 const grid = (source, heading) => compileStack(source).recipe.frames.find(f => f.name === `heading-${heading}`).ops[0].rows;
 
 test('each painted side is visible from its own heading and fully hidden edge-on and behind', () => {
@@ -257,6 +318,17 @@ golden.test('Copper Rally keeps two connected silver rims throughout the turn, w
     assert.equal(sizes.length, 2, `rim fragments at ${angle}°: ${sizes}`);
     const projected = side * Math.abs(cosDeg(angle));
     for (const size of sizes) assert.ok(Math.abs(size - projected) <= 24, `${angle}°: ${size} vs ${projected}`);
+  }
+});
+
+golden.test('Rimefiend keeps the crystal nail and painted wing webs registered through a pose study', async () => {
+  const source=JSON.parse(await readFile(new URL('../showcase/rimefiend/rimefiend.stack.json',import.meta.url)));
+  const hand=JSON.parse(await readFile(new URL('../showcase/rimefiend/index-study.json',import.meta.url)));
+  const model=prepareStack(source);
+  for(const [name,request] of [['index',hand],['wings',{poses:['open','folded'],headings:[315,153]}]]) {
+    const recipe=model.poseStudy(request), pixels=createHash('sha256');
+    for (const frame of renderProject(recipe).frames) pixels.update(frame.data);
+    golden.equal('rimefiend-'+name,pixels.digest('hex'),{recipe});
   }
 });
 

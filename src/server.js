@@ -45,6 +45,7 @@ const routes = new Map([
   ['/constraints.js', ['./constraints.js', 'text/javascript; charset=utf-8']],
   ['/cloth.js', ['./cloth.js', 'text/javascript; charset=utf-8']],
   ['/territory.js', ['./territory.js', 'text/javascript; charset=utf-8']],
+  ['/stack-paths.js', ['./stack-paths.js', 'text/javascript; charset=utf-8']],
   ['/stack-facets.js', ['./stack-facets.js', 'text/javascript; charset=utf-8']],
   ['/stack.js', ['./stack.js', 'text/javascript; charset=utf-8']],
   ['/stack-editor.js', ['../studio/stack-editor.js', 'text/javascript; charset=utf-8']],

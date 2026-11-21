@@ -103,6 +103,226 @@
         "additionalProperties": false
       }
     },
+    "paths": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+                },
+                "at": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -512,
+                    "maximum": 512
+                  },
+                  "maxItems": 3,
+                  "minItems": 3
+                },
+                "radius": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 128
+                },
+                "axis": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": -512,
+                    "maximum": 512
+                  },
+                  "maxItems": 3,
+                  "minItems": 3
+                }
+              },
+              "required": [
+                "name",
+                "at",
+                "radius"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 32,
+            "minItems": 2
+          },
+          "colors": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "description": "Palette keys in order across the surface."
+          },
+          "sides": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 16
+          },
+          "roll": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          },
+          "socket": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          },
+          "attach": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          }
+        },
+        "required": [
+          "nodes",
+          "colors"
+        ],
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "socket",
+            "attach"
+          ]
+        }
+      }
+    },
+    "membranes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ribs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "colors": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "description": "Palette keys in order across the surface."
+          },
+          "sag": {
+            "type": "number",
+            "minimum": -64,
+            "maximum": 64
+          },
+          "scallop": {
+            "type": "number",
+            "minimum": -64,
+            "maximum": 64
+          },
+          "veins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "description": "Along, across, half-width. Both edges stay within the panel."
+                  },
+                  "maxItems": 16,
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "color",
+                "points"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 8
+          }
+        },
+        "required": [
+          "ribs",
+          "colors"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    },
+    "poses": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+        },
+        "maxProperties": 64,
+        "additionalProperties": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          },
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          }
+        }
+      }
+    },
+    "poseKeys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "heading": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 360
+          },
+          "pose": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          }
+        },
+        "required": [
+          "heading",
+          "pose"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    },
     "facets": {
       "type": "array",
       "items": {

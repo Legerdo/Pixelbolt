@@ -2,14 +2,16 @@
 // per output pixel. Composite glass and attached facets in depth order on one shared ground
 // pivot and canvas. A rotation study holds one camera and pose outside the baked frame cache.
 // Opaque voxel-only sources retain their original single-grid fast path.
-import { fail, frameFits, frameTotalProblem, isObject, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
+import { fail, frameFits, frameTotalProblem, isObject, pictureSheet, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
-import { stackGeometry, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
+import { stackGeometry, placed, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
+
+import { stackPaths } from './stack-paths.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -200,6 +202,12 @@ function raster(model, view, angle, pose, budget) {
 
 export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const model = readModel(source), { width: w, height: h, levels } = model;
+  const organic = stackPaths(source, model.geometry.sockets, model.geometry.facets.length);
+  function posedModel(heading, angles) {
+    if (!organic) return model;
+    const mesh = organic.mesh(angles ?? organic.anglesAt(heading));
+    return { ...model, paths:mesh.posed, geometry:{ ...model.geometry, facets:model.geometry.facets.concat(mesh.facets) } };
+  }
   const projection = source.projection ?? 'oblique';
   if (!['oblique', 'iso'].includes(projection)) fail('stack.projection', 'expected oblique or iso');
   if (projection === 'iso' && source.squash !== undefined) fail('stack.squash', 'iso uses a 2:1 ground grid; set squash with oblique projection');
@@ -219,25 +227,25 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   // once for all requested headings, so even an off-centre pivot stays still throughout a turn.
   const sidesX = [-pivot[0] - .5, w - pivot[0] - .5], sidesY = [-pivot[1] - .5, h - pivot[1] - .5];
   const bounds = {pivot,anchor:[0,0],resolution,squash};
-  function headingBounds(pose, angle, include) {
+  function headingBounds(shape, pose, angle, include) {
     const c = cosDeg(angle), s = sinDeg(angle);
     for (const {origin} of pose.values()) {
       const [u,v] = projectPoint(origin,bounds,c,s);
       include(u,v);
     }
-    for (const facet of projectFacets(model.geometry,pose,bounds,angle)) for (const [u,v] of facet.points) include(u,v);
+    for (const facet of projectFacets(shape.geometry,pose,bounds,angle)) for (const [u,v] of facet.points) include(u,v);
     for (const x of sidesX) for (const y of sidesY) {
       const u = (x * c - y * s) * resolution, v = (x * s + y * c) * squash * resolution;
       include(u,v - tall * resolution); include(u,v);
     }
   }
   for (const [index,angle] of angles.entries()) {
-    headingBounds(socketPose(model.geometry.sockets,headings[index]), angle, (x,y) => {
+    headingBounds(posedModel(headings[index]), socketPose(model.geometry.sockets,headings[index]), angle, (x,y) => {
       left = Math.min(left, Math.floor(x)); right = Math.max(right, Math.ceil(x));
       roof = Math.min(roof, Math.floor(y)); bottom = Math.max(bottom, Math.ceil(y));
     });
   }
-  if (model.geometry.facets.length || model.geometry.sockets.size) { left-=2; right+=2; roof-=2; bottom+=2; }
+  if (model.geometry.facets.length || model.geometry.sockets.size || organic?.paths.size) { left-=2; right+=2; roof-=2; bottom+=2; }
   const width = right - left, height = bottom - roof, anchor = [-left, -roof];
   if (!frameFits(width, height) || frameTotalProblem(angles.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${angles.length} headings exceeds the recipe budget; reduce resolution, spacing or heading count`);
   if (width * height * angles.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
@@ -251,7 +259,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
       const pose = socketPose(model.geometry.sockets,heading);
       frames[index] = {name:`heading-${heading}`, duration,
         ...(pose.size && {points:projectSockets(pose,view,angles[index])}),
-        ops:raster(model,view,angles[index],pose,budget)};
+        ops:raster(posedModel(heading),view,angles[index],pose,budget)};
     }
     return frames[index];
   }
@@ -277,7 +285,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     const left = Math.floor(anchor[0] + (x*c - y*s)*resolution - size/2);
     const top = Math.floor(anchor[1] + ((x*s + y*c)*squash - z)*resolution - size/2);
     const crop = { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] };
-    const ops = raster(model, crop, angle, socketPose(model.geometry.sockets,heading), { left: 96000000 });
+    const ops = raster(posedModel(heading), crop, angle, socketPose(model.geometry.sockets,heading), { left: 96000000 });
     return { left, top, rows:ops[0].rows, ops };
   }
   function comparison(side, at, heading) {
@@ -300,6 +308,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     return projectSockets(socketPose(model.geometry.sockets,heading),view,angle);
   }
   const mounted = new Set(model.geometry.facets.flatMap(face => face.points.map(p => p.socket)));
+  for (const path of organic?.paths.values() ?? []) mounted.add(path.socket);
   const rotationSockets = [...model.geometry.sockets.keys()].filter(name => mounted.has(name));
   function rotationStudy(heading, socket) {
     const angle = cameraAngle(integer(heading, 'stack.heading', 0, 359));
@@ -311,8 +320,9 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
       x0 = Math.min(x0, Math.floor(x) - 2); x1 = Math.max(x1, Math.ceil(x) + 2);
       y0 = Math.min(y0, Math.floor(y) - 2); y1 = Math.max(y1, Math.ceil(y) + 2);
     }
-    if (!headings.includes(heading)) headingBounds(pose, angle, include);
-    includeRotationBounds(model.geometry.facets, socket, pivotPose, bounds, angle, include);
+    const shape = posedModel(heading);
+    if (!headings.includes(heading)) headingBounds(shape, pose, angle, include);
+    includeRotationBounds(shape.geometry.facets, socket, pivotPose, bounds, angle, include);
     const viewport = { ...view, width: x1 - x0, height: y1 - y0, anchor: [-x0, -y0] };
     if (!frameFits(viewport.width, viewport.height)) fail('stack.rotation', 'the full rotation exceeds the frame budget; reduce the stack resolution');
     const points = projectSockets(pose, viewport, angle);
@@ -327,14 +337,72 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
         const spin = pivotPose.angle + offset % 360;
         pose.set(socket, { ...pivotPose, c: cosDeg(spin), s: sinDeg(spin) });
         const name = offsets.length === 1 ? `heading-${heading}` : 'rotation-' + String(offset).replace('.', 'p');
-        return { name, duration, points, ops: raster(model, viewport, angle, pose, budget) };
+        return { name, duration, points, ops: raster(shape, viewport, angle, pose, budget) };
       });
       return { version: 1, name: source.name, width: viewport.width, height: viewport.height, anchor: viewport.anchor,
         palette: source.palette, frames, animations: {} };
     }
     return { recipe: rotationRecipe };
   }
-  return { metadata, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, side: name => sideRows(model, name) };
+  // A row changes only the joint angles. All columns share one socket phase. A
+  // focused study follows the rest knuckle at each angle, holding each column still.
+  function poseStudy(request) {
+    fields(request,['poses','headings','focus','size','phase'],'poseSheet');
+    const {poses,headings:cameras,focus}=request;
+    if (!Array.isArray(poses) || !poses.length || poses.length>16 || new Set(poses).size!==poses.length)
+      fail('poseSheet.poses','expected 1â€“16 distinct named poses');
+    for (const name of poses) if (!organic?.poses.has(name)) fail('poseSheet.poses','unknown pose '+name);
+    if (!Array.isArray(cameras) || !cameras.length || cameras.length>16 || new Set(cameras).size!==cameras.length)
+      fail('poseSheet.headings','expected 1â€“16 distinct camera headings');
+    const angles=cameras.map(h=>cameraAngle(integer(h,'poseSheet.headings',0,359)));
+    const phase=integer(request.phase??0,'poseSheet.phase',0,359);
+    const pose=socketPose(model.geometry.sockets,phase);
+    if (focus!==undefined && !organic.paths.has(focus)) fail('poseSheet.focus','unknown path');
+    if (request.size!==undefined && focus===undefined) fail('poseSheet.size','size requires a focus path');
+    const shapes=poses.map(name=>posedModel(phase,organic.poses.get(name)));
+    let ports;
+    if (focus!==undefined) {
+      const size=integer(request.size??64,'poseSheet.size',8,256);
+      const path=posedModel(phase,new Map()).paths.get(focus);
+      const centre=placed({xyz:path.centres[0],socket:path.socket},pose);
+      ports=angles.map(angle=>{
+        const [x,y]=projectPoint(centre,bounds,cosDeg(angle),sinDeg(angle));
+        return {...view,width:size,height:size,anchor:[Math.floor(size/2)-Math.floor(x),Math.floor(size/2)-Math.floor(y)]};
+      });
+    } else {
+      let x0=0,x1=0,y0=0,y1=0;
+      for (const shape of shapes) for (const angle of angles) headingBounds(shape,pose,angle,(x,y)=>{
+        x0=Math.min(x0,Math.floor(x)-2); x1=Math.max(x1,Math.ceil(x)+2);
+        y0=Math.min(y0,Math.floor(y)-2); y1=Math.max(y1,Math.ceil(y)+2);
+      });
+      ports=angles.map(()=>({...view,width:x1-x0,height:y1-y0,anchor:[-x0,-y0]}));
+    }
+    const {width,height}=ports[0], total=poses.length*cameras.length;
+    if (!frameFits(width,height) || frameTotalProblem(total,width,height)) fail('poseSheet','matrix exceeds the frame budget; choose fewer poses, headings or a smaller focus');
+    const budget={left:96000000};
+    const frames=shapes.flatMap((shape,row)=>angles.map((angle,col)=>({
+      name:'pose-'+(row+1)+'-heading-'+cameras[col],duration,
+      ops:raster(shape,ports[col],angle,pose,budget)
+    })));
+    return {version:1,name:source.name,width,height,palette:source.palette,frames,animations:{}};
+  }
+  return { metadata, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, poseStudy, side: name => sideRows(model, name) };
+}
+
+// Both agent interfaces render the same labelled matrix. Pixel colours (including
+// partial alpha) come from the ordinary recipe rasterizer before the matte is applied.
+export function inspectPoseSheet(project, request, options = {}) {
+  fields(options,['scale','background'],'poseSheet.options');
+  const {width,height,frames}=project;
+  const rows=request.poses.map((label,r)=>({label,cells:request.headings.map((_,c)=>({
+    width,height,anchor:[0,0],data:frames[r*request.headings.length+c].data
+  }))}));
+  const background=options.background===undefined || options.background==='checker' ? null
+    : parseColor(options.background,project.palette,'poseSheet.background');
+  const sheet=pictureSheet({rows,headings:request.headings.map(h=>h+' deg'),scale:options.scale??2,
+    exactScale:options.scale!==undefined,background});
+  return {cells:frames.map(({name,duration})=>({frame:name,duration})),poses:request.poses,headings:request.headings,
+    sheet:{...sheet,columns:request.headings.length,rows:request.poses.length}};
 }
 
 export function compileStack(source, options) {

@@ -256,6 +256,36 @@ To reuse a drawing, define `"decals": {"hub": [".s.", "sss", ".s."]}` and place 
 
 In Studio, one drag is one undo step. Use **Undo** or **Redo** in the painting panel (Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z). **Make decal** names the last brush stroke on that face. Pick its name under **Drawing** to edit all copies, or **Place decal** to stamp a copy at its top-left corner. The **Eraser** peels a mark on a face or clears a cell of a shared drawing. **Pin detail** picks a solid side-view cell and follows it at the current heading and two degrees either side, including angles between the saved frames. `pixelbolt inspect examples/copper-rally.stack.json --pin south,12,10,90 --out wheel.png` reviews the same five views. **Save JSON** keeps the editable source. From the CLI, `pixelbolt preview examples/copper-rally.stack.json` opens that same editor. `pixelbolt compile examples/copper-rally.stack.json --out rally.pixel.json` bakes a regular recipe. `render` and `gif` can also take the stack source directly. Over MCP, use `pixel_compile` with the source or the `copper-rally` preset, then inspect or export its revision.
 
+### Jointed paths and wing membranes
+
+A stack can sweep a tapered path through named joints. Coordinates are in its socket's rest space or in model space if the socket is omitted. Radius is in model units. The first key in `colors` paints the caps and the keys repeat around the sides in order. Their orientation follows the material when a joint bends. Use palette colours with alpha for crystal. A zero end radius makes a point.
+
+```json
+{
+  "paths": {
+    "finger": {"colors":"sks","sides":6,"nodes":[
+      {"name":"knuckle","at":[2,1,3],"radius":1.2},
+      {"name":"middle","at":[2,2,6],"radius":1},
+      {"name":"tip","at":[2,3,8],"radius":0.7}]},
+    "nail": {"attach":"finger","colors":"gcg","nodes":[
+      {"name":"bed","at":[0,0,0],"radius":0.72},
+      {"name":"point","at":[0,1,2],"radius":0}]}
+  },
+  "poses":{"open":{},"hook":{"finger":{"middle":-60,"tip":-25}}},
+  "poseKeys":[{"heading":0,"pose":"open"},{"heading":180,"pose":"hook"},{"heading":360,"pose":"open"}]
+}
+```
+
+Set `axis` on a node to a nonzero hinge vector in its rest coordinates (default [1,0,0]). Joint angles in degrees compose from the root outward. An attached path uses coordinates relative to the parent tip, inherits the tip orientation and socket, and may itself carry another path. Its local z follows the last segment and local x follows the unrolled seam, so reshaping the parent also reorients the nail. Set `roll` in degrees to place the seam. Adjacent centres must differ. The optional `poseKeys` interpolate angles between named poses by heading, holding the endpoints. Each named pose starts from rest. Unspecified joints have zero bend.
+
+Stretch a panel between two named paths with the same socket and node count. For example, `{"ribs":["inner","outer"],"colors":"roor","sag":-1,"scallop":3}` in `membranes` gives four painted bands. The rib order runs from root to free edge. Sag bows the web along socket-local y and scallop raises its free edge along z. Both vanish at the ribs. Attach a vein with `"veins":[{"color":"v","points":[[0.2,0.1,0.01],[0.6,0.3,0.025],[0.9,0.4,0]]}]`. Each point gives the fraction along the ribs, fraction across the panel and half-width across it. Points progress along the rib and both edges must fit within the panel. Veins colour the membrane pixels directly. Paths, caps, membrane bands and ordinary facets share the 2,048-face budget.
+
+### Comparing poses from several angles
+
+Give `pixelbolt inspect model.stack.json --pose-sheet study.json --out poses.png` a study such as `{"poses":["open","hook"],"headings":[315,345,45],"focus":"finger","size":64}`. Rows and columns follow the supplied order. Each column uses the same camera and crop across all rows. Without `focus` the view fits every selected pose. With it, the crop stays centred on the rest path's first joint. Optional `phase` fixes all socket animations to one heading (default 0), independently of the camera. Up to 16 poses and 16 headings fit within ordinary frame and image limits. Set `scale` and `background` to compare pixels against a chosen matte.
+
+Over MCP call `pixel_inspect` with `source` and the same object as `poseSheet`. Reuse `sourceRevision` for another study, or inspect the returned baked `revision` as ordinary frames.
+
 ### Facets and moving attachments
 
 For a crisp beam or gem, add a `facets` entry such as `{"color":"g","points":[[0,0,1],[3,0,1],[0,3,1]]}`. Vertices are in model units from the minimum footprint corner, z pointing up. A face has 3–16 vertices in boundary order, forming a triangle fan. An outward counterclockwise face draws on its front. Use `twoSided:true` for an open plate. A glass shell made from outward-facing facets draws its visible faces once. Plates, glass, and voxels occlude one another per pixel. In a depth tie facets follow voxels, then file order. The side-painting panel edits the voxel portion.
