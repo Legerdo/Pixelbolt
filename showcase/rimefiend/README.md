@@ -4,10 +4,6 @@
 
 A 4.2-second turntable based on the demon reference. The reaching index curls and opens as the demon turns. The wing shoulders rotate and the individual ribs draw together on the rear view. The digitigrade legs and ridged back extend the design beyond the reference crop.
 
-![Chest and back before and after adding raised vertebrae and muscle relief](body-study.png)
-
-The top row shows the previous sculpt and the bottom row shows the current one. Each row pairs the chest at 315° with the back at 135°. Eight raised vertebrae taper from the nape to the belt. Their transverse processes spread into the paired back muscles. The same `reliefs` field shapes the shoulder blades, pectorals, obliques, thighs and calves. Edit the `[z,width,rise]` entries in the vertebra loop of the [builder](build.mjs) to change the silhouette in both profile and rear views.
-
 ![Original and reworked faces turning together from one profile to the other](face-profiles.gif)
 
 The [five-angle comparison](face-profiles.png) follows the centre of the skull. In profile, the upper fang breaks the mouth opening and the outer eyelid tapers back into the temple. To change the snarl, move the last two points of `upperLip` and `lowerLip`. To change the eye corner, edit the final station of `orbit` and the start of `templeRidge` in the builder. In the stack, the three `lofts` join the named rows and mirror them about the body socket. Both sides use the same landmarks and palette bands.
@@ -41,12 +37,6 @@ node showcase/rimefiend/crystals.mjs output/rimefiend/rimefiend.stack.json outpu
 node bin/pixelbolt.js inspect output/rimefiend/rimefiend.stack.json --pose-sheet showcase/rimefiend/index-study.json --scale 3 --background "#434152" --out output/rimefiend/index-sheet.png
 node showcase/rimefiend/curl.mjs output/rimefiend/rimefiend.stack.json output/rimefiend/index-curl
 node bin/pixelbolt.js inspect output/rimefiend/rimefiend.stack.json --pose-sheet '{"poses":["open","folded"],"headings":[315,153]}' --scale 1 --background "#b6ad9f" --out output/rimefiend/wing-sheet.png
-```
-
-To rebuild the body comparison, save the stack from commit `3691354` as `before.stack.json` and the current stack as `relief.stack.json`, then run
-
-```sh
-node bin/pixelbolt.js inspect before.stack.json --beside relief.stack.json --frames heading-315,heading-135 --region 50,75,134,132 --scale 2 --background "#484054" --out body-study.png
 ```
 
 To reproduce the original-versus-contours comparison, save `showcase/rimefiend/rimefiend.stack.json` from commit `d5a424d` and pass its path as the third argument to `face.mjs` with a fresh output stem.

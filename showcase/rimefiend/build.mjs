@@ -1,5 +1,4 @@
-// Sculpt the body into palette-painted slices and raise anatomical ridges from their surface.
-// Named paths bend each finger and its
+// Sculpt the body into palette-painted slices. Named paths bend each finger and its
 // crystal nail together. Both wing webs follow the posed ribs at the shoulder sockets.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -84,23 +83,14 @@ function muscle(a,b,rx,ry,extend=.8) {
 oval(0,-.6,22,6.8,4.0,4.4); oval(0,-.8,28,5.7,3.9,7.7);
 oval(0,-1.4,35.8,9.6,4.7,7.7); oval(0,-.9,39.1,10.7,4.7,4);
 oval(0,2,42.7,4.1,3.5,4.1);
-muscle([0,-2.0,44.05],[0,-5.02,38.15],2.35,1.8,1.05);
 for(const s of [-1,1]) {
   oval(s*5,3.0,38.4,5.8,3.4,3.45,s*13);
   muscle([s*3.9,-.1,43.7],[s*11,-1,40.6],2.75,3.25,1.2);
   muscle([s*8.7,-2.9,38.5],[s*4.2,-2.6,28.4],3.0,2.7);
   muscle([s*9.2,-3.7,41],[s*3.15,-5,34.4],2.8,1.6);
   muscle([s*7.3,1.5,34.2],[s*4.6,2.7,27.5],2.0,1.45);
-  for(const [z,w,ry] of [[34.02,2.26,2.17],[30.87,2.10,1.97],[27.99,1.86,1.71]]) oval(s*(w+.13),3.68,z,w,ry,1.74,s*13);
-  // The back narrows below the shoulder blades. The paired columns leave a
-  // recessed centreline for the interlocking spinous processes.
-  muscle([s*2.25,-4.75,40.1],[s*1.45,-4.15,25.1],1.65,1.4);
-  muscle([s*3.0,-4.9,41.5],[s*7.95,-5.1,38.3],2.0,1.48);
-  muscle([s*8.8,-4.72,36.9],[s*4.2,-4.23,30.5],2.48,1.63);
-  muscle([s*5.81,-4.55,35.9],[s*3.42,-4.37,29.58],1.94,1.61);
-  muscle([s*4.76,-2.95,28.6],[s*2.75,-3.38,25.05],1.74,1.34);
-  muscle([s*1.94,4.13,39.5],[s*8.45,3.18,38.39],2.27,2.62);
-  muscle([s*6.9,2.76,33.1],[s*4.55,3.15,27.45],1.49,1.32);
+  for(const [z,w,ry] of [[33.9,2.46,1.9],[30.75,2.3,1.76],[27.85,2.0,1.56]]) oval(s*(w-.18),3.5,z,w,ry,1.9,s*9);
+  muscle([s*1.55,-4.27,37.5],[s*1.65,-3.65,24],1.2,1.03);
 }
 // Staggered digitigrade legs. Set the weight over the forward foot; let the back hock sweep away.
 const feet=[];
@@ -110,8 +100,6 @@ for(const s of [-1,1]) {
   muscle(hip,knee,3.85,3.65,1.8); muscle([s*5.7,1.16,21.4],knee,2.55,2.45);
   oval(...knee,2.85,2.85,2.95); muscle(knee,hock,2.45,2.55,1.35);
   muscle(hock,ankle,1.68,1.65,1); oval(ankle[0],ankle[1]+1.2,1.65,2.95,3.6,1.6);
-  muscle([s*5.3,2.8,20.75],[s*7.28,4.2+step,14.2],1.84,1.57);
-  muscle([s*7.52,1.85+step,12.25],[s*8.05,-4.25+step,7.15],1.66,1.65);
   feet.push([ankle[0],ankle[1]+2.4,1.6]);
 }
 // The arms have different rhythms: the closed hand drops below the belt, the open hand reaches out.
@@ -149,8 +137,8 @@ const slices=Array.from({length:height},(_,z)=>Array.from({length:depth},(_,y)=>
     const direct=dot(gradient,light)/norm;
     const bounce=dot(gradient,[.46,-.86,.2])/norm;
     const lit=.47+.43*direct-occlusion*.76;
-    const dorsalLight=clamp((bounce-.18)*1.17,0,1);
-    const fill=clamp(.23+.47*dorsalLight+.13*gradient[2]/norm-occlusion*.28,0,1);
+    const dorsalLight=clamp((bounce-.22)*1.15,0,1);
+    const fill=clamp(.24+.32*dorsalLight+.1*gradient[2]/norm-occlusion*.25,0,1);
     row+=fill>lit&&dorsalLight>.1
       ? '01K2L3M4N'[clamp(Math.floor(fill*9),0,8)]
       : '012345678'[clamp(Math.floor(lit*9),0,8)];
@@ -377,7 +365,7 @@ for(const s of [-1,1]) {
   mark([[s*1.72-.26,4.99,18.92],[s*.85-.28,5.38,18.37],[-.32,5.37,18.66],[s*.63-.32,5.41,17.85]],'g');
 }
 
-// Trace scars on the actual voxel surface so the marks
+// Trace scars and the vertebral ridge on the actual voxel surface so the marks
 // follow the skin as it turns. Sample only the local muscle to keep the wing roots free.
 function surfaceY(x,z,dir) {
   const gx=Math.round(x+origin[0]-.5), gz=Math.floor(z);
@@ -400,49 +388,16 @@ for(const [dx,dz] of [[0,0],[1.53,-.36]]) {
   skinStripe([[-11.66+dx,44.12+dz,.08],[-12.33+dx,43.35+dz,.31],[-12.87+dx,42.18+dz,.23],[-13.86+dx,40.74+dz,.02]],1,'5');
   skinStripe([[-11.68+dx,44.12+dz,.04],[-12.5+dx,43.35+dz,.10],[-13.02+dx,42.18+dz,.11],[-13.88+dx,40.74+dz,.02]],1,'7');
 }
-// Surface reliefs measure out from the slice hull. Broad ridges connect muscle
-// insertions; the narrower, taller vertebrae cast a stepped profile between the wings.
-const reliefs=[];
-const dorsal=[-.82,-.42,1.1], ventral=[-.57,.54,.86];
-function ridge(face, ramp, stations) {
-  reliefs.push({face,ramp,light:face==='north'?dorsal:ventral,
-    points:stations.map(([x,z,width,rise])=>round([origin[0]+x,z,width,rise]))});
-}
-for (const [z,width,rise] of [[43.4,.95,2.25],[41.25,1.65,3.5],[38.65,1.95,4.0],
-  [35.8,1.83,3.7],[33.05,1.57,3.1],[30.5,1.34,2.5],[28.15,1.12,1.85],[26.1,.82,1.35]]) {
-  const x=.45*sinDeg((z-29)*15);
-  // Low transverse processes spread the load into the muscle on either side.
-  if(z>27) ridge('north','1K2L3M56',[[x-width*2.05,z-.52,0,0],[x-width*.86,z+.36,.57,rise*.4],
-    [x,z+.82,.73,rise*.61],[x+width*.86,z+.36,.57,rise*.4],[x+width*2.05,z-.52,0,0]]);
-  ridge('north','012KL3MMN7',[[x,z+1.52,0,0],[x,z+.65,width*.76,rise*.57],
-    [x,z+.12,width*.84,rise],[x,z-.66,width*.50,rise*.54],[x,z-1.52,0,0]]);
-}
-for (const side of [-1,1]) {
-  const muscleRidge=(face,ramp,stations)=>ridge(face,ramp,stations.map(([x,...rest])=>[side*x,...rest]));
-  // The scapular spine wraps from the neck into the wing root. The latissimus
-  // and erectors continue in different directions and meet just above the belt.
-  muscleRidge('north','12KL3M6N7',[[1.25,42.5,0,0],[3.7,41.10,1.1,1.3],[6.85,39.25,1.58,1.85],[9.3,39.48,0,0]]);
-  muscleRidge('north','1K2L3M6',[[8.5,38.2,0,0],[6.3,35.4,1.48,1.6],[4.17,33.3,1.26,1.1],[2.63,30.8,0,0]]);
-  muscleRidge('north','1K2L3M5',[[5.75,32.3,0,0],[4.13,29.95,1.27,1.18],[3.04,27.5,.93,.78],[2.05,25.72,0,0]]);
-  muscleRidge('north','1K2L3M6',[[2.32,38.1,0,0],[2.17,34,1.08,1.04],[2.19,29.9,.85,.94],[1.18,25.4,0,0]]);
-  // Pectoral sweep, interlocking rib slips, and the oblique at the waist.
-  muscleRidge('south','23345667',[[.79,36.59,0,0],[3.26,36.84,1.33,1.46],[6.39,37.77,1.62,1.58],[9.56,39.79,0,0]]);
-  for(const [x,z] of [[7.65,36],[6.75,33.97],[6.15,31.95]]) {
-    muscleRidge('south','2344566',[[x+.97,z+.81,0,0],[x,z,.65,.86],[x-1.9,z-1,0,0]]);
-  }
-  muscleRidge('south','2345566',[[5.55,30.7,0,0],[4.12,28.17,1.02,.9],[1.77,25.7,0,0]]);
-  // Weight-bearing quadriceps, the patellar ridge and the tendon leading to the hock.
-  muscleRidge('south','2345667',[[4.6,21.55,0,0],[5.63,19.4,1.48,1.12],[6.55,16.68,1.22,1.25],[7.06,14.75,0,0]]);
-  muscleRidge('south','234567',[[6.88,15.26,0,0],[7.02,13.47,1.31,1.09],[7.48,11.89,0,0]]);
-  muscleRidge('north','12KL3M6',[[6.95,14.4,0,0],[7.65,11.54,1.18,1.05],[8.07,8.72,.82,.89],[8.45,6.36,0,0]]);
-  const elbowX=side===1?16.3:18.5, elbowZ=side===1?33.7:31.5;
-  muscleRidge('south','2345667',[[10.56,43.96,0,0],[12.49,42.54,1.61,1.1],[14.1,40.47,1.42,1.24],[14.69,38.34,0,0]]);
-  muscleRidge('south','2345567',[[13.74,39.56,0,0],[(13.74+elbowX)/2, (39.56+elbowZ)/2,1.15,.98],[elbowX,elbowZ+.78,0,0]]);
+for(const z of [42,39.45,36.9,34.35,31.8,29.25,26.85]) {
+  const top=surfaceY(0,z,-1), below=surfaceY(0,z-1.4,-1), w=(z>34?1.13:.87);
+  const shoulder=[0,top-.67,z-.28];
+  const edge=[[-w,top+.1,z-.52],[-.55*w,top+.1,z+.48],[.55*w,top+.1,z+.48],[w,top+.1,z-.52],[0,below-.06,z-1.54]];
+  for(let i=0;i<edge.length;i++) mark([edge[i],edge[(i+1)%edge.length],shoulder],['3','M','L','2','K'][i]);
 }
 
 const source={format:'pixelforge-stack',version:1,name:'rimefiend',projection:'iso',resolution:3,
   pivot:[25,9],headings:Array.from({length:60},(_,i)=>(297+6*i)%360),duration:70,palette,slices,
-  sockets:{body:{at:origin},...wings},facets,contours,lofts,reliefs,paths,membranes,poses,
+  sockets:{body:{at:origin},...wings},facets,contours,lofts,paths,membranes,poses,
   poseKeys:[[0,'curled'],[60,'half'],[120,'open'],[180,'folded'],[240,'open'],[297,'open'],[330,'half'],[360,'curled']]
     .map(([heading,pose])=>({heading,pose}))};
 if (!process.argv[2]) throw Error('Supply a new .stack.json filename.');
