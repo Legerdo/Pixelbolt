@@ -7,6 +7,7 @@ import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, rende
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
+import { prepareStack } from './stack.js';
 import { encodePNG } from './png.js';
 import { createBundle, writeBundle, embedBundleRecipe, outputSummary, describeAnimations } from './export.js';
 import { spriteFrames, retexture, canvasTexture } from './godot.js';
@@ -14,7 +15,7 @@ import { shareLink } from './share.js';
 import { animationGIF, STILLS_GIF_NOTE } from './gif.js';
 import { readExpect, checkDelivery, briefCheck } from './check.js';
 import { createSequence, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, frameGrid } from './sequence.js';
-import { compilePoses, draftViews } from './authoring.js';
+import { compilePoses, draftViews, fields } from './authoring.js';
 import { testMapScale } from './terrain.js';
 import { prepareScene, renderScene, sceneImage } from './scene.js';
 import { createSceneBundle, sceneGIF } from './scene-export.js';
@@ -387,13 +388,23 @@ export function createToolRunner({ directory, root, version }) {
         const { recipe, resolved, sources } = await recipeFrom(spec, revision), project = renderProject(recipe);
         return { content: [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), timing: briefCells(project.frames.map(({ name, duration }) => ({ name, duration }))), warnings: project.warnings, ...(project.clipping && { clipping: project.clipping }), ...(project.clippingOmitted && { clippingOmitted: project.clippingOmitted }), ...(options.fps !== undefined && { frameGrid: frameGrid(project, options.fps) }) }, resolved))] };
       } else if (name === 'pixel_inspect') {
-        const { layers, reference, beside, palette, source: poseSource, metadata: suppliedMetadata, speed, ground, ...inspection } = options;
-        let recipe, resolved, sources, metadata = suppliedMetadata, poseWarnings = [];
-        if (poseSource !== undefined) {
+        const { layers, reference, beside, palette, source, rotate, metadata: suppliedMetadata, speed, ground, ...inspection } = options;
+        let recipe, resolved, sources, stackSource, metadata = suppliedMetadata, poseWarnings = [];
+        if (source !== undefined) {
           if (spec !== undefined || revision !== undefined || suppliedMetadata !== undefined) throw new PixelError('arguments', 'source replaces project, revision and metadata');
-          const input = await resolveReferences(poseSource, { baseDir: root, root });
-          ({ recipe, metadata, warnings: poseWarnings = [] } = compilePoses(input.document)); resolved = sources = relativeToRoot(input.files);
+          const input = await resolveReferences(source, { baseDir: root, root });
+          resolved = sources = relativeToRoot(input.files);
+          if (rotate !== undefined) recipe = input.document;
+          else if (input.document?.format === 'pixelforge-stack') throw new PixelError('rotate', 'send socket, heading and degrees to inspect a part, or use pixel_compile for the authored turntable');
+          else ({ recipe, metadata, warnings: poseWarnings = [] } = compilePoses(input.document));
         } else ({ recipe, resolved, sources } = await recipeFrom(spec, revision));
+        if (rotate !== undefined) {
+          fields(rotate, ['socket','heading','degrees'], 'rotate');
+          if (spec !== undefined || recipe?.format !== 'pixelforge-stack') throw new PixelError('rotate', 'send a sprite stack as source, or its sourceRevision as revision');
+          if (inspection.view === 'motion') throw new PixelError('rotate', 'motion review uses character poses; omit view: motion for a socket rotation');
+          stackSource = recipe;
+          recipe = prepareStack(stackSource).rotationStudy(rotate.heading, rotate.socket).recipe(rotate.degrees);
+        }
         const project = renderProject(recipe, { ...(layers !== undefined && { layers }), ...((inspection.view === 'parts' || palette === true) && { owners: true }) });
         let view;
         if (inspection.view === 'motion') {
@@ -418,7 +429,7 @@ export function createToolRunner({ directory, root, version }) {
           }
         }
         const comparison = reference === undefined ? null : compareProjects(renderProject(await read(reference), layers === undefined ? {} : { layers }), project);
-        const content = [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), ...viewSummary(view), ...(palette === true && { palette: paletteUse(project) }), warnings: [...poseWarnings, ...project.warnings] }, resolved)), imageContent(view.sheet)];
+        const content = [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), ...(stackSource && { sourceRevision: revision ?? await keep(stackSource, sources) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), ...viewSummary(view), ...(palette === true && { palette: paletteUse(project) }), warnings: [...poseWarnings, ...project.warnings] }, resolved)), imageContent(view.sheet)];
         if (view.nativeSheet) content.push(imageContent(view.nativeSheet));
         if (view.grids) content.push(textContent(gridText(view)));
         if (reference !== undefined) {
@@ -559,7 +570,8 @@ export function createToolRunner({ directory, root, version }) {
         const project = renderProject(recipe), view = inspectProject(project, { maxCells: 256 });
         // An autotile set also shows every tile over a test map, where seams and repetition show.
         const map = testMap ? inspectProject(renderProject(testMap), { scale: testMapScale(testMap) }) : null;
-        return { content: [textContent({ ok: true, revision: await keep(recipe, [...relativeToRoot(sourceFiles), ...(await Promise.all(referenced.map(sourcesOf))).flat()]), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), preview: viewSummary(view), ...(map && { testMap: 'the second image: every tile of the set over a test map', ...(tilemapOf(recipe, metadata) && { tilemap: tilemapOf(recipe, metadata) }) }), ...(resized && resizeMargins(resized, [recipe.width, recipe.height]) && { margins: resizeMargins(resized, [recipe.width, recipe.height]) }), ...(kept && { kept }), warnings: [...compiled, ...(thinned?.notes ?? []), ...(cut ? [cut] : []), ...project.warnings.filter(text => !(cut && text.startsWith('Some drawing falls outside the canvas')))], ...(args.metadata === true && { metadata }) }), imageContent(view.sheet), ...(map ? [imageContent(map.sheet)] : [])], ...(preview && preview(project)) };
+        const inputs = [...relativeToRoot(sourceFiles), ...(await Promise.all(referenced.map(sourcesOf))).flat()];
+        return { content: [textContent({ ok: true, revision: await keep(recipe, inputs), ...(format === 'pixelforge-stack' && document.sockets && { sourceRevision: await keep(document, inputs) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), preview: viewSummary(view), ...(map && { testMap: 'the second image: every tile of the set over a test map', ...(tilemapOf(recipe, metadata) && { tilemap: tilemapOf(recipe, metadata) }) }), ...(resized && resizeMargins(resized, [recipe.width, recipe.height]) && { margins: resizeMargins(resized, [recipe.width, recipe.height]) }), ...(kept && { kept }), warnings: [...compiled, ...(thinned?.notes ?? []), ...(cut ? [cut] : []), ...project.warnings.filter(text => !(cut && text.startsWith('Some drawing falls outside the canvas')))], ...(args.metadata === true && { metadata }) }), imageContent(view.sheet), ...(map ? [imageContent(map.sheet)] : [])], ...(preview && preview(project)) };
       } else if (name === 'pixel_scene') {
         const { document, files: sources } = await resolveReferences(args.scene, { baseDir: root, root, revisions: read });
         const scene = prepareScene(document), frame = renderScene(scene, { time: args.time ?? 0, lit: args.lit ?? true, density: args.density ?? false, depth: args.view === 'depth' });
@@ -676,7 +688,11 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
   const inspectInput = { ...projectInput, properties: {
     guides,
     ...source,
-    source: { type: 'object', description: 'A pixelforge-poses source instead of project/revision, for motion review with its contacts.' },
+    source: { type: 'object', description: 'Pose source for motion review, or sprite stack for rotate, instead of project/revision.' },
+    rotate: { type:'object', required:['socket','heading','degrees'], additionalProperties:false,
+      description:'Lock the camera and turn one socket. Send source once, then reuse sourceRevision as revision.',
+      properties:{ socket:{type:'string'}, heading:{type:'integer',minimum:0,maximum:359}, degrees:{oneOf:[
+        {type:'number',minimum:0,maximum:360},{type:'array',minItems:1,maxItems:256,uniqueItems:true,items:{type:'number',minimum:0,maximum:360}}]} } },
     metadata: { type: 'object', description: 'Pose metadata from pixel_compile (metadata: true), for motion review of a compiled revision.' },
     speed: { type: 'number', minimum: -4096, maximum: 4096, description: 'Motion view: pixels per second.' },
     ground: { type: 'integer', minimum: 0, maximum: CANVAS_SIDE - 1, description: 'Motion view: ground row.' },

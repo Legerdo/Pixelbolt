@@ -1,5 +1,6 @@
 // Edit stack faces and shared decal grids. A pointer gesture commits once. A refresh of the
 // same document preserves its active pointer, undo history and model-space review pin.
+// Camera-locked socket inspection only draws into the review dialog.
 import { prepareStack } from '/stack.js';
 import { parseColor, renderProject } from '/core.js';
 import { traceLine } from '/craft.js';
@@ -205,7 +206,56 @@ export function stackEditor(seek, rest) {
   $('stack-socket').onchange = () => seek(Number(slider.value));
   slider.oninput = () => seek(Number(slider.value));
 
+  const dialog = $('rotation-dialog'), stage = $('rotation-stage'), preview = $('rotation-canvas');
+  const socket = $('rotation-socket'), offset = $('rotation-offset'), message = $('rotation-error');
+  let study, lockedHeading, redraw;
+  function fitRotation() {
+    if (!dialog.open || preview.hidden) return;
+    const fit = Math.min(stage.clientWidth / preview.width, stage.clientHeight / preview.height);
+    const scale = fit < 1 ? fit : Math.floor(fit);
+    preview.style.width = preview.width * scale + 'px';
+    preview.style.height = preview.height * scale + 'px';
+  }
+  new ResizeObserver(fitRotation).observe(stage);
+  function drawRotation() {
+    cancelAnimationFrame(redraw);
+    if (!dialog.open) return;
+    try {
+      study ??= prepared.rotationStudy(lockedHeading, socket.value);
+      const project = renderProject(study.recipe(Number(offset.value)));
+      preview.width = project.width; preview.height = project.height;
+      preview.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(project.frames[0].data), project.width, project.height), 0, 0);
+      message.hidden = true; preview.hidden = false;
+      fitRotation();
+    } catch (error) {
+      message.textContent = error.message; message.hidden = false; preview.hidden = true;
+    }
+  }
+  function selectRotation() {
+    study = null; offset.value = '0'; $('rotation-degrees').value = '0°';
+    drawRotation();
+  }
+  socket.onchange = selectRotation;
+  offset.oninput = () => {
+    $('rotation-degrees').value = offset.value + '°';
+    cancelAnimationFrame(redraw);
+    redraw = requestAnimationFrame(drawRotation);
+  };
+  $('stack-lock').onclick = () => {
+    if (!prepared || editor.value !== sourceText) return;
+    seek(Number(slider.value));
+    lockedHeading = heading;
+    $('rotation-heading').textContent = lockedHeading + '°';
+    const names = prepared.rotationSockets, marked = $('stack-socket').value;
+    selectOptions(socket, names.map(name => [name, name]));
+    socket.value = names.includes(marked) ? marked : names.find(name => written.sockets[name].keys?.some(key => key.angle)) ?? names[0];
+    dialog.showModal(); selectRotation(); offset.focus();
+  };
+  $('rotation-close').onclick = () => dialog.close();
+  dialog.onclose = () => { cancelAnimationFrame(redraw); study = null; };
+
   function reset() {
+    if (dialog.open) dialog.close();
     stroke = null; pin = null; comparisonKey = null; written = null; prepared = null;
     sourceText = null; undo.length = redo.length = 0; cursor = [0,0];
     target.value = ''; tool.value = 'brush'; $('stack-socket').value = ''; panel.hidden = true;
@@ -220,6 +270,8 @@ export function stackEditor(seek, rest) {
         sourceText = editor.value; written = value;
       }
       const sockets = Object.keys(value.sockets ?? {});
+      if (dialog.open && model !== prepared) dialog.close();
+      $('stack-lock').hidden = !model.rotationSockets.length;
       selectOptions($('stack-socket'), [['','Off'],...sockets.map(name=>[name,name])]);
       $('stack-socket-label').hidden = !sockets.length;
       const same = prepared === model;

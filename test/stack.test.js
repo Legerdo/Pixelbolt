@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { goldens } from '../scripts/goldens.mjs';
+import { cliReply } from './fixtures/cli-reply.js';
 import { renderProject } from '../src/core.js';
 import { readFile } from 'node:fs/promises';
 import { compileStack, prepareStack, stackSide } from '../src/stack.js';
@@ -98,6 +99,56 @@ test('CLI inspection of a pinned stack cell renders intermediate headings and re
   assert.deepEqual([review.width, review.height, review.frames], [36,36,5]);
   assert.deepEqual(review.grids.map(grid => grid.frame), ['heading-358','heading-359','heading-0','heading-1','heading-2']);
   assert.match(inspect('south,100,0,0').error, /solid cell/);
+});
+
+test('a camera lock matches the authored pose plus one local rotation, including a vertex on a second socket', () => {
+  // Compare in ground coordinates, including every nonblank pixel. A fitted turntable and a
+  // full-revolution inspection may have different margins but must agree on the image inside.
+  function pixels(recipe) {
+    const { data } = renderProject(recipe).frames[0], out = [];
+    for (let i = 0; i < data.length; i += 4) if (data[i+3]) {
+      out.push([i/4 % recipe.width - recipe.anchor[0], Math.floor(i/4/recipe.width) - recipe.anchor[1], ...data.subarray(i,i+4)]);
+    }
+    return out;
+  }
+  const heading = 37;
+  for (const axis of ['x','y','z']) {
+    const source = { ...block, headings:[0,90], projection:'iso', palette:{...block.palette, g:'#75baa080'},
+      sockets:{bit:{at:[1,2,2], axis, keys:[{heading:0,angle:-40},{heading:90,angle:5,offset:[3,1,2]}]},
+        cab:{at:[-1,0,1], keys:[{heading:0},{heading:90, angle:80,offset:[1,0,0]}]}, spare:{at:[0,0,0]}},
+      facets:[{color:'g',socket:'bit',twoSided:true,points:[[0,1,1],[2,9,5],[5,8,4]]},
+        {color:'s',socket:'bit',twoSided:true,points:[[0,2,0],[1,2,0],{socket:'cab',at:[0,0,2]}]}] };
+    const model = prepareStack(source), original = structuredClone(model.recipe()), study = model.rotationStudy(heading,'bit');
+    assert.deepEqual(model.rotationSockets, ['bit','cab']);
+    const start = study.recipe(0);
+    for (const rotation of [0,57.25,180,270,360]) {
+      const actual = study.recipe(rotation), bit = source.sockets.bit;
+      const baked = prepareStack({ ...source, headings:[heading], sockets:{...source.sockets,bit:{...bit,
+        keys:bit.keys.map(key => ({...key,angle:key.angle + rotation % 360}))}} }).recipe();
+      assert.deepEqual(pixels(actual), pixels(baked), axis + ' at ' + rotation);
+      assert.deepEqual([actual.width,actual.height,actual.anchor,actual.frames[0].points],
+        [start.width,start.height,start.anchor,start.frames[0].points]);
+    }
+    assert.deepEqual(study.recipe(360), start);
+    assert.deepEqual(model.recipe(), original);
+    assert.throws(() => study.recipe(-2), /rotation.offset/);
+    assert.throws(() => model.rotationStudy(0,'spare'), /rotation.socket/);
+  }
+});
+
+test('inspect --rotate selects a single fixed-camera pose and validates its socket, heading and rotation', () => {
+  const source = {...block,sockets:{bit:{at:[1,1,1]}},facets:[{socket:'bit',color:'s',points:[[0,0,0],[4,0,2],[4,2,0]],twoSided:true}]};
+  const inspect = (...args) => {
+    const result = spawnSync(process.execPath,[fileURLToPath(new URL('../bin/pixelbolt.js',import.meta.url)),
+      'inspect','-','--rotate',...args],{input:JSON.stringify(source),encoding:'utf8'});
+    return cliReply(result, result.status === 0 ? 'stdout' : 'stderr');
+  };
+  assert.equal(inspect('bit,0,22.5').frames, 1);
+  assert.match(inspect('missing,0,0').error, /socket/);
+  assert.match(inspect('bit,360,90').error, /heading/);
+  assert.match(inspect('bit,0,361').error, /offset/);
+  assert.match(inspect('bit,0,').error, /expects/);
+  assert.match(inspect('bit,0,90','--pin','south,0,0,0').error, /--pin/);
 });
 
 test('glass voxels tint once per contiguous run and reveal the first opaque surface', () => {

@@ -1,10 +1,11 @@
 // Orthographic sprite stacks. Each nonblank cell occupies one solid unit cube. Trace one ray
 // per output pixel. Composite glass and attached facets in depth order on one shared ground
-// pivot and canvas. Opaque voxel-only sources retain their original single-grid fast path.
+// pivot and canvas. A rotation study holds one camera and pose outside the baked frame cache.
+// Opaque voxel-only sources retain their original single-grid fast path.
 import { fail, frameFits, frameTotalProblem, isObject, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
-import { stackGeometry, projectPoint, projectFacets, socketPose, stackFragments, drawFacets } from './stack-facets.js';
+import { stackGeometry, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
@@ -137,7 +138,7 @@ function sideRows(model, side) {
 
 // Grid traversal from the camera. Clip to the volume first, then advance directly to cell
 // boundaries. At a corner cross all tied axes together; the top face wins a visibility tie.
-function raster(model, view, angle, heading, budget) {
+function raster(model, view, angle, pose, budget) {
   const { width: w, height: h, levels, cells, decals } = model;
   const { resolution, squash, spacing, anchor, pivot, width, height } = view;
   const c = cosDeg(angle), s = sinDeg(angle), top = (levels - 1) * spacing + 1;
@@ -193,7 +194,7 @@ function raster(model, view, angle, heading, budget) {
   }
   budget.left -= visits;
   if (!layered) return [{op:'grid', rows}];
-  drawFacets(projectFacets(model.geometry,heading,view,angle),view,fragments,budget);
+  drawFacets(projectFacets(model.geometry,pose,view,angle),view,fragments,budget);
   return fragments.ops(budget);
 }
 
@@ -217,23 +218,24 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   // The top and bottom of the four footprint corners bound every visible cell. Round outwards
   // once for all requested headings, so even an off-centre pivot stays still throughout a turn.
   const sidesX = [-pivot[0] - .5, w - pivot[0] - .5], sidesY = [-pivot[1] - .5, h - pivot[1] - .5];
-  for (const [index,angle] of angles.entries()) {
+  const bounds = {pivot,anchor:[0,0],resolution,squash};
+  function headingBounds(pose, angle, include) {
     const c = cosDeg(angle), s = sinDeg(angle);
-    const bounds = {pivot,anchor:[0,0],resolution,squash};
-    for (const {origin} of socketPose(model.geometry.sockets,headings[index]).values()) {
+    for (const {origin} of pose.values()) {
       const [u,v] = projectPoint(origin,bounds,c,s);
-      left=Math.min(left,Math.floor(u)); right=Math.max(right,Math.ceil(u));
-      roof=Math.min(roof,Math.floor(v)); bottom=Math.max(bottom,Math.ceil(v));
+      include(u,v);
     }
-    for (const facet of projectFacets(model.geometry,headings[index],bounds,angle)) for (const [u,v] of facet.points) {
-      left=Math.min(left,Math.floor(u)); right=Math.max(right,Math.ceil(u));
-      roof=Math.min(roof,Math.floor(v)); bottom=Math.max(bottom,Math.ceil(v));
-    }
+    for (const facet of projectFacets(model.geometry,pose,bounds,angle)) for (const [u,v] of facet.points) include(u,v);
     for (const x of sidesX) for (const y of sidesY) {
       const u = (x * c - y * s) * resolution, v = (x * s + y * c) * squash * resolution;
-      left = Math.min(left, Math.floor(u)); right = Math.max(right, Math.ceil(u));
-      roof = Math.min(roof, Math.floor(v - tall * resolution)); bottom = Math.max(bottom, Math.ceil(v));
+      include(u,v - tall * resolution); include(u,v);
     }
+  }
+  for (const [index,angle] of angles.entries()) {
+    headingBounds(socketPose(model.geometry.sockets,headings[index]), angle, (x,y) => {
+      left = Math.min(left, Math.floor(x)); right = Math.max(right, Math.ceil(x));
+      roof = Math.min(roof, Math.floor(y)); bottom = Math.max(bottom, Math.ceil(y));
+    });
   }
   if (model.geometry.facets.length || model.geometry.sockets.size) { left-=2; right+=2; roof-=2; bottom+=2; }
   const width = right - left, height = bottom - roof, anchor = [-left, -roof];
@@ -246,9 +248,10 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     integer(index, 'stack.frame', 0, angles.length - 1);
     if (!frames[index]) {
       const heading = headings[index];
+      const pose = socketPose(model.geometry.sockets,heading);
       frames[index] = {name:`heading-${heading}`, duration,
-        ...(model.geometry.sockets.size && {points:attachments(heading)}),
-        ops:raster(model,view,angles[index],heading,budget)};
+        ...(pose.size && {points:projectSockets(pose,view,angles[index])}),
+        ops:raster(model,view,angles[index],pose,budget)};
     }
     return frames[index];
   }
@@ -274,7 +277,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     const left = Math.floor(anchor[0] + (x*c - y*s)*resolution - size/2);
     const top = Math.floor(anchor[1] + ((x*s + y*c)*squash - z)*resolution - size/2);
     const crop = { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] };
-    const ops = raster(model, crop, angle, heading, { left: 96000000 });
+    const ops = raster(model, crop, angle, socketPose(model.geometry.sockets,heading), { left: 96000000 });
     return { left, top, rows:ops[0].rows, ops };
   }
   function comparison(side, at, heading) {
@@ -287,12 +290,51 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     }
     return { version: 1, name: source.name, width: size, height: size, palette: source.palette, frames, animations: {} };
   }
-  function attachments(heading) {
-    const angle=cameraAngle(integer(heading,'stack.heading',0,359));
-    return Object.fromEntries([...socketPose(model.geometry.sockets,heading)].map(([name,pose])=>
-      [name,projectPoint(pose.origin,view,cosDeg(angle),sinDeg(angle)).slice(0,2).map(Math.floor)]));
+  function projectSockets(pose, viewport, angle) {
+    const c = cosDeg(angle), s = sinDeg(angle);
+    return Object.fromEntries([...pose].map(([name, {origin}]) =>
+      [name,projectPoint(origin,viewport,c,s).slice(0,2).map(Math.floor)]));
   }
-  return { metadata, frame, recipe, detail, comparison, attachments, side: name => sideRows(model, name) };
+  function attachments(heading) {
+    const angle = cameraAngle(integer(heading,'stack.heading',0,359));
+    return projectSockets(socketPose(model.geometry.sockets,heading),view,angle);
+  }
+  const mounted = new Set(model.geometry.facets.flatMap(face => face.points.map(p => p.socket)));
+  const rotationSockets = [...model.geometry.sockets.keys()].filter(name => mounted.has(name));
+  function rotationStudy(heading, socket) {
+    const angle = cameraAngle(integer(heading, 'stack.heading', 0, 359));
+    if (!rotationSockets.includes(socket)) fail('stack.rotation.socket', rotationSockets.length
+      ? 'choose a socket with attached facet vertices: ' + rotationSockets.join(', ') : 'this stack has no socket-mounted facets');
+    const pose = socketPose(model.geometry.sockets, heading), pivotPose = pose.get(socket);
+    let x0 = left, x1 = right, y0 = roof, y1 = bottom;
+    function include(x, y) {
+      x0 = Math.min(x0, Math.floor(x) - 2); x1 = Math.max(x1, Math.ceil(x) + 2);
+      y0 = Math.min(y0, Math.floor(y) - 2); y1 = Math.max(y1, Math.ceil(y) + 2);
+    }
+    if (!headings.includes(heading)) headingBounds(pose, angle, include);
+    includeRotationBounds(model.geometry.facets, socket, pivotPose, bounds, angle, include);
+    const viewport = { ...view, width: x1 - x0, height: y1 - y0, anchor: [-x0, -y0] };
+    if (!frameFits(viewport.width, viewport.height)) fail('stack.rotation', 'the full rotation exceeds the frame budget; reduce the stack resolution');
+    const points = projectSockets(pose, viewport, angle);
+    function rotationRecipe(degrees) {
+      const offsets = Array.isArray(degrees) ? degrees : [degrees];
+      if (!offsets.length || offsets.length > 256 || new Set(offsets).size !== offsets.length) fail('stack.rotation.offset', 'expected 1–256 distinct offsets');
+      for (const offset of offsets) number(offset, 'stack.rotation.offset', 0, 360);
+      const problem = frameTotalProblem(offsets.length, viewport.width, viewport.height);
+      if (problem) fail('stack.rotation.offset', problem);
+      const budget = { left: 96000000 };
+      const frames = offsets.map(offset => {
+        const spin = pivotPose.angle + offset % 360;
+        pose.set(socket, { ...pivotPose, c: cosDeg(spin), s: sinDeg(spin) });
+        const name = offsets.length === 1 ? `heading-${heading}` : 'rotation-' + String(offset).replace('.', 'p');
+        return { name, duration, points, ops: raster(model, viewport, angle, pose, budget) };
+      });
+      return { version: 1, name: source.name, width: viewport.width, height: viewport.height, anchor: viewport.anchor,
+        palette: source.palette, frames, animations: {} };
+    }
+    return { recipe: rotationRecipe };
+  }
+  return { metadata, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, side: name => sideRows(model, name) };
 }
 
 export function compileStack(source, options) {

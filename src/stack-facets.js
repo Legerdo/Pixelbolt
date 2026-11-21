@@ -79,7 +79,7 @@ export function socketPose(sockets, heading) {
       origin = at.map((v, i) => v + a.offset[i] + (b.offset[i] - a.offset[i]) * t);
       angle = a.angle + (b.angle - a.angle) * t;
     }
-    posed.set(name, { origin, axis, c: cosDeg(angle), s: sinDeg(angle) });
+    posed.set(name, { origin, axis, angle, c: cosDeg(angle), s: sinDeg(angle) });
   }
   return posed;
 }
@@ -101,11 +101,27 @@ export function projectPoint([x, y, z], view, c, s) {
   return [view.anchor[0] + (x * c - y * s) * view.resolution, view.anchor[1] + ((x * s + y * c) * view.squash - z) * view.resolution, z];
 }
 
-export function projectFacets(geometry, heading, view, angle) {
-  const pose = socketPose(geometry.sockets, heading),
-    c = cosDeg(angle),
-    s = sinDeg(angle);
+export function projectFacets(geometry, pose, view, angle) {
+  const c = cosDeg(angle), s = sinDeg(angle);
   return geometry.facets.map(face => ({ ...face, points: face.points.map(p => projectPoint(placed(p, pose), view, c, s)) }));
+}
+
+// A vertex turning about a socket traces a circle. Its two screen coordinates each
+// trace a sinusoid. Bound both amplitudes once so scrubbing cannot crop a tip or pan the camera.
+export function includeRotationBounds(facets, socket, { origin, axis }, view, angle, include) {
+  const fixed = 'xyz'.indexOf(axis), a = (fixed + 1) % 3, b = (fixed + 2) % 3;
+  const c = cosDeg(angle), s = sinDeg(angle);
+  const horizontal = [c, -s, 0], vertical = [s * view.squash, c * view.squash, -1];
+  const radius = v => Math.sqrt(v[a] * v[a] + v[b] * v[b]);
+  const dx = view.resolution * radius(horizontal), dy = view.resolution * radius(vertical);
+  for (const face of facets) for (const point of face.points) {
+    if (point.socket !== socket) continue;
+    const center = [...origin];
+    center[fixed] += point.xyz[fixed];
+    const [x, y] = projectPoint(center, view, c, s), r = radius(point.xyz);
+    include(x - r * dx, y - r * dy);
+    include(x + r * dx, y + r * dy);
+  }
 }
 
 // Convert the depth samples at each pixel to ordinary back-to-front recipe grids.

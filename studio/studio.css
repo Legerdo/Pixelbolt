@@ -1064,6 +1064,13 @@ dialog code{
 #stack-tools { min-width: 0; }
 #stack-tools button { margin: 2px 0; }
 #stack-tools button:disabled { opacity: .5; }
+#rotation-dialog { max-width: 680px; }
+#rotation-stage { height: min(46vh, 380px); padding: 0; margin-bottom: 14px; }
+#rotation-canvas { image-rendering: pixelated; flex: none; }
+#rotation-dialog .frames-options { margin-bottom: 0; }
+#rotation-dialog label:has(#rotation-offset) { flex: 1 1 150px; grid-template-columns: 1fr auto; }
+#rotation-offset { grid-row: 2; grid-column: 1 / -1; width: 100%; margin: 0; }
+#rotation-degrees { grid-row: 1; grid-column: 2; font-variant-numeric: tabular-nums; }
 #stack-drawing { position: relative; width: min(100%, var(--stack-width)); margin: 8px 0; }
 #stack-drawing canvas { margin: 0; }
 #stack-pin-marker { position: absolute; transform: translate(-50%, -50%); border: 1px solid white;

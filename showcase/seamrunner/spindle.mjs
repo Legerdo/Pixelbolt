@@ -9,10 +9,9 @@ const [input, output] = process.argv.slice(2);
 if (!input || !output) throw Error('Supply the rover .stack.json and a new output .gif.');
 const source = JSON.parse(await readFile(input, 'utf8'));
 const count = 32, heading = 0;
+const study = prepareStack(source).rotationStudy(heading, 'spindle');
 const frames = Array.from({ length: count }, (_, i) => {
-  const spindle = { ...source.sockets.spindle, keys: [{ heading, angle: i * 360 / count }] };
-  const model = prepareStack({ ...source, headings: [heading], sockets: { ...source.sockets, spindle } });
-  const frame = model.frame(0), [x, y] = frame.points.spindle;
+  const frame = study.recipe(i * 360 / count).frames[0], [x, y] = frame.points.spindle;
   return { name: 'phase-' + i, duration: 50, ops: frame.ops.map(op => ({
     ...op, x: (op.x ?? 0) - x + 24, y: (op.y ?? 0) - y + 29
   })) };

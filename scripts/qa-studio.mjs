@@ -239,6 +239,7 @@ try {
   await check('the rally car keeps its heading while painting an editable side stroke', async () => {
     await click('#examples [data-file="copper-rally.stack"]');
     await until(`!document.getElementById('stack-tools').hidden && document.getElementById('timeline').children.length === 60`, 'the rally car to open');
+    assert.equal(await evaluate(`document.getElementById('stack-lock').hidden`), true);
     await evaluate(`(() => { const slider = document.getElementById('stack-heading'); slider.value = '59'; slider.dispatchEvent(new Event('input')); })()`);
     assert.equal(await text('stack-angle'), '24°');
     assert.equal(await evaluate(`document.getElementById('native-canvas').parentElement.hidden`), true);
@@ -327,6 +328,39 @@ try {
     await choose('stack-socket',''); assert.equal((await canvas()).hash,first.hash);
     await click('#timeline .frame:nth-child(25)'); assert.notEqual((await canvas()).hash, first.hash);
     await studio.shot('lodekeeper-glass');
+  });
+
+  await check('Seamrunner locks a heading and scrubs its spindle independently', async () => {
+    const file = path.join(root, 'showcase/seamrunner/seamrunner.stack.json');
+    const { root: { nodeId } } = await studio.page('DOM.getDocument');
+    const picker = await studio.page('DOM.querySelector', { nodeId, selector:'#file' });
+    await studio.page('DOM.setFileInputFiles', { files:[file], nodeId:picker.nodeId });
+    await until(`document.getElementById('project-name').textContent === 'Seamrunner'`, 'the rover');
+    await click('#timeline .frame:first-child');
+    const main = await canvas(), heading = await text('stack-angle');
+    const source = await evaluate(`document.getElementById('source').value`);
+    await click('#stack-lock');
+    assert.equal(await text('rotation-heading'), heading);
+    assert.equal(await evaluate(`document.getElementById('rotation-socket').value`), 'spindle');
+    const image = () => evaluate(`document.getElementById('rotation-canvas').toDataURL()`);
+    const turn = async degrees => {
+      await evaluate(`new Promise(done => {const s=document.getElementById('rotation-offset'); s.value=${degrees}; s.dispatchEvent(new Event('input')); requestAnimationFrame(done);})`);
+      assert.equal(await text('rotation-degrees'), degrees+'°');
+    };
+    const zero = await image();
+    assert.equal(zero, await evaluate(`document.getElementById('canvas').toDataURL()`));
+    await turn(90); assert.notEqual(await image(), zero);
+    await studio.shot('seamrunner-locked-camera');
+    await turn(360); assert.equal(await image(), zero);
+    await choose('rotation-socket','body'); assert.equal(await text('rotation-degrees'),'0°');
+    await key('Escape',27);
+    await until(`!document.getElementById('rotation-dialog').open`, 'the camera to unlock');
+    assert.equal(await text('stack-angle'), heading);
+    assert.equal((await canvas()).hash, main.hash);
+    assert.equal(await evaluate(`document.getElementById('source').value`), source);
+    await click('#timeline .frame:nth-child(20)'); assert.notEqual((await canvas()).hash, main.hash);
+    await click('#stack-lock'); assert.equal(await text('rotation-heading'), await text('stack-angle'));
+    await click('#rotation-close');
   });
 
   console.log('Moving figures');

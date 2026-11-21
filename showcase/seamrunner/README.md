@@ -12,6 +12,10 @@ The [animated PNG](turn.png) preserves partial transparency in the windows and r
 
 Open the [editable stack](seamrunner.stack.json) in Pixelbolt Studio to scrub the turn. The spindle's final angle key sets the number of revolutions. The [builder](build.mjs) defines the track profiles, pilot, glass panes, tether cassette and spiral in model units.
 
+To compare four drill phases at a fixed camera angle, run `node bin/pixelbolt.js inspect showcase/seamrunner/seamrunner.stack.json --rotate spindle,0,0,90,180,270 --scale 1 --out drill-phases.png`. Over MCP, send the stack once to `pixel_inspect` as `source` with `rotate: {"socket":"spindle","heading":0,"degrees":[0,90,180,270]}`. Reuse `sourceRevision` as `revision` on subsequent rotation calls.
+
+To inspect the auger in Studio, open the stack, pick a heading and choose **Lock camera**. Select **spindle** and scrub **Rotate by**. For the same pose from the CLI, run `node bin/pixelbolt.js inspect showcase/seamrunner/seamrunner.stack.json --rotate spindle,0,90 --scale 2 --out spindle-90.png`.
+
 To rebuild from the repository root into a fresh directory, run
 
 ```sh

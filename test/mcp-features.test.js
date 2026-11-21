@@ -29,6 +29,34 @@ function session(options) {
 }
 const strip = { version: 1, name: 'strip', width: 4, height: 2, palette: { k: '#000' }, frames: [{ name: 'a', ops: [{ op: 'pixel', x: 3, y: 1, color: 'k' }] }, { name: 'b', duration: 90 }] };
 
+test('an agent inspects a socket sweep, reuses the model by id and gets the same pixels as the CLI', async t => {
+  const dir = await temp(t, 'spin'), mcp = session({ directory:dir, root:dir });
+  t.after(() => { mcp.input.end(); return mcp.running; });
+  await mcp.init();
+  const source = { format:'pixelforge-stack', version:1, name:'rotor', slices:[['k.','..']], palette:{k:'#fff'},
+    sockets:{bit:{at:[1,1,2],axis:'x'}}, facets:[{socket:'bit',color:'k',points:[[1,0,0],[3,3,0],[3,2,1]],twoSided:true}] };
+  const rotate = { socket:'bit', heading:35, degrees:[0,45,90] };
+  const first = await mcp.call('pixel_inspect',{source,rotate,scale:1});
+  assert.ok(first.info.ok, first.info.error);
+  assert.equal(first.info.frames,3);
+  assert.notEqual(first.info.sourceRevision,first.info.revision);
+  const again = await mcp.call('pixel_inspect',{revision:first.info.sourceRevision,rotate,scale:1});
+  assert.deepEqual(again,first);
+  const made = await mcp.call('pixel_compile',{source});
+  assert.equal(made.info.sourceRevision,first.info.sourceRevision);
+  const still = await mcp.call('pixel_validate',{revision:first.info.revision});
+  assert.equal(still.info.frames,3);
+  const output = path.join(dir,'quarter.png');
+  const cli = spawnSync(process.execPath,[path.join(root,'bin/pixelbolt.js'),'inspect','-','--rotate','bit,35,0,45,90','--scale','1','--out',output],
+    {input:JSON.stringify(source),encoding:'utf8'});
+  assert.equal(cli.status,0,cli.stderr);
+  assert.deepEqual(Buffer.from(first.result.content.find(item=>item.type==='image').data,'base64'),await readFile(output));
+  for (const options of [{revision:made.info.revision,rotate},{source,rotate:{...rotate,degrees:[]}},
+    {source,rotate:{...rotate,degrees:[0,0]}},{source,rotate,view:'motion'}]) {
+    assert.equal((await mcp.call('pixel_inspect',options)).result.isError,true);
+  }
+});
+
 test('MCP keeps what an agent reads small: brief tool schemas, a quick start, and the long documents as topics', async t => {
   const dir = await temp(t, 'help'), mcp = session({ directory: dir }); await mcp.init();
   try {
