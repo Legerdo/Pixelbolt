@@ -20,7 +20,7 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 - The last of a glugging bottle runs out instead of leaping back up to the bottle's roof. A pocket's air was lost in two ways. One that split off a piece just as that piece opened to the outside shared its air by the pieces' sizes, so all outdoors took nearly all of it; one that closed round open air and a small pocket kept only the small pocket's air. Either left the bottle at the hardest pull the gas law gives. Air now goes with the cells that hold it: a split shares it by the cells each piece keeps, and open air that a pocket closes round comes in with it.
 - A film of liquid up to four cells thick between two pockets, or a pocket and the open air, lets air through until their pressures differ by no more than the film's own weight. Pocket air is soft, so a stretched pocket beside a fresh one threw the film between them up the bottle. A film at rest never holds more than that, so resting pockets (an upturned cup, air under a shelf) keep their air as before.
-- The [glugging bottle](examples/glug.fluid.json) preset has stiffer air (`stiffness` 60, from 40), so its level no longer falls eight rows before the first bubble and climbs back after it. Every other fluid preset renders as before.
+- The [glugging bottle](examples/glug.fluid.json) preset draws its pour all the way down. After the first gush the water falls as trickles a particle wide, thinner than the density draws, so the glass filled with nothing falling into it; a `strand` layer in the water's colour draws them. Its glass is four pixels wider, since the bottle held more than the glass and ran it over. Every other fluid preset renders as before.
 
 ### Poke the pixels: a live fluid toy
 

@@ -943,8 +943,8 @@ const honeyDipper = fluidSource('honey-dipper', 40, 60, { H: '#fff3b0', y: '#f7c
 // water leaves, it stretches and holds the rest back until outside air pushes up the neck as a big bubble that rises
 // through the water and joins it, and the next pour follows. Air the pour drives into the glass rises as bubbles (or,
 // where a lot is trapped at once, as a pocket). One-shot: it ends with the bottle empty and the glass settled.
-// Its air is a little stiffer than the default: at 40 the air at the top stretched to five times its size before the
-// first bubble came, so the level fell eight rows and then climbed back as the bubble let it close up again.
+// After the first gush the water runs down the neck's sides and falls as two trickles a particle wide, thinner than the
+// density draws, so the glass filled with nothing falling into it: the strand layer draws them down to the glass.
 const glugBottle = shapeRows(16, 33, (x, y) => {
   if (y === 0) return 'G';
   if (y <= 22) return x === 0 || x === 15 ? (x === 0 && y > 2 && y < 20 ? 'h' : 'G') : null;
@@ -952,13 +952,13 @@ const glugBottle = shapeRows(16, 33, (x, y) => {
   return x === 4 || x === 11 ? 'G' : null;
 });
 const glug = fluidSource('glug', 40, 56, { ...water, G: '#3f7f5f', h: '#bfe8cf', q: '#c7d6e6', Q: '#8fa4bd', t: '#5a4638' }, {
-  kind: 'liquid', frames: 110, duration: 60, seed: 3, walls: ['left', 'right', 'bottom'], flip: 0.7,
-  air: { stiffness: 60, bubbles: { colors: ['w'], rise: 0.6, wobble: 0.3 } },
-  obstacles: [{ symbol: 'bottle', x: 12, y: 1 }, { symbol: 'glass', x: 7, y: 39 }, { symbol: 'table', x: 0, y: 55 }],
+  kind: 'liquid', frames: 124, duration: 60, seed: 3, walls: ['left', 'right', 'bottom'], flip: 0.7,
+  air: { stiffness: 40, bubbles: { colors: ['w'], rise: 0.6, wobble: 0.3 } },
+  obstacles: [{ symbol: 'bottle', x: 12, y: 1 }, { symbol: 'glass', x: 5, y: 39 }, { symbol: 'table', x: 0, y: 55 }],
   fill: [{ x: 13, y: 4, w: 14, h: 20 }, { x: 14, y: 24, w: 12, h: 1 }, { x: 15, y: 25, w: 10, h: 1 }, { x: 16, y: 26, w: 8, h: 1 }, { x: 17, y: 27, w: 6, h: 1 }, { x: 17, y: 28, w: 6, h: 6 }], emitters: [],
-  look: [{ field: 'density', colors: ['b'], thresholds: [0.5], dither: 0 }, { field: 'depth', colors: ['c', 'b'], thresholds: [1, 2], dither: 0 }], cleanup: { strays: true }
+  look: [{ field: 'density', colors: ['b'], thresholds: [0.5], dither: 0 }, { field: 'depth', colors: ['c', 'b'], thresholds: [1, 2], dither: 0 }, { field: 'strand', colors: ['b'], thresholds: [0.5], dither: 0 }], cleanup: { strays: true }
 }, {
-  bottle: glugBottle, glass: shapeRows(26, 16, (x, y) => (x === 1 || x === 24 ? 'q' : y === 15 || x === 0 || x === 25 ? 'Q' : null)), table: shapeRows(40, 1, () => 't')
+  bottle: glugBottle, glass: shapeRows(30, 16, (x, y) => (x === 1 || x === 28 ? 'q' : y === 15 || x === 0 || x === 29 ? 'Q' : null)), table: shapeRows(40, 1, () => 't')
 });
 // Phase changes (heat). Temperatures are on the gas scale: 0 is room air, water freezes at -0.5 and boils at 0.5.
 const iceColours = { I: '#6f9fcf', i: '#b9e2f5', W: '#f6fdff' }, steamColours = { s: '#a9b3c6', S: '#e3e9f2' };

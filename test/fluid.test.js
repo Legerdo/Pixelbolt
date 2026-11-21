@@ -389,7 +389,8 @@ test('with air on, a sealed bottle glugs as it pours; without, it empties in one
 });
 
 test('the last of a glugging bottle runs out: nothing draws it back up to the roof', async () => {
-  // The glug preset's bottle (inside x 13–26, y 2–33) at the default stiffness, over three seeds. Its air went missing
+  // The glug preset's bottle (inside x 13–26, y 2–33) over three seeds, drawn by its density alone (its strand layer
+  // would count a film one particle thick as a row of water). Its air went missing
   // twice over: a pocket that split off a piece as that piece opened to the outside shared its air by the pieces' sizes,
   // so all outdoors took nearly all of it, and one that closed round open air and a small pocket kept only the small
   // pocket's. Left at the hardest pull the gas law gives, the bottle drew its last plug of water up to its roof (seed 3:
@@ -398,7 +399,7 @@ test('the last of a glugging bottle runs out: nothing draws it back up to the ro
   const source = await read('examples/glug.fluid.json'), wet = char => char === 'b' || char === 'c';
   const row = (grid, y) => { let n = 0; for (let x = 13; x <= 26; x++) if (wet(grid[y][x])) n++; return n; };
   for (const seed of [1, 3, 4]) {
-    const frames = grids(compileFluid({ ...source, effects: { glug: { ...source.effects.glug, seed, air: { ...source.effects.glug.air, stiffness: 40 } } } }).recipe, 40, 56);
+    const frames = grids(compileFluid({ ...source, effects: { glug: { ...source.effects.glug, seed, look: source.effects.glug.look.filter(layer => layer.field !== 'strand') } } }).recipe, 40, 56);
     // The upper part, once dry, stays dry.
     const upper = frames.map(grid => { let n = 0; for (let y = 2; y <= 14; y++) n += row(grid, y); return n; }), dry = upper.findIndex((n, f) => f > 40 && n === 0);
     assert.ok(dry > 40 && Math.max(...upper.slice(dry)) === 0, `seed ${seed}: dry at frame ${dry}, then ${Math.max(...upper.slice(dry))} pixels of water`);
@@ -409,6 +410,24 @@ test('the last of a glugging bottle runs out: nothing draws it back up to the ro
     assert.ok(leap <= 3, `seed ${seed}: the level leaps ${leap} rows in a frame`);
     assert.equal(upper[upper.length - 1] + frames[frames.length - 1].slice(15, 34).reduce((n, _, k) => n + row(frames[frames.length - 1], 15 + k), 0), 0, `seed ${seed}: the bottle ends empty`);
   }
+});
+
+test('the glug preset draws its pour all the way down, and the glass holds it', async () => {
+  // After the first gush the water falls as trickles a particle wide, which the density does not draw: the glass filled
+  // with nothing falling into it (134 pixels of water left the bottle unseen). The strand layer draws them. And the
+  // bottle held more than the glass, which ran over onto the table.
+  const source = await read('examples/glug.fluid.json'), wet = char => char === 'b' || char === 'c';
+  const glass = source.effects.glug.obstacles.find(obstacle => obstacle.symbol === 'glass'), across = source.symbols.glass[0].length;
+  const frames = grids(compileFluid(source).recipe, 40, 56);
+  const count = (grid, x0, x1, y0, y1, keep = () => true) => { let n = 0; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (wet(grid[y][x]) && keep(x)) n++; return n; };
+  // In the bottle, and between its neck (ending at y 33) and the glass's rim (y 39).
+  const bottle = frames.map(grid => count(grid, 13, 26, 2, 33)), gap = frames.map(grid => count(grid, 9, 30, 34, 38));
+  let unseen = 0;
+  for (let f = 1; f < frames.length; f++) if (bottle[f - 1] - bottle[f] > 2 && gap[f] + gap[f - 1] === 0) unseen += bottle[f - 1] - bottle[f];
+  assert.ok(unseen <= 20, `${unseen} pixels of water left the bottle with nothing drawn below it`);
+  const spilled = Math.max(...frames.map(grid => count(grid, 0, 39, 34, 54, x => x < glass.x || x >= glass.x + across)));
+  assert.equal(spilled, 0, `${spilled} pixels of water outside the glass`);
+  assert.equal(bottle[bottle.length - 1], 0);
 });
 
 test('a pocket squeezed too small to show lets its air go, as bubbles when air says how to draw them', () => {
