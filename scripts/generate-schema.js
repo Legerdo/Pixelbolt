@@ -254,6 +254,10 @@ const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...obje
   format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
   palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:hex}},
   sockets:{type:'object',maxProperties:64,propertyNames:socketRef,additionalProperties:object({at:stackXYZ,axis:{enum:['x','y','z']},keys:array(socketKey,64)},['at'])},
+  reliefs:array(object({
+    face:stackFace, points:{...array({type:'array',prefixItems:[num(0,512),num(0,512),num(0,128),num(0,128)],minItems:4,maxItems:4},32),minItems:2},
+    ramp:{type:'string',minLength:1,maxLength:32}, light:stackXYZ
+  },['face','points','ramp']),128),
   contours:namedStackEntries({...array(stackXYZ,32),minItems:2},128),
   lofts:array(object({
     contours:{...array(socketRef,32),minItems:2}, bands:{...array({type:'string',minLength:1,maxLength:32},31),minItems:1},

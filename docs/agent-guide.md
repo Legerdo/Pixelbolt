@@ -286,6 +286,19 @@ Give `pixelbolt inspect model.stack.json --pose-sheet study.json --out poses.png
 
 Over MCP call `pixel_inspect` with `source` and the same object as `poseSheet`. Reuse `sourceRevision` for another study, or inspect the returned baked `revision` as ordinary frames.
 
+### Raised surface detail
+
+A stack `reliefs` entry raises a ridge from a voxel side. Use it for a vertebra, a muscle insertion, a seam or a raised rim. This ridge runs across the back of a stack at least five cells wide and four cells tall, with solid voxels under all three stations.
+
+```json
+{"reliefs":[{"face":"north","ramp":"dml","light":[-1,-2,3],
+  "points":[[0.5,2,0,0],[2.5,2.25,0.8,1.5],[4.5,2,0,0]]}]}
+```
+
+Each station is `[across, z, halfWidth, rise]` in model units. The first coordinate runs along x on north/south and y on west/east. Height z increases from the floor and respects slice spacing. The two edges lie half a width either side of the path in that side view. Pixelbolt samples the outermost occupied voxel under each edge and the middle, after depth paint, then raises the crest outward from the middle. A station needs support at all three locations. Add stations where the hull changes sharply between samples. A zero-width, zero-rise end tapers to a point. A wide end gets a cap.
+
+Give `ramp` one to 32 palette keys, darkest first. `light` is a model-space direction toward the light, shared by all triangles of that ridge (default `[-1,-2,3]`). Pixelbolt picks a shade from the slope of each triangle and keeps the lighting attached to the model through a camera turn. Reliefs share the regular facet depth pass, transparency and bounds. A stack can have up to 128 reliefs of 2–32 stations each, within its total budget of 2,048 faces. They attach to the voxel body. Named socket geometry uses contours or jointed paths.
+
 ### Named contours and lofts
 
 Use a contour for a line of landmarks that several surfaces share. On a face, run each row from the centre of the muzzle to the corner of the mouth. Move the corner back along the cheek in model coordinates so the lip still turns the corner in profile.

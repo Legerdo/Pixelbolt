@@ -10,6 +10,7 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 - Inspect a socket through a full revolution with the camera locked. Use `inspect --rotate spindle,0,0,90,180,270` or the MCP `pixel_inspect` tool for a contact sheet. In Studio, choose **Lock camera** and scrub the spindle on [Seamrunner](showcase/seamrunner/README.md).
 
+- Stack surface reliefs lift curved ridges from the painted voxel hull and shade them from a palette ramp. [Rimefiend’s body study](showcase/rimefiend/body-study.png) compares the chest and spine across revisions.
 - Named stack contours link reusable rows of 3D points into painted, optionally mirrored surfaces. [Rimefiend’s profile study](showcase/rimefiend/README.md) shows the lips and eyelids through a half-turn.
 - Stack facets and named, animated attachments keep machined edges, the reel and the tether aligned through a turn. Glass voxels and facets export with real partial alpha. [Lodekeeper animation and atlas](showcase/lodekeeper/faceted/README.md)
 

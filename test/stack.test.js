@@ -315,6 +315,44 @@ test('lofts reject unmatched landmarks, invalid bands and excess geometry at the
   assert.throws(() => prepareStack({ ...block, contours, lofts:[loft], facets:faces }), /2,048/);
 });
 
+test('surface reliefs follow the painted hull, keep their light in model space and close both ends', () => {
+  const base = { ...block, slices:Array(3).fill(['kkk','kkk','kkk']), resolution:4, headings:[0,45,90,135,180,225,270,315],
+    palette:{ k:'#182431', l:'#8ee4ba', d:'#624477', x:'transparent' } };
+  for (const [side, nx, ny] of [['south',0,1],['north',0,-1],['west',-1,0],['east',1,0]]) {
+    // Remove the outer voxel on the middle column. The crest attaches one cell deeper;
+    // the two rim stations land on the uncut columns. Keep some rise above that rim.
+    const paint = [{ face:side, at:[1,0], rows:['x','x','x'], depth:1 }];
+    const ridge = { face:side, points:[[1.5,.35,.94,2],[1.5,2.65,.94,2]], ramp:'dl',
+      light: nx ? [0,-1,0] : [-1,0,0] };
+    const model = { ...base, paint, reliefs:[ridge] };
+    const xyz = (u,z,rise) => nx ? [(nx>0?3:0)+nx*rise,u,z] : [u,(ny>0?3:0)+ny*rise,z];
+    const a=xyz(.56,.35,0), b=xyz(1.5,.35,1), c=xyz(2.44,.35,0);
+    const A=xyz(.56,2.65,0), B=xyz(1.5,2.65,1), C=xyz(2.44,2.65,0);
+    const reverse = side === 'north' || side === 'east';
+    const facet = (color, p, q, r) => ({ color, points: reverse ? [p,r,q] : [p,q,r] });
+    const facets = [facet('l',a,b,c),facet('l',a,A,B),facet('l',a,B,b),
+      facet('d',b,B,C),facet('d',b,C,c),facet('l',C,B,A)];
+    const want = compileStack({ ...base, paint, facets }).recipe;
+    const got = compileStack(model).recipe;
+    assert.deepEqual(got, want, side);
+    for (const ink of ['l','d']) assert.ok(got.frames.some(f => f.ops[0].rows.some(row => row.includes(ink))), side+' '+ink);
+  }
+});
+
+test('surface reliefs validate support, lighting, stations and the shared facet budget', () => {
+  const ridge = { face:'south', points:[[1,.25,0,0],[1.4,.5,.2,.5],[2,.7,0,0]], ramp:'ks' };
+  for (const [edit, reason] of [[{face:'roof'},/face/],[{ramp:'?'},/ramp/],[{light:[0,0,0]},/light/],
+    [{points:[[1,1,1,0]]},/points/],[{points:[[1,.5,0,0],[1,.5,0,1]]},/travel/],
+    [{points:[[1,.5,0,0],[2,.1,2,1]]},/outside/]]) {
+    assert.throws(() => prepareStack({...block,reliefs:[{...ridge,...edit}]}),reason);
+  }
+  assert.throws(() => prepareStack({...block,slices:[['.k.']],reliefs:[{...ridge,points:[[0,.5,0,0],[1.5,.5,.2,1]]}]}),/voxel under/);
+  assert.throws(() => prepareStack({...block,spacing:3,reliefs:[{...ridge,points:[[1,1.5,0,0],[2,3.5,0,0]]}]}),/voxel under/);
+  assert.doesNotThrow(() => prepareStack({...block,spacing:3,reliefs:[{...ridge,points:[[1,3.1,0,0],[2,3.5,.15,.4]]}]}));
+  const facets = Array(2048).fill({color:'k',points:[[0,0,0],[1,1,1],[1,0,1]]});
+  assert.throws(() => prepareStack({...block,facets,reliefs:[ridge]}),/2,048/);
+});
+
 test('Rimefiend keeps both outer lids and the mouth visible from profile to profile', async () => {
   const source = JSON.parse(await readFile(new URL('../showcase/rimefiend/rimefiend.stack.json',import.meta.url)));
   const [mouth, eye] = source.lofts;

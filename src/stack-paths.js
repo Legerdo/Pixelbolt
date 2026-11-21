@@ -1,6 +1,7 @@
 // Pose tapered rings in a socket's local space. Ring seams are chosen in the rest
 // shape and carried by joint rotations. An attached path inherits its parent's tip
-// frame. Membranes and their surface markings sample the same posed rib vertices.
+// frame. Membranes and their markings follow the posed ribs. Surface reliefs sample
+// the painted voxel hull and keep their model-space lighting as the camera turns.
 import { fail, isObject, portableName } from './core.js';
 import { fields, integer, number } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
@@ -27,6 +28,62 @@ function bend(parent, axis, degrees) {
     apply(parent, add(add(times(v, c), times(cross(axis, v), s)), times(axis, dot(axis, v) * (1 - c))))
   );
 }
+// A relief sweeps a triangular cross-section along a side of the stack. The rim and
+// crest each sample the hull independently, including any depth paint. The two end
+// triangles close wide ends. A zero-width, zero-rise station makes a pointed end.
+export function appendStackReliefs(source, facets, sides, onSurface) {
+  const reliefs = list(source.reliefs ?? [], 'stack.reliefs', 0, 128);
+  for (const [index, ridge] of reliefs.entries()) {
+    const path = 'stack.reliefs[' + index + ']';
+    fields(ridge, ['face', 'points', 'ramp', 'light'], path);
+    const face = sides.indexOf(ridge.face);
+    if (face < 0) fail(path + '.face', 'expected ' + sides.join(', '));
+    const ramp = ridge.ramp;
+    if (typeof ramp !== 'string' || ramp.length < 1 || ramp.length > 32 ||
+        [...ramp].some(key => !Object.hasOwn(source.palette, key))) fail(path + '.ramp', 'give 1–32 palette keys from dark to light');
+    const direction = triple(ridge.light ?? [-1, -2, 3], path + '.light');
+    const largest = Math.max(...direction.map(Math.abs));
+    if (!largest) fail(path + '.light', 'light direction must be nonzero');
+    const light = unit(direction.map(v => v / largest));
+    const stations = list(ridge.points, path + '.points', 2, 32).map((station, i) => {
+      const p = path + '.points[' + i + ']';
+      if (!Array.isArray(station) || station.length !== 4) fail(p, 'expected [across, z, halfWidth, rise]');
+      return station.map((v, j) => number(v, p + '[' + j + ']', 0, j < 2 ? 512 : 128));
+    });
+    const sections = stations.map(([u, z, halfWidth, rise], i) => {
+      const p = path + '.points[' + i + ']';
+      const prev = stations[Math.max(0, i - 1)], next = stations[Math.min(stations.length - 1, i + 1)];
+      const du = next[0] - prev[0], dz = next[1] - prev[1], length = Math.sqrt(du * du + dz * dz);
+      if (!length || (i && u === prev[0] && z === prev[1])) fail(p, 'ridge needs a distinct travel direction');
+      const across = -dz / length * halfWidth, up = du / length * halfWidth;
+      return [onSurface(face, u + across, z + up, 0, p), onSurface(face, u, z, rise, p),
+        onSurface(face, u - across, z - up, 0, p)];
+    });
+    // In the (across, z) plane this winding faces south or west. Flip the
+    // opposite sides before computing both visibility and the lighting normal.
+    const reverseWinding = ridge.face === 'east' || ridge.face === 'north';
+    function triangle(a, b, c) {
+      if (reverseWinding) [b, c] = [c, b];
+      const normal = cross(sub(b, a), sub(c, a));
+      if (dot(normal, normal) === 0) return;
+      if (facets.length >= 2048) fail(path, 'reliefs and facets together exceed 2,048 faces');
+      const value = (1 + dot(unit(normal), light)) / 2;
+      const band = Math.min(ramp.length - 1, Math.max(0, Math.floor(value * ramp.length)));
+      facets.push({ ink: ramp.charCodeAt(band), twoSided: false, points: [a, b, c].map(xyz => ({ xyz })) });
+    }
+    triangle(...sections[0]);
+    for (let i = 1; i < sections.length; i++) {
+      const a = sections[i - 1], b = sections[i];
+      for (let j = 0; j < 2; j++) {
+        triangle(a[j], b[j], b[j + 1]);
+        triangle(a[j], b[j + 1], a[j + 1]);
+      }
+    }
+    const end = sections.at(-1);
+    triangle(end[2], end[1], end[0]);
+  }
+}
+
 function list(value, path, min, max) {
   if (!Array.isArray(value) || value.length < min || value.length > max)
     fail(path, 'expected ' + min + '–' + max + ' items');

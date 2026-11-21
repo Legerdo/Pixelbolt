@@ -103,6 +103,76 @@
         "additionalProperties": false
       }
     },
+    "reliefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "face": {
+            "enum": [
+              "west",
+              "east",
+              "north",
+              "south"
+            ]
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 512
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 512
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 128
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 128
+                }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "maxItems": 32,
+            "minItems": 2
+          },
+          "ramp": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "light": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -512,
+              "maximum": 512
+            },
+            "maxItems": 3,
+            "minItems": 3
+          }
+        },
+        "required": [
+          "face",
+          "points",
+          "ramp"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 128
+    },
     "contours": {
       "type": "object",
       "propertyNames": {

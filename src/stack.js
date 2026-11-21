@@ -7,11 +7,11 @@ import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
 import { stackGeometry, placed, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
 
-import { stackPaths } from './stack-paths.js';
+import { appendStackReliefs, stackPaths } from './stack-paths.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -116,6 +116,19 @@ function readModel(source) {
         const fill = alpha[color] ? color : 0;
         for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = fill;
       }
+    });
+  }
+  if (source.reliefs !== undefined) {
+    const spacing = integer(source.spacing ?? 1, 'stack.spacing', 1, 8);
+    appendStackReliefs(source, model.geometry.facets, faces, (face, u, z, rise, path) => {
+      const acrossY = face < 2, span = acrossY ? height : width, top = (levels - 1) * spacing + 1;
+      if (u < 0 || u > span || z < 0 || z > top) fail(path, 'relief extends outside the side of the stack');
+      const level = Math.min(levels - 1, Math.floor(z / spacing));
+      const hit = surface(model, face, Math.min(span - 1, Math.floor(u)), levels - 1 - level);
+      if (!hit || z - level * spacing > 1) fail(path, 'relief needs a voxel under its crest and both edges');
+      const depth = acrossY ? hit.at % width : Math.floor(hit.at / width) % height;
+      const out = face % 2 ? depth + 1 + rise : depth - rise;
+      return acrossY ? [out, u, z] : [u, out, z];
     });
   }
   return model;
