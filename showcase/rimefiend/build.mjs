@@ -1,0 +1,331 @@
+// Sculpt the body into palette-painted slices. The face, leather, wing membranes and
+// hooked crystals are model-space facets; only the wings turn about their shoulder sockets.
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { sinDeg, cosDeg } from '../../src/craft.js';
+import { formatJSON } from '../../src/export.js';
+
+const palette = {
+  '0':'#221b31','1':'#30233f','2':'#413151','3':'#533c66','4':'#654c79',
+  '5':'#795a8b','6':'#9272a1','7':'#b092b3','8':'#d3afc5',
+  K:'#393452', L:'#544767', M:'#726287', N:'#8b7b9b',
+  k:'#201726', b:'#4a2438', r:'#652a40', o:'#843247', v:'#a14552', p:'#753044',
+  d:'#31242f', e:'#503447', f:'#6e4854', l:'#ab7180',
+  t:'#473238', g:'#87583e', a:'#be8655', y:'#efbd75', w:'#ffdfac',
+  m:'#260f20', j:'#6e3344', i:'#b45d6c', E:'#ffae36', Q:'#fff3af',
+  A:'#24598a97',B:'#366c9aab',C:'#419ba99a',D:'#65c9c780',
+  F:'#9ce4d78b',G:'#ccfbe4ce',H:'#8cb8e3aa',I:'#5c80b687'
+};
+const add=(a,b)=>a.map((v,i)=>v+b[i]), sub=(a,b)=>a.map((v,i)=>v-b[i]);
+const scale=(p,k)=>p.map(v=>v*k), dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+const cross=([x,y,z],[u,v,w])=>[y*w-z*v,z*u-x*w,x*v-y*u];
+const unit=p=>scale(p,1/Math.sqrt(dot(p,p)));
+const mix=(a,b,t)=>add(scale(a,1-t),scale(b,t));
+const average=pts=>scale(pts.reduce(add,[0,0,0]),1/pts.length);
+const round=p=>p.map(n=>+n.toFixed(3));
+const clamp=(x,l,h)=>Math.max(l,Math.min(h,x));
+const light=unit([-.57,.54,.76]);
+const width=52, depth=30, height=51, origin=[25.5,9.5,0];
+const facets=[];
+const wings={};
+function face(points,color,socket='body',twoSided=false) {
+  facets.push({socket,color,points:points.map(round),...(twoSided && {twoSided})});
+}
+function shade(normal,ramp) {
+  return ramp[clamp(Math.floor((dot(normal,light)*.48+.52)*ramp.length),0,ramp.length-1)];
+}
+function skin(points,inside,material,socket) {
+  let normal=cross(sub(points[1],points[0]),sub(points[2],points[0]));
+  if (dot(normal,normal)<.000001) return;
+  if (dot(normal,sub(average(points),inside))<0) { points=[...points].reverse(); normal=scale(normal,-1); }
+  face(points,material.length===1?material:shade(unit(normal),material),socket);
+}
+// Use a continuous ring along a curved tendon, wing bone or crystal. The facet bands
+// on a crystal run from root to point and stay attached when the light side turns away.
+function sweep(nodes,material,{sides=7,socket='body',phase=0,glass=false}={}) {
+  const axis=unit(sub(nodes.at(-1).slice(0,3),nodes[0].slice(0,3)));
+  const ref=Math.abs(axis[0])<.8?[1,0,0]:[0,1,0];
+  const rings=nodes.map((node,k)=>{
+    const tangent=unit(sub(nodes[Math.min(k+1,nodes.length-1)].slice(0,3),nodes[Math.max(0,k-1)].slice(0,3)));
+    const u=unit(sub(ref,scale(tangent,dot(ref,tangent)))),v=cross(tangent,u);
+    return Array.from({length:sides},(_,i)=>add(node.slice(0,3),add(scale(u,node[3]*cosDeg(phase+360*i/sides)),scale(v,(node[4]??node[3])*sinDeg(phase+360*i/sides)))));
+  });
+  skin(rings[0],nodes[1].slice(0,3),material,socket);
+  for(let k=1;k<nodes.length;k++) {
+    const centre=mix(nodes[k-1].slice(0,3),nodes[k].slice(0,3),.5);
+    for(let i=0;i<sides;i++) {
+      const j=(i+1)%sides;
+      skin([rings[k-1][i],rings[k-1][j],rings[k][j],rings[k][i]],centre,glass?material[i%material.length]:material,socket);
+    }
+  }
+  if(nodes.at(-1)[3]>.05) skin(rings.at(-1),nodes.at(-2).slice(0,3),material,socket);
+}
+const crystal=(nodes,opts={})=>sweep(nodes,'CGFDABI',{sides:7,glass:true,...opts});
+
+// Implicit ellipsoids are blended into a single silhouette. Each muscle has its own
+// longitudinal axis; the shared density gradient gives connected clusters of flesh tones.
+const masses=[];
+function mass(center,axes,radii) {
+  const ext=[0,1,2].map(i=>Math.sqrt(axes.reduce((s,a,k)=>s+(a[i]*radii[k])**2,0))+3);
+  masses.push({center,axes,radii,ext});
+}
+function oval(x,y,z,rx,ry,rz,tilt=0) {
+  mass([x,y,z],[[cosDeg(tilt),0,sinDeg(tilt)],[0,1,0],[-sinDeg(tilt),0,cosDeg(tilt)]],[rx,ry,rz]);
+}
+function muscle(a,b,rx,ry,extend=.8) {
+  const d=sub(b,a),axis=unit(d), ref=Math.abs(axis[0])<.84?[1,0,0]:[0,1,0];
+  const u=unit(sub(ref,scale(axis,dot(ref,axis))));
+  mass(mix(a,b,.5),[u,cross(axis,u),axis],[rx,ry,Math.sqrt(dot(d,d))/2+extend]);
+}
+// Pelvis, flared rib cage, projecting pectorals and a recessed line between the rectus muscles.
+oval(0,-.6,22,6.8,4.0,4.4); oval(0,-.8,28,5.7,3.9,7.7);
+oval(0,-1.4,35.8,9.6,4.7,7.7); oval(0,-.9,39.1,10.7,4.7,4);
+oval(0,2,42.7,4.1,3.5,4.1);
+for(const s of [-1,1]) {
+  oval(s*5,3.0,38.4,5.8,3.4,3.45,s*13);
+  muscle([s*3.9,-.1,43.7],[s*11,-1,40.6],2.75,3.25,1.2);
+  muscle([s*8.7,-2.9,38.5],[s*4.2,-2.6,28.4],3.0,2.7);
+  muscle([s*9.2,-3.7,41],[s*3.15,-5,34.4],2.8,1.6);
+  muscle([s*7.3,1.5,34.2],[s*4.6,2.7,27.5],2.0,1.45);
+  for(const [z,w,ry] of [[33.9,2.46,1.9],[30.75,2.3,1.76],[27.85,2.0,1.56]]) oval(s*(w-.18),3.5,z,w,ry,1.9,s*9);
+  muscle([s*1.55,-4.27,37.5],[s*1.65,-3.65,24],1.2,1.03);
+}
+// Staggered digitigrade legs. Set the weight over the forward foot; let the back hock sweep away.
+const feet=[];
+for(const s of [-1,1]) {
+  const step=s===1?3:-2, hip=[s*4.2,-.6,22], knee=[s*7,2.8+step,13],
+    hock=[s*8.2,-3.6+step,6.05], ankle=[s*9.2,.35+step,2.45];
+  muscle(hip,knee,3.85,3.65,1.8); muscle([s*5.7,1.16,21.4],knee,2.55,2.45);
+  oval(...knee,2.85,2.85,2.95); muscle(knee,hock,2.45,2.55,1.35);
+  muscle(hock,ankle,1.68,1.65,1); oval(ankle[0],ankle[1]+1.2,1.65,2.95,3.6,1.6);
+  feet.push([ankle[0],ankle[1]+2.4,1.6]);
+}
+// The arms have different rhythms: the closed hand drops below the belt, the open hand reaches out.
+for(const s of [-1,1]) {
+  const reach=s===1, shoulder=[s*11.1,-.25,40.9], elbow=[s*(reach?16.3:18.5),reach?1.5:1.3,reach?33.7:31.5],
+    wrist=[s*(reach?19:20.1),reach?12.1:6.5,reach?33.3:23.2];
+  oval(...shoulder,4.7,4.6,5,s*-20); muscle(shoulder,elbow,3.55,3.7,1.3);
+  muscle([s*12.3,1.1,40.7],[elbow[0]-.25*s,elbow[1]+1.5,elbow[2]+1.25],2.6,2.75);
+  oval(...elbow,2.85,2.7,2.9); muscle(elbow,wrist,2.95,2.8,1.25);
+  muscle([elbow[0]+s,elbow[1],elbow[2]+.9],[wrist[0]+s*.8,wrist[1],wrist[2]],1.55,1.72);
+  oval(...wrist,2.05,2.15,2.35);
+}
+
+const field=new Float32Array(width*depth*height).fill(5);
+const at=(x,y,z)=>(z*depth+y)*width+x;
+for(const {center,axes,radii,ext} of masses) {
+  const c=add(center,origin), low=c.map((n,i)=>Math.max(0,Math.floor(n-ext[i]-.5))), dims=[width,depth,height];
+  const high=c.map((n,i)=>Math.min(dims[i]-1,Math.ceil(n+ext[i]-.5)));
+  for(let z=low[2];z<=high[2];z++) for(let y=low[1];y<=high[1];y++) for(let x=low[0];x<=high[0];x++) {
+    const dx=x+.5-c[0],dy=y+.5-c[1],dz=z+.5-c[2];
+    const q=axes.map((a,k)=>(a[0]*dx+a[1]*dy+a[2]*dz)/radii[k]);
+    const distance=(Math.sqrt(dot(q,q))-1)*Math.min(...radii), index=at(x,y,z), prev=field[index];
+    const blend=Math.max(.82-Math.abs(distance-prev),0);
+    field[index]=Math.min(distance,prev)-blend*blend/(4*.82);
+  }
+}
+const sample=(x,y,z)=>x<0||x>=width||y<0||y>=depth||z<0||z>=height?4:field[at(x,y,z)];
+const slices=Array.from({length:height},(_,z)=>Array.from({length:depth},(_,y)=>{
+  let row='';
+  for(let x=0;x<width;x++) {
+    if(sample(x,y,z)>0) { row+='.'; continue; }
+    const gradient=[sample(x+1,y,z)-sample(x-1,y,z),sample(x,y+1,z)-sample(x,y-1,z),sample(x,y,z+1)-sample(x,y,z-1)];
+    const norm=Math.sqrt(dot(gradient,gradient))||1;
+    const occlusion=(sample(x-2,y+2,z+3)<0?.14:0)+(sample(x-4,y+4,z+6)<0?.1:0);
+    const direct=dot(gradient,light)/norm;
+    const bounce=dot(gradient,[.46,-.86,.2])/norm;
+    const lit=.47+.43*direct-occlusion*.76;
+    const dorsalLight=clamp((bounce-.22)*1.15,0,1);
+    const fill=clamp(.24+.32*dorsalLight+.1*gradient[2]/norm-occlusion*.25,0,1);
+    row+=fill>lit&&dorsalLight>.1
+      ? '01K2L3M4N'[clamp(Math.floor(fill*9),0,8)]
+      : '012345678'[clamp(Math.floor(lit*9),0,8)];
+  }
+  return row;
+}));
+
+// A horizontal head section has a broad facial plane, tucked temples, and a deeper cranium.
+const skull=[[41.8,2.4,8.5,3.5],[43.5,3.9,10.0,2.5],[46.2,5.35,10.2,1.7],
+  [48.65,5.65,9.65,1.4],[51.2,4.85,8.25,1.6],[53.05,3.05,6.88,2.25],[53.6,1.2,5.6,3.58]];
+const sections=skull.map(([z,r,front,back])=>[[-.54,1],[.54,1],[.89,.82],[1,.48],[.84,.17],[.45,0],[-.45,0],[-.84,.17],[-1,.48],[-.89,.82]].map(([x,y])=>[x*r,back+(front-back)*y,z]));
+for(let k=1;k<sections.length;k++) {
+  const lo=sections[k-1],hi=sections[k],center=mix(average(lo),average(hi),.5);
+  for(let i=0;i<lo.length;i++) { const j=(i+1)%lo.length;skin([lo[i],lo[j],hi[j],hi[i]],center,'1234567'); }
+}
+skin(sections.at(-1),average(sections.at(-2)),'6');
+function relief(outline,apex,ramp) {
+  for(let i=0;i<outline.length;i++) skin([outline[i],outline[(i+1)%outline.length],apex],[apex[0],apex[1]-5,apex[2]],ramp);
+}
+function mark(points,color) { face(points,color,'body',true); }
+for(const s of [-1,1]) {
+  const side=p=>p.map(([x,y,z])=>[s*x,y,z]);
+  relief(side([[3.95,5.35,49.65],[8.2,2.5,51.3],[6.95,3.8,47.9],[4.43,5.95,46.85]]),[s*5.7,6.05,48.9],'12456');
+  mark(side([[5.12,6.1,49.25],[7.4,3.48,50.52],[5.93,5.65,48.3]]),'2');
+  // Crown ridges run inwards from the horn sockets and converge on the scowl.
+  relief(side([[.12,6.39,53.43],[2.22,5.66,53.48],[3.74,5.82,52.47],[3.04,8.07,51.34],[.44,9.18,50.42]]),[s*1.7,8.52,52.44],'23456');
+  mark(side([[.34,7.48,53.13],[1.12,8.14,52.49],[.9,8.78,51.76],[.4,9.08,51.1],[.75,8.23,52.3]]),'3');
+  mark(side([[1.52,8.29,52.79],[2.75,7.45,52.87],[2.24,8.19,52.4]]),'7');
+  relief(side([[3.38,4.15,51.28],[4.31,3.62,52.54],[5.42,4.42,52.78],[4.34,6.32,51.84],[3.42,7.42,51.15]]),[s*4.25,5.61,52.65],'23456');
+  relief(side([[3.9,8.7,46.63],[5.08,7.2,46.88],[5.01,6.23,44.62],[3.37,8.94,43.04],[2.15,10.04,42.94],[3.0,10.16,44.37]]),[s*4.25,9.18,45.21],'123456');
+  const socket=side([[.56,9.98,48.2],[1.95,10.03,49.36],[4.27,8.98,49.93],[4.0,9.61,48.34],[2.02,10.2,47.72]]);
+  mark(socket,'k');
+  mark(side([[.92,10.11,48.42],[2.16,10.14,48.96],[3.74,9.52,49.24],[3.02,9.97,48.56],[1.69,10.22,48.22]]),'E');
+  mark(side([[1.65,10.25,48.55],[2.02,10.25,48.8],[2.36,10.18,48.79],[2.07,10.24,48.42]]),'Q');
+  relief(side([[.22,9.94,48.37],[.59,9.27,50.2],[3.7,7.92,51.25],[5.35,6.6,50.1],[3.95,9.14,49.48],[1.4,10.26,48.72]]),[s*2.22,10.45,49.65],'234678');
+  relief(side([[2.8,10.08,47.95],[4.7,8.9,48.6],[5.35,7.9,47.25],[3.45,10.06,45.9],[2.65,10.43,46.29]]),[s*3.85,10.51,47.15],'23567');
+}
+relief([[-1.32,10.15,47.2],[-.55,9.95,49.05],[.52,9.95,49.05],[1.45,10.15,47.05],[.65,10.93,46.69],[-.64,10.93,46.69]],[0,11.48,47.26],'124568');
+const maw=[[-3.6,9.94,46.24],[-2.08,10.47,46.23],[-.85,10.72,46.02],[0,10.82,46.18],[1.4,10.63,46.03],[3.5,9.98,46.4],[3.05,10.12,44.5],[1.76,10.57,43.43],[0,10.7,43.12],[-1.9,10.56,43.52],[-2.94,10.23,44.38]];
+relief(maw,[0,10.98,44.8],'m');
+mark([[-1.92,10.72,43.85],[0,10.96,43.5],[1.68,10.7,43.8],[.43,10.99,44.3],[-.65,10.96,44.38]],'j');
+for(const s of [-1,1]) for(const [x,z,len,w] of [[2.45,46.18,1.97,1.12],[1.18,46.02,.89,.75],[.42,46.05,.63,.58],[2.05,43.86,-1.18,.8],[.97,43.54,-.62,.68]]) {
+  const y=11.12-.12*x;
+  mark([[s*(x-w/2),y,z],[s*(x+w/2),y-.08,z+.12],[s*(x-.16),y+.15,z-len]],len>1?'w':'y');
+}
+for(const s of [-1,1]) {
+  const side=nodes=>nodes.map(([x,y,z,...rest])=>[s*x,y,z,...rest]);
+  sweep(side([[3.14,4.72,50.65,2.64],[4.48,4.25,52.4,2.22]]),'23456',{sides:8});
+  crystal(side([[3.92,4.52,51.5,2.48],[5.98,3.94,53.2,2.34],[7.74,2.48,55.26,1.96],[8.32,.36,57.66,1.52],[7.77,-1.22,59.68,1.04],[5.7,-2.48,61.12,.015]]),{phase:17});
+  crystal(side([[4.25,2.7,49.6,1.52],[6.5,1.25,50.53,1.3],[8.55,-.1,52.03,.82],[9.7,-1.7,54.05,.02]]),{phase:3});
+}
+
+// Five separate rays of the outstretched hand, with softer flesh up to the nail bed.
+function talon(finger, nail, radius) {
+  sweep(finger,'1234567',{sides:7});
+  crystal([[...finger.at(-1).slice(0,3),radius],...nail],{sides:6,phase:22});
+}
+sweep([[19,12,33,2.1,1.75],[20.2,13.3,34.3,2.9,1.8],[21,14.65,36.1,3.65,1.65],[21.1,15.4,36.95,3.3,1.18]],'1234567',{sides:9});
+talon([[18.52,15.2,36.55,1.1],[16.74,16.15,39.2,1.1],[14.94,17.65,41.63,.91]],[[13.57,18.55,43.47,1.0],[12.23,19.4,44.61,.62],[10.95,20.8,44.02,.02]],1.11);
+talon([[20.1,15.6,36.85,1.19],[20.02,16.81,40.15,1.14],[19.56,18.49,43.22,.96]],[[19.6,19.71,45.53,1.04],[19.3,20.65,47.13,.61],[18.64,22.58,46.96,.02]],1.19);
+talon([[22.37,15.48,36.7,1.12],[23.63,16.6,39.59,1.09],[25.04,17.92,41.9,.92]],[[26.7,18.83,43.53,1],[28.16,19.65,44.45,.61],[29.12,21.1,44.02,.02]],1.13);
+talon([[24.12,14.65,36.5,.99],[26.5,15.18,38.16,1.0],[28.57,16.47,39.24,.78]],[[30.37,17.47,40.28,.84],[31.68,18.8,40.46,.55],[32.39,20.31,39.66,.02]],.99);
+talon([[18.95,13.8,34.85,1.4],[16.8,14.85,33.98,1.26],[15.1,16.45,33.4,1.0]],[[13.66,17.15,33.22,.98],[12.6,18.56,33.65,.66],[12.18,20.25,34.84,.02]],1.17);
+
+// Dropped hand: knuckles first, then the finger pads fold back towards the palm.
+sweep([[-20.15,6.2,23.58,2.05,1.65],[-20.85,7.2,21.33,2.72,1.7],[-21.48,7.96,19.27,2.4,1.25]],'1234567',{sides:8});
+for(const [i,dx] of [-1.91,-.65,.65,1.87].entries()) {
+  const x=-21.4+dx,z=18.96+Math.abs(dx)*.2;
+  talon([[x,7.8,z+.65,.84],[x-.55,8.82,z-.92,.82],[x-.4,9.34,z-2.15+(i===0?.7:0),.63]],
+    [[x-.04,9.96,z-2.62,.54],[x+.56,10.36,z-1.48,.02]],.73);
+}
+talon([[-18.8,7.48,21.2,1.1],[-18.15,9.05,19.95,.93],[-18.24,10.25,18.94,.68]],[[-18.63,11.25,18.49,.59],[-19.53,11.48,19.11,.02]],.79);
+for(const [x,y,z] of feet) for(const off of [-1.63,0,1.63]) {
+  const middle=off===0?.72:0;
+  talon([[x+off*.73,y-.76,z+.18,1.26],[x+off,y+.79,z-.02,1.14],[x+off*1.42,y+2.03+middle,z-.19,.83]],
+    [[x+off*1.57,y+3.12+middle,z-.33,.68],[x+off*1.75,y+4.28+middle,.38,.018]],.88);
+}
+
+// Each membrane hangs between two curved ribs. The high midpoint of its free
+// edge gives the trailing silhouette a scallop; the interior folds back in depth.
+for(const s of [-1,1]) {
+  const socket=s===1?'wing-right':'wing-left',root=[s*5.6,-4.0,36.1];
+  wings[socket]={at:add(origin,root),axis:'y',keys:[[0,0],[90,s*6],[180,0],[270,-s*6],[360,0]].map(([heading,angle])=>({heading,angle}))};
+  const loc=([x,y,z,...r])=>[s*x-root[0],y-root[1],z-root[2],...r];
+  const wrist=[19,-8.2,54.5];
+  const ribs=[
+    [wrist,[25.8,-8.9,55.9],[31.2,-9.35,53.3],[36.7,-9.1,48.4]],
+    [wrist,[24.1,-11.7,50.5],[28.75,-14.4,43.6],[32.7,-15.65,36.25]],
+    [wrist,[21.9,-12.2,47.9],[23.4,-15.9,39.45],[24.5,-17.15,30.75]],
+    [wrist,[17.65,-12.9,47.35],[16.85,-15.7,38.3],[15.25,-16.1,29.45]],
+    [wrist,[13.6,-9.45,47.1],[9.4,-7.35,41.25],[5.6,-4.0,36.1]]];
+  for(let k=0;k<ribs.length-1;k++) {
+    // Interpolate the rib coordinates before rounding so adjacent webs share exact vertices.
+    const web=(row,t)=>{
+      const p=mix(ribs[k][row],ribs[k+1][row],t), bow=4*t*(1-t);
+      p[1]-=bow*[0,1.05,1.75,.65][row];p[2]+=bow*[0,.24,1.28,4.35][row];
+      return loc(p);
+    };
+    for(let row=0;row<3;row++) for(let j=0;j<4;j++){
+      const a=web(row,j/4),b=web(row,(j+1)/4),c=web(row+1,(j+1)/4),d=web(row+1,j/4);
+      const colors=[['r','o','r','b'],['r','o','o','r'],['b','r','r','b']];
+      const ink=colors[row][j];
+      face(row===0?[a,c,d]:[a,b,c,d],ink,socket,true);
+    }
+    // Fine branches follow the far side of each batten. Their two ends taper
+    // short of the silhouette and the centre folds into the painted membrane.
+    const branch=(u,v,w)=>{
+      const row=Math.floor(u), frac=u-row;
+      return [v-w,v+w].map(t=>add(mix(web(row,t),web(row+1,t),frac),[0,.12,0]));
+    };
+    for(const spine of [[[1.04,.04,.012],[1.58,.19,.021],[2.09,.32,.012],[2.53,.39,.002]],
+                        [[1.73,.22,.009],[2.14,.28,.013],[2.56,.29,.002]]]) {
+      const rims=spine.map(args=>branch(...args));
+      for(let i=1;i<rims.length;i++) face([...rims[i-1],rims[i][1],rims[i][0]],'p',socket,true);
+    }
+  }
+  for(const [i,path] of ribs.entries()) {
+    const radii=i===0?[1.43,1.04,.69,.10]:i===4?[1.5,1.75,2.03,2.17]:[.94,.68,.48,.10];
+    sweep(path.map((p,k)=>loc([...p,radii[k]])),i===0||i===4?'123456':'brrov',{sides:5,socket});
+  }
+  // A skin cuff and a crystalline wing thumb share the same wrist pivot.
+  sweep([[18.4,-8.15,53.5,1.74],[19.1,-8.0,54.8,1.35]].map(loc),'23456',{sides:7,socket});
+  crystal([[19.0,-8.05,54.4,1.28],[19.45,-7.75,55.83,1.04],[20.33,-7.02,57.12,.66],[21.55,-6.4,57.6,.02]].map(loc),{socket,phase:11});
+}
+
+// A folded oxblood tabard hangs through the belt in front and at the back.
+for(const dir of [-1,1]) {
+  const strips=[-1,-.53,0,.49,1], shadeRow=dir===1?['f','e','d','e']:['e','d','e','f'];
+  const cloth=(row,i)=>{
+    const t=strips[i], x=t*[4.3,3.85,3.23][row]-[0,.28,.65][row];
+    const z=[23.72,18.45,[13.3,11.5,12.15,10.78,13.65][i]][row];
+    const y=dir*([4.68,5.18,5.61][row]-.66*t*t+[.05,.35,.42][row]*(i%2))-.4;
+    return [x,y,z+(dir<0&&row===2?1.4:0)];
+  };
+  for(let row=0;row<2;row++) for(let i=0;i<4;i++) mark([cloth(row,i),cloth(row,i+1),cloth(row+1,i+1),cloth(row+1,i)],shadeRow[i]);
+}
+const beltPoint=(k,z,rx,ry)=>[rx*cosDeg(k*22.5),-.35+ry*sinDeg(k*22.5),z-.75*sinDeg(k*22.5)];
+for(let i=0;i<16;i++) {
+  const next=i+1;
+  for(const [lo,hi,rx,ry,colors] of [[23.33,23.75,6.95,4.97,'gatt'],[23.75,25.05,6.91,4.9,'edef'],[25.05,25.48,6.93,4.95,'aggt']]) {
+    const p=[beltPoint(i,lo,rx,ry),beltPoint(next,lo,rx,ry),beltPoint(next,hi,rx,ry),beltPoint(i,hi,rx,ry)];
+    skin(p,[0,-.35,(lo+hi)/2],colors);
+  }
+}
+relief([[-1.98,4.57,24.27],[-1.17,4.86,25.05],[1.21,4.86,25.05],[2,4.57,24.27],[1.3,4.79,23.26],[0,4.99,22.54],[-1.37,4.77,23.25]],[0,5.52,24.13],'tgayw');
+mark([[-.58,5.39,24.29],[0,5.58,24.55],[.57,5.39,24.29],[0,5.57,23.73]],'t');
+
+// The metal embroidery and the small folds follow the cloth from waist to hem.
+for(const s of [-1,1]) {
+  mark([[s*3.81,4.03,22.54],[s*3.59,4.27,22.48],[s*2.81-.45,4.96,14.27],[s*3.02-.45,4.84,14.64]],'g');
+  mark([[s*2.31,4.75,20.81],[s*.98-.22,5.29,19.82],[-.22,5.28,20.04],[s*.79-.22,5.35,19.1]],'a');
+  mark([[s*1.72-.26,4.99,18.92],[s*.85-.28,5.38,18.37],[-.32,5.37,18.66],[s*.63-.32,5.41,17.85]],'g');
+  mark([[s*.14,11.4,47.18],[s*1.06,10.93,47.23],[s*.93,10.99,46.93],[s*.4,11.29,46.91]],'1');
+}
+relief([[-1.94,10.36,43.32],[0,10.73,42.93],[1.86,10.36,43.26],[1.21,9.56,42.18],[0,8.7,41.48],[-1.31,9.55,42.2]],[0,10.56,42.46],'23456');
+
+// Trace scars and the vertebral ridge on the actual voxel surface so the marks
+// follow the skin as it turns. Sample only the local muscle to keep the wing roots free.
+function surfaceY(x,z,dir) {
+  const gx=Math.round(x+origin[0]-.5), gz=Math.floor(z);
+  for(let n=0;n<depth;n++) {
+    const iy=dir===1?depth-1-n:n;
+    if(sample(gx,iy,gz)<=0) return iy+(dir===1?1:0)-origin[1]+dir*.14;
+  }
+  throw Error('Surface mark outside sculpt');
+}
+function skinStripe(path,dir,color) {
+  for(let i=1;i<path.length;i++) {
+    const panel=[path[i-1],path[i]].flatMap(([x,z,w],k)=>[k===0?-1:1,k===0?1:-1].map(s=>{
+      const y=surfaceY(x+s*w,z,dir);
+      return [x+s*w,y,z];
+    }));
+    mark(panel,color);
+  }
+}
+for(const [dx,dz] of [[0,0],[1.53,-.36]]) {
+  skinStripe([[-11.66+dx,44.12+dz,.08],[-12.33+dx,43.35+dz,.31],[-12.87+dx,42.18+dz,.23],[-13.86+dx,40.74+dz,.02]],1,'5');
+  skinStripe([[-11.68+dx,44.12+dz,.04],[-12.5+dx,43.35+dz,.10],[-13.02+dx,42.18+dz,.11],[-13.88+dx,40.74+dz,.02]],1,'7');
+}
+for(const z of [42,39.45,36.9,34.35,31.8,29.25,26.85]) {
+  const top=surfaceY(0,z,-1), below=surfaceY(0,z-1.4,-1), w=(z>34?1.13:.87);
+  const shoulder=[0,top-.67,z-.28];
+  const edge=[[-w,top+.1,z-.52],[-.55*w,top+.1,z+.48],[.55*w,top+.1,z+.48],[w,top+.1,z-.52],[0,below-.06,z-1.54]];
+  for(let i=0;i<edge.length;i++) mark([edge[i],edge[(i+1)%edge.length],shoulder],['3','M','L','2','K'][i]);
+}
+
+const source={format:'pixelforge-stack',version:1,name:'rimefiend',projection:'iso',resolution:3,
+  pivot:[25,9],headings:Array.from({length:60},(_,i)=>(297+6*i)%360),duration:70,palette,slices,
+  sockets:{body:{at:origin},...wings},facets};
+if (!process.argv[2]) throw Error('Supply a new .stack.json filename.');
+await mkdir(dirname(process.argv[2]),{recursive:true});
+await writeFile(process.argv[2],formatJSON(source,160),{flag:'wx'});
