@@ -20,7 +20,7 @@ Rights stay with the jobs that need them, and those jobs run only this repositor
 
 ## Release
 
-1. Bump `package.json`, the metadata-only `server.json`, the Claude Code plugin's `.claude-plugin/plugin.json` and the Gemini CLI extension's `gemini-extension.json` to the same `X.Y.Z` in one reviewed commit. Leave `mcpb/manifest.json` without a version; the builder inserts it. Version 0.8.0 is the first release under the Pixelbolt name. Update `mcpb/RELEASE_NOTES.md` with the changes and asset names for each release.
+1. Bump `package.json`, the metadata-only `server.json`, the Claude Code plugin's `.claude-plugin/plugin.json`, the Agent Plugins manifest `plugin.json` and the Gemini CLI extension's `gemini-extension.json` to the same `X.Y.Z` in one reviewed commit. Leave `mcpb/manifest.json` without a version; the builder inserts it. Version 0.8.0 is the first release under the Pixelbolt name. Update `mcpb/RELEASE_NOTES.md` with the changes and asset names for each release.
 2. Tag that commit and push the tag (substitute the version):
 
    ```sh
@@ -63,6 +63,12 @@ gh workflow run publish-registry.yml -R skulitom/Pixelbolt -f tag=vX.Y.Z
 The publish workflow requires the release, verifies the bundle's Release-workflow attestation, checks the tag and all versions, hashes the downloaded bytes, validates the entry with the pinned publisher, and reads back its published checksum. If a release lacks its bundle, rerun Release to attach it before publishing. Use the dispatch form's `metadata_only` checkbox only when deliberately accepting the permanent loss of installation for that version; an attached bundle always takes precedence.
 
 Check the listing at <https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.skulitom/pixelbolt> and read the workflow's step summary.
+
+## Agent Plugins package
+
+The repository root carries Agent Plugins 1.0.0 `plugin.json` and `mcp.json`, with the skill discovered at `skills/pixelbolt-pixel-art/SKILL.md`; neither file is in the npm package. `plugin.json` repeats `.claude-plugin/plugin.json`'s metadata, so its version is bumped with the others and checked at the tag.
+
+Agent Plugins clients start a plugin's server in the plugin's own folder when its entry names no `cwd` (spec section 7.2.1), and an update can replace that folder, so the MCP entry runs `mcp --root ${PLUGIN_DATA} --out ${PLUGIN_DATA}/output`: file references, renders and `saveAs` copies stay in the persistent data folder the client keeps for the plugin, and `pixel_render` replies with the export folder and saved copies as absolute paths. The format has no placeholder for the user's project, and MCP roots, which could name it, are deprecated in the 2026-07-28 revision (SEP-2577), so the entry doesn't try to write there. Claude Code ignores these files and keeps `.claude-plugin/plugin.json`, whose server starts in the project folder.
 
 ## Gemini CLI extension gallery
 

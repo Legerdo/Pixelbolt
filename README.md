@@ -238,7 +238,7 @@ Use Pixelbolt to create or revise pixel sprites, tiles, icons, effects and short
 | Entry point | Purpose |
 | --- | --- |
 | [llms.txt](https://github.com/skulitom/Pixelbolt/blob/main/llms.txt) | Compact documentation index with direct links for agents |
-| [Pixel art skill](skills/pixel-art/SKILL.md) | Reusable authoring and visual inspection workflow; `npx -y pixelbolt@latest skill install` installs it on its own |
+| [Pixel art skill](skills/pixelbolt-pixel-art/SKILL.md) | Reusable authoring and visual inspection workflow; `npx -y pixelbolt@latest skill install` installs it on its own |
 | [Authoring guide](docs/agent-guide.md) | Recipe fields, drawing operations and limits |
 | [JSON Schema](schema.json) | Machine-readable recipe structure |
 | [Examples](examples/) | Complete forest spirit, campfire, coin and shrine recipes, an isometric tile set and the scene that lays it out, a caption with pixel text, a rotated sword swing, a rigged hero with walk, run, jump and attack templates, the same hero swinging a sword that turns with the arm, a red fox that walks, trots and gallops on four legs, a hermit crab in a treasure chest posed from drawn parts with no rig, a particle effects source, fifteen spell effects (slash hit, fire explosion, a looping fireball in eight directions, lightning strike, healing circle, a swirling vortex, a falling meteor, a shield bubble, a portal that lights its stone arch, a frost nova, a teleport-in, a coin sparkle, an electric arc that lights its prongs, an ice crystal with a pulse of cold light, a forest waterfall), a teleport and a spirit aura on the rigged hero, a sword smear that follows the swing's blade tip, a simulated explosion under spell-shape flashes, a spell library (fire, ice, lightning, water, poison, holy and shadow, each a projectile in eight directions, an impact, an area effect and a buff), five cel-shaded water effects, 42 fluid presets, fourteen rigid-body scenes (crates that topple or smash, a blade, a territory match, ropes, a ragdoll and cloth) and four crystal growths (a geode, a quartz cluster, pyrite and snowflakes) |
@@ -359,6 +359,15 @@ claude plugin install pixelbolt --marketplace skulitom/Pixelbolt
 
 Inside a session, `/plugin install pixelbolt --marketplace skulitom/Pixelbolt` does the same from Claude Code 2.1.275. On older versions, add the marketplace first with `claude plugin marketplace add skulitom/Pixelbolt`, then run `claude plugin install pixelbolt@pixelbolt`. The plugin runs its own copy of `bin/pixelbolt.js` with your Node.js (20 or later), in the project folder you open in Claude Code: file references resolve inside that folder and exports go to its `output/` folder. Restart Claude Code after installing.
 
+**Codex plugin.** Codex installs the same repository as a plugin (checked with Codex 0.164):
+
+```
+codex plugin marketplace add skulitom/Pixelbolt
+codex plugin add pixelbolt@pixelbolt
+```
+
+Codex and other Agent Plugins 1.0.0 clients read the repository's root `plugin.json` and `mcp.json`. That format starts a plugin's server only in the plugin's own folder or its data folder, so this entry keeps file references, renders and `saveAs` copies in the plugin's persistent data folder, and `pixel_render` replies with the export folder and saved copies as absolute paths. Cursor doesn't expand the format's `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`, so this entry isn't expected to start there. For exports in a folder you choose, use the `npx` configuration under **Other MCP clients** with an absolute `--out`.
+
 **Other MCP clients.** The npm package runs the server, with nothing to clone (Node.js 20 or newer). Add it to your agent's MCP configuration and replace `/absolute/path/to/pixelbolt-output` with the folder where exports should go. Use an absolute path, because clients start servers in different folders; on Windows use forward slashes, for example `C:/Art/pixelbolt-output`:
 
 ```json
@@ -438,7 +447,7 @@ Send a recipe once. Each successful recipe-tool response includes a `revision` i
 
 The server implements newline-delimited stdio MCP with initialization, version negotiation, ping and tool discovery/calls. It supports protocol versions 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25 through initialization, plus 2026-07-28 through `server/discover` and stateless requests carrying protocol version and client capabilities in `_meta`. It uses no HTTP transport or external services. See the [MCP stdio specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 
-An agent can also use the CLI directly. The reusable [agent skill](skills/pixel-art/SKILL.md) and [authoring reference](docs/agent-guide.md) explain the complete format; `npx -y pixelbolt@latest skill install` gives Claude Code the skill with its guides, schemas and examples and no server. [schema.json](schema.json) supports editor completion and structural validation; the rasterizer additionally validates references, matching row widths and resource limits.
+An agent can also use the CLI directly. The reusable [agent skill](skills/pixelbolt-pixel-art/SKILL.md) and [authoring reference](docs/agent-guide.md) explain the complete format; `npx -y pixelbolt@latest skill install` gives Claude Code the skill with its guides, schemas and examples and no server. [schema.json](schema.json) supports editor completion and structural validation; the rasterizer additionally validates references, matching row widths and resource limits.
 
 ## Inline previews (MCP Apps)
 
