@@ -4089,6 +4089,32 @@
           },
           "maxItems": 1024
         },
+        "ramps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 32
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "description": "Strings of palette keys from dark to light, a key in one ramp. With ramps, a face toward the light draws a step lighter and one turned from it a step darker."
+        },
+        "light": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -512,
+            "maximum": 512
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "description": "Toward the light as the camera sees it: x right, y toward the viewer, z up. Default [-1, 1, 2]. Needs ramps."
+        },
+        "lightTurns": {
+          "type": "boolean",
+          "description": "The light turns with the model (x east, y south, z up) instead of staying with the camera."
+        },
         "pivot": {
           "type": "array",
           "items": {

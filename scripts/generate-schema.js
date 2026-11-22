@@ -274,6 +274,9 @@ const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...obje
     object({face:stackFace, at:stackPoint, decal:{type:'string',pattern:id.pattern}, flipX:{type:'boolean'}, flipY:{type:'boolean'}, depth:stackDepth}, ['face','decal']),
     object({face:stackFace, at:stackPoint, erase:{...sliceRows, items:{...sliceRows.items, pattern:'^[x. ]+$'}}}, ['face','erase'])
   ]},1024),
+  ramps:{...array({type:'string',minLength:2,maxLength:32},64),minItems:1,description:'Strings of palette keys from dark to light, a key in one ramp. With ramps, a face toward the light draws a step lighter and one turned from it a step darker.'},
+  light:{...stackXYZ,description:'Toward the light as the camera sees it: x right, y toward the viewer, z up. Default [-1, 1, 2]. Needs ramps.'},
+  lightTurns:{type:'boolean',description:'The light turns with the model (x east, y south, z up) instead of staying with the camera.'},
   pivot:stackPoint, projection:{enum:['oblique','iso']}, squash:num(.25,1), resolution:int(1,8,'Output pixels per slice cell; default 4.'),
   spacing:int(1,8), headings:{...array(int(0,359),256),minItems:1,uniqueItems:true}, duration:int(1,60000)
 },['format','version','name','palette','slices']),

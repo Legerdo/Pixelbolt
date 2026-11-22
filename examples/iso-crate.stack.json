@@ -1,0 +1,242 @@
+{
+  "format": "pixelforge-stack",
+  "version": 1,
+  "name": "iso-crate",
+  "palette": {
+    "a": "#3d2420",
+    "b": "#5f372a",
+    "c": "#8a5236",
+    "d": "#b67646",
+    "e": "#dba262",
+    "f": "#f3d08f"
+  },
+  "ramps": [
+    "abcdef"
+  ],
+  "slices": [
+    [
+      "dddddddddddd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dccccccccccd",
+      "dddddddddddd"
+    ],
+    [
+      "dbbbbbbbbbbd",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "dbbbbbbbbbbd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dbbbbbbbbbbd",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "dbbbbbbbbbbd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dccccccccccd",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "cccccccccccc",
+      "dccccccccccd"
+    ],
+    [
+      "dbbbbbbbbbbd",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "bccccccccccb",
+      "dbbbbbbbbbbd"
+    ],
+    [
+      "dddddddddddd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dccbcccbcccd",
+      "dddddddddddd"
+    ]
+  ],
+  "decals": {
+    "brace": [
+      "dd........",
+      "ddd.......",
+      ".ddd......",
+      "..ddd.....",
+      "....ddd...",
+      ".....ddd..",
+      "......ddd.",
+      ".......ddd",
+      "........dd"
+    ]
+  },
+  "paint": [
+    {
+      "face": "south",
+      "at": [
+        1,
+        1
+      ],
+      "decal": "brace"
+    },
+    {
+      "face": "north",
+      "at": [
+        1,
+        1
+      ],
+      "decal": "brace"
+    },
+    {
+      "face": "east",
+      "at": [
+        1,
+        1
+      ],
+      "decal": "brace",
+      "flipX": true
+    },
+    {
+      "face": "west",
+      "at": [
+        1,
+        1
+      ],
+      "decal": "brace",
+      "flipX": true
+    }
+  ],
+  "projection": "iso",
+  "resolution": 4,
+  "headings": [
+    0,
+    23,
+    45,
+    68,
+    90,
+    113,
+    135,
+    158,
+    180,
+    203,
+    225,
+    248,
+    270,
+    293,
+    315,
+    338
+  ],
+  "duration": 120
+}

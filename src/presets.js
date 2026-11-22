@@ -160,7 +160,7 @@ function about(entry, source, animations) {
     return `A tile set for a terrain brush (Godot TileSet, Tiled tileset): ${layers.length ? `${listNames(layers)} and the tiles where they meet` : `one terrain, ${source.mode ?? 'blob'} tiles`}${extras.length ? `, ${extras.join(', ')}` : ''}.`;
   }
   if (entry.kind === 'fx') return `Particles and effect shapes: ${listNames(names)}.`;
-  if (entry.kind === 'stack') return `Rotating sprite with ${source.slices.length} horizontal slices and painted side views.`;
+  if (entry.kind === 'stack') return `${Object.hasOwn(STACK_SHOW, entry.base) ? `${STACK_SHOW[entry.base]}. ` : ''}A solid of ${source.slices.length} slices seen from every heading${source.ramps ? ', shaded by its ramps' : ''}.`;
   if (entry.kind === 'wave') return `A looping wave pattern: ${listNames(names)}.`;
   if (entry.kind === 'crystal') {
     // What grows: each habit counted with the crystals of its clusters.
@@ -343,6 +343,17 @@ export function presetWords(query, where = 'find') {
   if (!words.length) throw new PixelError(where, 'expected words to look for, such as "fire" or "water splash"');
   return words;
 }
+// What each shipped sprite stack is, found by these words as a rigid-body preset is by its line. A test holds that
+// every stack preset has one.
+const STACK_SHOW = {
+  'iso-crate': 'A wooden crate for an isometric map',
+  'iso-barrel': 'A barrel with iron hoops for an isometric map',
+  'iso-pine': 'A pine tree for an isometric map',
+  'iso-cottage': 'A cottage for an isometric map: the building to start a house, shop or hut from',
+  'iso-tower': 'A round stone watchtower with battlements for an isometric map',
+  'copper-rally': 'A rally car: the vehicle to start a car, truck or tank from',
+  'lodekeeper-faceted': 'A crane with a turning reel and a glass grab: sockets, facets and moving parts'
+};
 const closest = (items, text, words) => {
   const scored = items.map(item => ({ item, score: words.filter(word => text(item).toLowerCase().includes(word)).length })), top = Math.max(0, ...scored.map(entry => entry.score));
   return top ? scored.filter(entry => entry.score === top).map(entry => entry.item) : [];

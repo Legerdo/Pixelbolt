@@ -149,6 +149,78 @@ test('4× is the native projection default; iso zero follows the 2:1 diagonal', 
   assert.deepEqual(colours, new Set(['.', 'k']));
 });
 
+const shaded = { format: 'pixelforge-stack', version: 1, name: 'shaded', palette: { d: '#402010', w: '#805030', l: '#c09060', s: '#ffe299' },
+  ramps: ['dwl'], slices: Array.from({ length: 6 }, () => Array(6).fill('wwwwww')), resolution: 4 };
+const tonesOf = rows => new Set(rows.join('').replaceAll('.', ''));
+const runs = row => row.replaceAll('.', '').replaceAll(/(.)\1+/g, '$1');
+
+test('ramps tone a box by its faces under one light, and a stack without them is drawn as written', () => {
+  const { recipe } = compileStack({ ...shaded, projection: 'iso', headings: [0] }), rows = recipe.frames[0].ops[0].rows;
+  assert.deepEqual(recipe.ramps, [['d', 'w', 'l']]);
+  // The roof a step lighter, the side to the light as drawn, the side turned from it a step darker: three whole faces.
+  const middle = Math.floor(recipe.width / 2), low = rows[recipe.height - 12];
+  assert.equal(rows[8][middle], 'l');
+  assert.deepEqual(tonesOf([low.slice(0, middle - 2)]), new Set(['w']));
+  assert.deepEqual(tonesOf([low.slice(middle + 2)]), new Set(['d']));
+  for (const row of rows) assert.match(runs(row), /^(l|w|d|lw|ld|wd|lwd|wld)?$/, row);
+  const plain = compileStack({ ...shaded, ramps: undefined, projection: 'iso', headings: [0] }).recipe;
+  assert.deepEqual(tonesOf(plain.frames[0].ops[0].rows), new Set(['w']));
+  assert.equal(plain.ramps, undefined);
+  // A key on no ramp is left alone, painted or not, and a painted key on a ramp takes the tone of its face.
+  const painted = compileStack({ ...shaded, projection: 'iso', headings: [0], paint: [{ face: 'south', at: [0, 0], rows: ['s'] }, { face: 'east', at: [0, 0], rows: ['l'] }] }).recipe.frames[0].ops[0].rows;
+  assert.ok(tonesOf(painted).has('s'));
+  assert.equal(painted.join('').split('l').length, rows.join('').split('l').length);
+});
+
+test('the light stays with the camera through a turn unless lightTurns fixes it to the model', () => {
+  const facing = source => compileStack({ ...shaded, ...source }).recipe.frames.map(frame => frame.ops[0].rows.map(runs).findLast(run => run));
+  // Oblique: the side that faces the viewer is the south one at 0 and the north one at 180.
+  assert.deepEqual(facing({ headings: [0, 180] }), ['w', 'w']);
+  assert.deepEqual(facing({ headings: [0, 180], lightTurns: true }), ['w', 'd']);
+  assert.deepEqual(facing({ headings: [0, 180], light: [0, -1, 0] }), ['d', 'd']);
+  assert.deepEqual(facing({ headings: [0], light: [0, 3, 1] }), ['l']);
+});
+
+test('a round column is shaded as one surface, not striped by the two sides of each cell', () => {
+  const disc = Array.from({ length: 14 }, (_, y) => Array.from({ length: 14 }, (_, x) => (2 * x - 13) ** 2 + (2 * y - 13) ** 2 <= 148 ? 'w' : '.').join(''));
+  const column = { ...shaded, slices: Array(10).fill(disc), projection: 'iso', headings: [0, 23, 45, 68, 90] };
+  for (const frame of compileStack(column).recipe.frames) {
+    // Below the roof every row is the lit side then the dark one, to the foot of the wall.
+    const wall = frame.ops[0].rows.map(runs).filter(run => run && !run.includes('l'));
+    assert.ok(wall.length > 30, frame.name);
+    for (const run of wall) assert.match(run, /^w?d?$/, `${frame.name}: ${run}`);
+    assert.ok(wall.filter(run => run === 'wd').length > 25, frame.name);
+  }
+  // A roof that climbs a cell for every cell it steps in is one lit slope, treads and risers alike, down to an eave
+  // that stands on the ground as a low wall.
+  const pitch = Array.from({ length: 5 }, (_, z) => Array.from({ length: 10 }, (_, y) => (y >= z && y <= 9 - z ? 'w' : '.').repeat(10)));
+  for (const frame of compileStack({ ...shaded, slices: pitch, headings: [0, 180] }).recipe.frames) {
+    const down = runs(frame.ops[0].rows.map(row => runs(row)).join(''));
+    assert.equal(down, 'lw', frame.name);
+  }
+});
+
+test('glass and facets keep the tones the voxels have without them', () => {
+  const count = (recipe, red) => { const { data } = renderProject(recipe).frames[0]; let n = 0; for (let i = 0; i < data.length; i += 4) if (data[i] === red) n++; return n; };
+  const source = { ...shaded, projection: 'iso', headings: [30] };
+  const layered = { ...source, facets: [{ color: 's', points: [[0, 0, 12], [1, 0, 12], [0, 1, 12]] }] };
+  for (const red of [0x40, 0x80, 0xc0]) assert.equal(count(compileStack(layered).recipe, red), count(compileStack(source).recipe, red), red.toString(16));
+});
+
+test('ramps and the light are checked at the source field', () => {
+  const refuse = (extra, pattern) => assert.throws(() => compileStack({ ...shaded, ...extra }), pattern);
+  refuse({ ramps: undefined, light: [1, 1, 1] }, /stack\.light: a light shades faces along ramps/);
+  refuse({ ramps: undefined, lightTurns: true }, /stack\.lightTurns: a light shades faces along ramps/);
+  refuse({ ramps: [] }, /stack\.ramps: expected 1–64 ramps/);
+  refuse({ ramps: ['w'] }, /stack\.ramps\[0\]: a ramp is a string of 2–32 palette keys/);
+  refuse({ ramps: ['dwq'] }, /stack\.ramps\[0\]: "q" is not a key of the palette/);
+  refuse({ ramps: ['dw', 'wl'] }, /stack\.ramps\[1\]: "w" is already in a ramp/);
+  refuse({ palette: { ...shaded.palette, g: '#ffffff80' }, ramps: ['dwg'] }, /stack\.ramps\[0\]: a ramp is all solid colours or all see-through ones/);
+  refuse({ light: [0, 0, 0] }, /stack\.light: light direction must be nonzero/);
+  refuse({ light: [1, 2] }, /stack\.light: expected \[x,y,z\]/);
+  refuse({ lightTurns: 1 }, /stack\.lightTurns/);
+});
+
 test('CLI inspection of a pinned stack cell renders intermediate headings and reports an empty pin', () => {
   const inspect = pin => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/pixelbolt.js', import.meta.url)),
@@ -423,6 +495,24 @@ golden.test('Copper Rally keeps two connected silver rims throughout the turn, w
     assert.equal(sizes.length, 2, `rim fragments at ${angle}°: ${sizes}`);
     const projected = side * Math.abs(cosDeg(angle));
     for (const size of sizes) assert.ok(Math.abs(size - projected) <= 24, `${angle}°: ${size} vs ${projected}`);
+  }
+});
+
+golden.test('the isometric starters are whole from every heading and shaded by their ramps', async () => {
+  for (const name of ['iso-crate', 'iso-barrel', 'iso-pine', 'iso-cottage', 'iso-tower']) {
+    const source = JSON.parse(await readFile(new URL(`../examples/${name}.stack.json`, import.meta.url), 'utf8'));
+    assert.equal(source.projection, 'iso');
+    assert.ok(source.ramps.length && source.light === undefined, name);
+    const { recipe } = compileStack(source), pixels = createHash('sha256'), { frames } = renderProject(recipe);
+    assert.equal(frames.length, 16);
+    for (const frame of frames) {
+      pixels.update(frame.data);
+      // Nothing is cut by the canvas: the first and last rows are clear.
+      for (let x = 0; x < recipe.width; x++) assert.equal(frame.data[x * 4 + 3] + frame.data[((recipe.height - 1) * recipe.width + x) * 4 + 3], 0, `${name} ${frame.name}`);
+    }
+    // Each heading holds at least a lit tone, a tone as drawn and a shaded one.
+    for (const frame of recipe.frames) assert.ok(tonesOf(frame.ops[0].rows).size >= 3, `${name} ${frame.name}`);
+    golden.equal(name, pixels.digest('hex'), { recipe });
   }
 });
 

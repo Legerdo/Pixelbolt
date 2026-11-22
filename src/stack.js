@@ -1,17 +1,18 @@
 // Orthographic sprite stacks. Each nonblank cell occupies one solid unit cube. Trace one ray
 // per output pixel. Composite glass and attached facets in depth order on one shared ground
 // pivot and canvas. A rotation study holds one camera and pose outside the baked frame cache.
-// Opaque voxel-only sources retain their original single-grid fast path.
+// Opaque voxel-only sources retain their original single-grid fast path. With `ramps`, each voxel face takes a tone
+// from one light: a key moves along its ramp by the way the surface faces, never to a colour outside the palette.
 import { fail, frameFits, frameTotalProblem, isObject, pictureSheet, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
-import { stackGeometry, placed, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
+import { stackGeometry, triple, placed, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
 
 import { appendStackReliefs, stackPaths } from './stack-paths.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs', 'ramps', 'light', 'lightTurns'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -25,6 +26,90 @@ function surface(model, face, u, row) {
     if (cells[at]) return { at, step, remaining: depth - i };
   }
   return null;
+}
+
+// The tone of each face under the light, as one table per step along the ramps. A face square to the light is a step
+// lighter, one turned from it a step darker, and the rest keep the key as drawn. The light stays with the camera, so
+// things at different headings in one scene are lit from one side; `lightTurns` fixes it to the model instead.
+// A face that goes on into a neighbour along both lines of its own plane is flat and faces where its cube does, so a
+// box keeps its edges. One that ends both ways along a line is a step of a slope or a curve, where cube faces would
+// stripe the surface: there it leans as the solid round it does (the way out of the 5×5×5 cells about it), and along a
+// line where it goes on it does not lean at all, so a wall is upright to its top and a roof is one slope from end to
+// end. The solid stands on ground, so its lowest slice goes on below it: the foot of a slope is a low wall, not an
+// underside. The lean is fixed in the model and kept for every heading.
+const normals = [[0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0]];
+const planes = [[[1, 0, 0], [0, 1, 0]], [[0, 1, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]]];
+function surfaceNormals({ width: w, height: h, levels, cells }) {
+  const known = new Map();
+  const solid = (x, y, z) => x >= 0 && x < w && y >= 0 && y < h && z < levels && cells[(Math.max(z, 0) * h + y) * w + x] !== 0;
+  return (index, side) => {
+    const key = index * 8 + side;
+    if (known.has(key)) return known.get(key);
+    const x = index % w, y = Math.floor(index / w) % h, z = Math.floor(index / (w * h)), [fx, fy, fz] = normals[side];
+    const open = (dx, dy, dz) => solid(x + dx, y + dy, z + dz) && !solid(x + dx + fx, y + dy + fy, z + dz + fz);
+    let normal = null;
+    const ends = open(0, 0, 0) ? planes[side].filter(([ax, ay, az]) => !open(ax, ay, az) && !open(-ax, -ay, -az)) : [];
+    if (ends.length) {
+      const g = [0, 0, 0];
+      for (let dz = -2; dz <= 2; dz++) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        if (solid(x + dx, y + dy, z + dz)) { g[0] -= dx; g[1] -= dy; g[2] -= dz; }
+      }
+      const lean = planes[side].map(axis => ends.includes(axis) ? axis[0] * g[0] + axis[1] * g[1] + axis[2] * g[2] : 0);
+      const out = fx * g[0] + fy * g[1] + fz * g[2], length = Math.sqrt(out * out + lean[0] * lean[0] + lean[1] * lean[1]);
+      // A sliver the solid round it gives no way out of, or one that points back through its own face, keeps the cube's.
+      if (out > 0) normal = [0, 1, 2].map(i => (normals[side][i] * out + planes[side][0][i] * lean[0] + planes[side][1][i] * lean[1]) / length);
+    }
+    known.set(key, normal);
+    return normal;
+  };
+}
+
+function readTones(source, alpha) {
+  if (source.ramps === undefined) {
+    for (const key of ['light', 'lightTurns']) if (source[key] !== undefined) fail(`stack.${key}`, 'a light shades faces along ramps; declare ramps, each a string of palette keys from dark to light');
+    return null;
+  }
+  const ramps = source.ramps, place = new Map();
+  if (!Array.isArray(ramps) || !ramps.length || ramps.length > 64) fail('stack.ramps', 'expected 1–64 ramps, each a string of palette keys from dark to light');
+  let size = 0;
+  ramps.forEach((ramp, r) => {
+    const path = `stack.ramps[${r}]`;
+    if (typeof ramp !== 'string' || ramp.length < 2 || ramp.length > 32) fail(path, 'a ramp is a string of 2–32 palette keys from dark to light');
+    for (let i = 0; i < ramp.length; i++) {
+      const code = ramp.charCodeAt(i);
+      if (!Object.hasOwn(source.palette, ramp[i])) fail(path, `${JSON.stringify(ramp[i])} is not a key of the palette`);
+      if (place.has(code)) fail(path, `${JSON.stringify(ramp[i])} is already in a ramp; a key belongs to one ramp`);
+      if ((alpha[code] === 255) !== (alpha[ramp.charCodeAt(0)] === 255)) fail(path, 'a ramp is all solid colours or all see-through ones');
+      place.set(code, [ramp, i]);
+      size = Math.max(size, code + 1);
+    }
+  });
+  for (const key of Object.keys(source.palette)) size = Math.max(size, key.charCodeAt(0) + 1);
+  const [x, y, z] = triple(source.light ?? [-1, 1, 2], 'stack.light'), length = Math.sqrt(x * x + y * y + z * z);
+  if (!length) fail('stack.light', 'light direction must be nonzero');
+  const turns = boolean(source.lightTurns ?? false, 'stack.lightTurns'), tables = new Map();
+  function tone(facing) {
+    const steps = Math.round((facing / length - .5) * 2);
+    if (!steps) return null;
+    if (!tables.has(steps)) {
+      const table = Uint16Array.from({ length: size }, (_, code) => code);
+      for (const [code, [ramp, i]] of place) table[code] = ramp.charCodeAt(Math.max(0, Math.min(ramp.length - 1, i + steps)));
+      tables.set(steps, table);
+    }
+    return tables.get(steps);
+  }
+  return model => {
+    const round = surfaceNormals(model);
+    return angle => {
+      const c = turns ? 1 : cosDeg(angle), s = turns ? 0 : sinDeg(angle);
+      // The roof, then west, east, north and south, each by how far it leans to the light as the camera sees it.
+      const flat = [tone(z), tone(-c * x - s * y), tone(c * x + s * y), tone(s * x - c * y), tone(c * y - s * x)];
+      return (index, face) => {
+        const n = round(index, face + 1);
+        return n ? tone((c * n[0] - s * n[1]) * x + (s * n[0] + c * n[1]) * y + n[2] * z) : flat[face + 1];
+      };
+    };
+  };
 }
 
 function readModel(source) {
@@ -118,6 +203,7 @@ function readModel(source) {
       }
     });
   }
+  model.tones = readTones(source, alpha)?.(model);
   if (source.reliefs !== undefined) {
     const spacing = integer(source.spacing ?? 1, 'stack.spacing', 1, 8);
     appendStackReliefs(source, model.geometry.facets, faces, (face, u, z, rise, path) => {
@@ -163,6 +249,7 @@ function raster(model, view, angle, pose, budget) {
   let visits = 0;
   const layered = model.translucent || model.geometry.facets.length > 0;
   const fragments = layered ? stackFragments(width, height, model.alpha) : null;
+  const tones = model.tones?.(angle);
   const rows = [];
   for (let py = 0; py < height; py++) {
     const row = new Uint16Array(width).fill(46), sy = (py + .5 - anchor[1]) / resolution / squash;
@@ -188,11 +275,11 @@ function raster(model, view, angle, pose, budget) {
         const index = (z / spacing * h + y) * w + x;
         const ink = z % spacing === 0 ? cells[index] : 0;
         if (ink) {
-          const paint = face >= 0 ? decals[face].get(index) : 0;
-          if (!layered) { row[px] = paint || ink; break; }
+          const paint = face >= 0 ? decals[face].get(index) : 0, tone = tones?.(index, face);
+          if (!layered) { row[px] = tone ? tone[paint || ink] : paint || ink; break; }
           const at = py*width+px, depth = top-entry;
-          if (!glass || model.alpha[ink]===255) fragments.add(at,depth,ink);
-          if (paint && paint!==ink) fragments.add(at,depth,paint);
+          if (!glass || model.alpha[ink]===255) fragments.add(at,depth,tone ? tone[ink] : ink);
+          if (paint && paint!==ink) fragments.add(at,depth,tone ? tone[paint] : paint);
           if (model.alpha[ink]===255 || model.alpha[paint]===255) break;
           glass = true;
         } else glass = false;
@@ -278,7 +365,8 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   }
   function recipe(index) {
     const drawn = index === undefined ? headings.map((_, i) => frame(i)) : [frame(index)];
-    return { version: 1, name: source.name, width, height, anchor, palette: source.palette, frames: drawn,
+    return { version: 1, name: source.name, width, height, anchor, palette: source.palette,
+      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames: drawn,
       animations: { turn: { frames: drawn.map(f => f.name), loop: true } } };
   }
   // Follow the centre of the picked vertical face in model space. Keep the original sample

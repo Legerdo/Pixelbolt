@@ -241,7 +241,8 @@ A `pixelforge-stack` source describes a solid sprite in horizontal slices. Give 
 ```json
 {
   "format": "pixelforge-stack", "version": 1, "name": "crate",
-  "palette": { "w": "#a46543", "s": "#ffe299" },
+  "palette": { "d": "#6e3f2e", "w": "#a46543", "l": "#cf8a57", "s": "#ffe299" },
+  "ramps": ["dwl"],
   "slices": [["www","www","www"], ["www","www","www"]],
   "paint": [{ "face": "south", "at": [0,0], "rows": ["s.s", ".s."] }],
   "projection": "iso", "headings": [0,45,90,135,180,225,270,315]
@@ -255,6 +256,16 @@ To paint a wheel, stripe or window, draw it straight on in `paint`. The horizont
 To reuse a drawing, define `"decals": {"hub": [".s.", "sss", ".s."]}` and place it with `{"face":"south","at":[9,7],"decal":"hub"}` in `paint`. A placement can set `flipX`, `flipY` and `depth`. Its top-left origin stays fixed under mirroring. Editing the named rows updates every placement. An eraser such as `{"face":"south","at":[10,8],"erase":["x"]}` peels the most recent paint contribution at that cell on that face, including its depth. A second erase reaches the next older mark. Dots and spaces in both brushes and erasers skip the cell.
 
 In Studio, one drag is one undo step. Use **Undo** or **Redo** in the painting panel (Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z). **Make decal** names the last brush stroke on that face. Pick its name under **Drawing** to edit all copies, or **Place decal** to stamp a copy at its top-left corner. The **Eraser** peels a mark on a face or clears a cell of a shared drawing. **Pin detail** picks a solid side-view cell and follows it at the current heading and two degrees either side, including angles between the saved frames. `pixelbolt inspect examples/copper-rally.stack.json --pin south,12,10,90 --out wheel.png` reviews the same five views. **Save JSON** keeps the editable source. From the CLI, `pixelbolt preview examples/copper-rally.stack.json` opens that same editor. `pixelbolt compile examples/copper-rally.stack.json --out rally.pixel.json` bakes a regular recipe. `render` and `gif` can also take the stack source directly. Over MCP, use `pixel_compile` with the source or the `copper-rally` preset, then inspect or export its revision.
+
+### Light and shade
+
+Declare `ramps` and the stack shades itself. A ramp is a string of palette keys from dark to light, as in `"ramps": ["dwl", "ijkl"]`, and a key belongs to one ramp. Draw each material in one key from the middle of its ramp. A face toward the light is drawn one key lighter and a face turned from it one key darker. The rest are drawn as written. A key at the end of its ramp stays there, and a key on no ramp never changes. A painted cell takes the tone of its face. Without `ramps` every cell is drawn as written, so the shading is whatever the slices and side paintings hold.
+
+`light` points toward the light as the camera sees it: `[x, y, z]` with x to the right, y toward the viewer and z up. The default `[-1, 1, 2]` comes from the upper left, in front. The light stays with the camera, so stacks at different headings in one scene are lit from the same side. `"lightTurns": true` fixes it to the model instead (x east, y south, z up), for a turntable whose camera goes round a still object.
+
+A flat face keeps its cube's direction, so a box has three clean tones. A face one cell wide is a step in a curve or a slope, and takes the direction of the surface round it: a barrel shades round, and a roof that rises a cell for every cell it steps in is one slope. Facets, paths, lofts and membranes are drawn in their own keys, and a relief takes its own `ramp`. The compiled recipe carries the ramps, so a scene's shadows and the `shade` operation move the same colours.
+
+Start a prop or a building from a shaded preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage` or `iso-tower` (`pixelbolt presets iso-cottage --out cottage.stack.json`).
 
 ### Jointed paths and wing membranes
 

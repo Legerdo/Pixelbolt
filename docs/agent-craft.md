@@ -89,7 +89,12 @@ A team colour, a season, an enemy version, an arctic fox: the same sprite or cha
 
 ## Isometric
 
-For a turning vehicle or prop, use a [sprite stack](agent-guide.md#sprite-stacks) with `projection: "iso"`. Paint lettering and wheel hubs in side view with depth zero. Scrub a side-on, a grazing and an end-on heading. A thin feature should narrow with its face and disappear at the edge. The built-in `copper-rally` preset is a working example.
+For a prop, a building or a turning vehicle, use a [sprite stack](agent-guide.md#sprite-stacks) with `projection: "iso"`, and start from the nearest preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower`, or `copper-rally` for a vehicle.
+
+- **Form comes from `ramps`.** Draw each material in one key from the middle of a ramp and declare the ramps: the roof of every cell then draws a key lighter and the sides turned from the light a key darker (`help guide "Light and shade"`). A stack without ramps is a flat silhouette unless every slice is shaded by hand.
+- **Draw the shape, then the marks.** Slices give the silhouette. A second key from the same ramp gives planks, courses of stone or tiles. `paint` gives what sits on a side: a door, a window, lettering, a wheel hub, at depth zero.
+- **Round things** come from a whole-number rule per slice (a cell is in when `x² + y²` is under a limit), wider in the middle slices for a barrel and narrower by the slice for a tree.
+- **Look from three headings:** side-on, a grazing angle and end-on. A thin feature should narrow with its face and disappear at the edge, and each heading should hold a lit tone, a tone as drawn and a shaded one.
 
 Start from `examples/iso-tiles.json` (the tile set) and `examples/iso-glade.scene.json` (the scene that lays it out), and change them: `pixelbolt presets iso-glade --out <new.scene.json>` and `presets iso-tiles --out iso-tiles.json` save both to edit.
 
