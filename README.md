@@ -94,6 +94,12 @@ node bin/pixelbolt.js render output/portal.json --out output/portal-assets
 
 [Wave controls and limits](docs/wave-effects.md) · [Scene comparison and review](https://github.com/skulitom/Pixelbolt/blob/main/showcase/waves/README.md). Loops only; masks shape the artwork without simulating reflection or collision.
 
+## Made with Pixelbolt: Tetherbore
+
+[<img src="https://raw.githubusercontent.com/skulitom/Tetherbore/master/docs/media/lasso-south.webp" width="240" alt="Tetherbore on a phone screen: a drill cuts round blocks of ground, lassoes them with its glowing tether and reels them home past a pocket of lava">](https://skulitom.github.io/Tetherbore/)
+
+**[Play Tetherbore](https://skulitom.github.io/Tetherbore/)**, a free one-thumb mining game for the phone browser. Every sprite, tile set and effect in it, across all of its grounds, creatures and bosses, is made with Pixelbolt from [recipes in its repository](https://github.com/skulitom/Tetherbore/tree/master/art).
+
 ## Gallery
 
 An AI agent drew these with Pixelbolt. Its scripts write the recipes, particle sources and scenes; Pixelbolt renders every sprite to a transparent sheet with an atlas, plays each 240×135 room as a scene and writes the GIFs. They are shown at 3×.
