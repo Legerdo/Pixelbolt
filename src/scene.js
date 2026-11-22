@@ -1,4 +1,6 @@
 // Bounded scene review, not a game engine. In-memory recipes only; no filesystem or network access.
+// A placement stands at pixels (`at`) or on a cell of a named tilemap (`on`, `cell`). Where it stands orders it among
+// the sorted ones; `lift`, and the height of a raised iso cell (`raise`), only draw it higher.
 import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_AREA, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
 import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
 import { fields, point, number, integer } from './authoring.js';
@@ -66,9 +68,13 @@ const MAX_DRAWS = 4096, MAX_WORK = 4194304, MAX_CASTS = 2048;
 // A square cell's frame hangs from the cell's top-left and stands on its own bottom row. An iso map lays cells on a 2:1
 // diamond grid, back to front (see isoLayout); each frame stands on its diamond, bottoms aligned and centred across, and
 // stands just above the diamond's centre, so whatever stands at the centre of the same cell, on top of a block, is
-// drawn after it.
+// drawn after it. `heights` raises the cells of an iso map, a digit a cell, `rise` pixels a level (half the tile's height
+// unless set); a raised cell keeps `bottom`, its place on the ground, so it still covers what stands behind it and is
+// covered by what stands in front. A `solid` map draws the cell's tile again at each level under it, lowest first.
+// `surface` is how far the ground stands above a cell's diamond, the thickness of a block tile: nothing is drawn
+// differently, and a placement standing `on` the map stands that much higher.
 function sceneTilemap(tilemap, project, path) {
-  fields(tilemap, ['tile', 'rows', 'legend', 'outside', 'empty', 'classes', 'seed', 'layout'], path);
+  fields(tilemap, ['tile', 'rows', 'legend', 'outside', 'empty', 'classes', 'seed', 'layout', 'heights', 'rise', 'solid', 'surface'], path);
   const tile = point(tilemap.tile ?? [project.width, project.height], `${path}.tile`, CANVAS_SIDE);
   if (tile.some(n => n < 1)) fail(`${path}.tile`, 'tile size must be positive');
   if (tilemap.layout !== undefined && tilemap.layout !== 'square' && tilemap.layout !== 'iso') fail(`${path}.layout`, 'expected square or iso');
@@ -83,9 +89,18 @@ function sceneTilemap(tilemap, project, path) {
     if (iso) fail(`${path}.legend`, 'corner tiles sit where four square cells meet; an iso map takes frames and animations without autotile corner');
     if (w % 2 || h % 2) fail(`${path}.tile`, 'corner tiles sit where four cells meet, half a cell up and left of one; use an even cell width and height');
   }
+  for (const key of ['heights', 'rise', 'solid']) if (tilemap[key] !== undefined && (!iso || tilemap.heights === undefined)) fail(`${path}.${key}`, iso ? 'rise and solid go with heights, a row of digits for each row of the map' : 'heights raise the cells of an iso map; set layout to iso');
+  if (!iso && tilemap.surface !== undefined) fail(`${path}.surface`, 'surface is how far the ground of an iso map stands above its cells; set layout to iso');
   if (!iso) return { tile, width: columns * w, height: rows * h, ...(expanded.cells.some(cell => cell.corner) && { corner: true }), cells: expanded.cells.map(cell => ({ x: cell.x * w, y: cell.y * h, bottom: cell.y * h + project.height, [cell.kind]: cell.name })), columns, rows };
-  const cells = isoLayout(expanded.cells, rows, tile).map(cell => ({ x: cell.left + Math.floor((w - project.width) / 2), y: cell.top + h - project.height, bottom: cell.top + h / 2, [cell.kind]: cell.name }));
-  return { tile, width: (columns + rows) * w / 2, height: (columns + rows) * h / 2, cells, columns, rows, iso };
+  const { heights } = tilemap, rise = integer(tilemap.rise ?? h / 2, `${path}.rise`, 1, 256), surface = integer(tilemap.surface ?? 0, `${path}.surface`, 0, 256);
+  if (heights !== undefined && (!Array.isArray(heights) || heights.length !== rows || heights.some(row => typeof row !== 'string' || row.length !== columns || /[^0-9. ]/.test(row)))) fail(`${path}.heights`, `expected ${rows} rows of ${columns} characters, a digit for each cell's level and a dot for the ground`);
+  if (tilemap.solid !== undefined && typeof tilemap.solid !== 'boolean') fail(`${path}.solid`, 'expected a boolean');
+  const levels = heights?.map(row => [...row].map(Number).map(n => n || 0));
+  const cells = isoLayout(expanded.cells, rows, tile).flatMap(cell => {
+    const top = levels?.[cell.y][cell.x] ?? 0, drawn = { x: cell.left + Math.floor((w - project.width) / 2), bottom: cell.top + h / 2, [cell.kind]: cell.name };
+    return Array.from({ length: tilemap.solid ? top + 1 : 1 }, (_, k) => ({ ...drawn, y: cell.top + h - project.height - (tilemap.solid ? k : top) * rise }));
+  });
+  return { tile, width: (columns + rows) * w / 2, height: (columns + rows) * h / 2, cells, columns, rows, iso, surface, ...(levels && { levels, rise }) };
 }
 
 // A theme: palette overrides for keys the recipe already has, from the scene and then from the asset entry.
@@ -240,7 +255,7 @@ export function prepareScene(source) {
   source.instances.forEach((instance, i) => { if (typeof instance?.name === 'string') named.set(instance.name, named.has(instance.name) ? null : i); });
   const instances = source.instances.map((instance, i) => {
     const path = `scene.instances[${i}]`;
-    fields(instance, ['name', 'asset', 'at', 'anchor', 'scale', 'frame', 'animation', 'hidden', 'repeat', 'step', 'sequence', 'trajectory', 'attach', 'sort', 'lift', 'shade', 'tilemap', 'lit', 'haze', 'parallax', 'shadow'], path);
+    fields(instance, ['name', 'asset', 'at', 'on', 'cell', 'level', 'anchor', 'scale', 'frame', 'animation', 'hidden', 'repeat', 'step', 'sequence', 'trajectory', 'attach', 'sort', 'lift', 'shade', 'tilemap', 'lit', 'haze', 'parallax', 'shadow'], path);
     if (instance.name !== undefined && typeof instance.name !== 'string') fail(`${path}.name`, 'expected a string label');
     // `lit: false` keeps a placement's authored colours under scene lighting: a fire, a lamp or a glow is a light
     // source, not something the scene's lights fall on.
@@ -251,7 +266,17 @@ export function prepareScene(source) {
     const project = assets[instance.asset].recipe;
     // `anchor: "frame"` places every drawn frame by its own atlas anchor (per-frame or recipe-level), so an animated
     // placement follows anchors that change between poses. Otherwise the anchor is one fixed [x, y] in asset pixels.
-    const at = point(instance.at, `${path}.at`), anchor = instance.anchor === 'frame' ? 'frame' : point(instance.anchor ?? [0, 0], `${path}.anchor`);
+    // `on` and `cell` stand a placement on a cell of a tilemap placement instead of at pixels; where is worked out
+    // once every placement is read, since the map may be listed after it.
+    let place = null;
+    if (instance.on !== undefined || instance.cell !== undefined || instance.level !== undefined) {
+      const index = typeof instance.on === 'string' ? named.get(instance.on) : undefined;
+      if (index == null || !source.instances[index]?.tilemap) fail(`${path}.on`, 'expected the name of a tilemap placement: the map whose cell this stands on');
+      if (!Array.isArray(instance.cell) || instance.cell.length !== 2) fail(`${path}.cell`, `expected [column, row] on ${instance.on}; halves stand between cells`);
+      for (const key of ['at', 'trajectory', 'attach', 'tilemap']) if (instance[key] !== undefined) fail(`${path}.${key}`, `a placement on a cell stands where the cell is; give cell or ${key}, not both`);
+      place = { index, cell: instance.cell.map((v, axis) => number(v, `${path}.cell[${axis}]`, -256, 512)), ...(instance.level !== undefined && { level: integer(instance.level, `${path}.level`, 0, 64) }) };
+    }
+    const at = place ? [0, 0] : point(instance.at, `${path}.at`), anchor = instance.anchor === 'frame' ? 'frame' : point(instance.anchor ?? [0, 0], `${path}.anchor`);
     if (anchor === 'frame' && !project.frames.some(frame => frame.anchor)) warnings.push(`${instance.name ?? i}: anchor "frame" but ${instance.asset} declares no anchors; its frames are placed by their top-left corner.`);
     if (instance.scale !== undefined && !Number.isInteger(instance.scale)) fail(`${path}.scale`, 'fractional sprite scaling creates inconsistent pixel sizes; use an integer or author a smaller asset');
     const scale = integer(instance.scale ?? 1, `${path}.scale`, 1, 16);
@@ -374,8 +399,19 @@ export function prepareScene(source) {
       if (anchor === 'frame' && project.frames.some(frame => !(frame.anchor?.[1] > 0))) warnings.push(`${label}: shadow, but its anchor is on its top row, so it casts nothing; anchor ${instance.asset}'s frames at their feet.`);
     }
     if (scale !== 1) warnings.push(`${instance.name ?? i}: ${scale}× pixels; compare density against neighboring 1× assets.`);
-    return { ...instance, ...fade, at, anchor, scale, repeat, step, shade, attach, lift, parallax, ...(instance.sequence && { sequence }), ...(trajectory && { trajectory }) };
+    return { ...instance, ...fade, at, anchor, scale, repeat, step, shade, attach, lift, parallax, ...(place && { place }), ...(instance.sequence && { sequence }), ...(trajectory && { trajectory }) };
   });
+  // A placement on a cell stands at the cell's ground point: the centre of an iso cell's diamond, or the middle of a
+  // square cell's bottom edge. On a raised cell it is drawn `raise` pixels higher and keeps its place in the order.
+  for (const [i, instance] of instances.entries()) {
+    if (!instance.place) continue;
+    const map = instances[instance.place.index], { tilemap } = map, [w, h] = tilemap.tile, [c, r] = instance.place.cell;
+    const x = tilemap.iso ? (c - r + tilemap.rows) * w / 2 : (c + .5) * w, y = tilemap.iso ? (c + r + 1) * h / 2 : (r + 1) * h;
+    const level = instance.place.level ?? tilemap.levels?.[Math.round(r)]?.[Math.round(c)] ?? 0;
+    if (level && !tilemap.levels) fail(`scene.instances[${i}].level`, `${instance.on} has no heights; give the map heights, or lift this placement by pixels`);
+    instance.raise = (level * (tilemap.rise ?? 0) + (tilemap.surface ?? 0)) * map.scale;
+    instance.at = [map.at[0] + (Math.round(x) - map.anchor[0]) * map.scale, map.at[1] + (Math.round(y) - map.anchor[1]) * map.scale - instance.raise];
+  }
   let lighting = null;
   if (source.lighting !== undefined) {
     fields(source.lighting, ['ambient', 'bands', 'lights', 'scope', 'mode', 'steps'], 'scene.lighting');
@@ -715,7 +751,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
       return instance.tilemap.cells.map((cell, k) => ({ i, cell: k, ground: top + (cell.bottom - 1) * s }));
     }
     const [columns, rows] = instance.repeat;
-    return Array.from({ length: columns * rows }, (_, k) => ({ i, rx: k % columns, ry: Math.floor(k / columns), ground: states[i].position[1] + Math.floor(k / columns) * instance.step[1] }));
+    return Array.from({ length: columns * rows }, (_, k) => ({ i, rx: k % columns, ry: Math.floor(k / columns), ground: states[i].position[1] + (instance.raise ?? 0) + Math.floor(k / columns) * instance.step[1] }));
   };
   for (const [i, instance] of scene.instances.entries()) {
     const rank = order.length;
@@ -844,7 +880,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     placements.push({ name: instance.name ?? instance.asset, frame: state.frame.name, x: left, y: top, w: project.width * s, h: project.height * s, scale: s, ...(state.lift && { lift: state.lift }), ...(instance.haze && { haze: instance.haze }), ...(instance.shade && { shade: instance.shade }) });
     // A sorted copy stands at its placement point; its y is the ground line it was sorted by.
     const sorted = instance.sort === 'ground', at = [state.position[0] + rx * instance.step[0], state.position[1] + ry * instance.step[1]];
-    const entry = owner && !instance.shade ? entries.push({ instance: i, label, sorted, ...(sorted && { at }), ...(sorted && state.lift && { lift: state.lift }), box: { x: left, y: top, w: project.width * s, h: project.height * s }, shift, covers: false }) - 1 : -1;
+    const entry = owner && !instance.shade ? entries.push({ instance: i, label, sorted, ...(sorted && { at }), ...(sorted && state.lift && { lift: state.lift }), ...(sorted && instance.raise && { raise: instance.raise }), box: { x: left, y: top, w: project.width * s, h: project.height * s }, shift, covers: false }) - 1 : -1;
     record(i, null, state.index, left, top);
     drawFrame(instance.asset, state.index, left, top, s, label, instance.shade, instance.lit === false, entry, instance.haze, item.rank);
   }
@@ -889,7 +925,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     const overlaps = [...pairs].map(([key, pixels]) => { const [front, behind] = key.split(' ').map(Number); return { front: labels.get(front), behind: labels.get(behind), pixels }; }).sort((a, b) => b.pixels - a.pixels);
     const omitted = { ...(sorted.length > 64 && { sorted: sorted.length - 64 }), ...(overlaps.length > 32 && { overlaps: overlaps.length - 32 }) };
     // A row of a sorted tilemap is listed by the row it stands on and how many of its tiles stand there.
-    result.depth = { ...(sorted.length && { sorted: sorted.slice(0, 64).map(e => (e.spans ? { name: e.label, ground: e.ground, tiles: e.tiles } : { name: e.label, at: e.at, ...(e.lift && { lift: e.lift }) })) }), overlaps: overlaps.slice(0, 32), ...(Object.keys(omitted).length && { omitted }),
+    result.depth = { ...(sorted.length && { sorted: sorted.slice(0, 64).map(e => (e.spans ? { name: e.label, ground: e.ground, tiles: e.tiles } : { name: e.label, at: e.at, ...(e.lift && { lift: e.lift }), ...(e.raise && { raise: e.raise }) })) }), overlaps: overlaps.slice(0, 32), ...(Object.keys(omitted).length && { omitted }),
       ...(!scene.instances.some(instance => instance.sort === 'ground') && overlaps.length && { note: 'No placement has sort: "ground", so placements draw in list order. Give everything that stands on the ground sort: "ground" to draw it by where it stands.' }) };
     Object.defineProperty(result, 'depthMap', { value: { owner, entries } });
   }

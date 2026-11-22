@@ -351,6 +351,7 @@ const STACK_SHOW = {
   'iso-pine': 'A pine tree for an isometric map',
   'iso-cottage': 'A cottage for an isometric map: the building to start a house, shop or hut from',
   'iso-tower': 'A round stone watchtower with battlements for an isometric map',
+  'iso-wall': 'A length of battlement wall one tile long, whose pieces join along an isometric map',
   'copper-rally': 'A rally car: the vehicle to start a car, truck or tank from',
   'lodekeeper-faceted': 'A crane with a turning reel and a glass grab: sockets, facets and moving parts'
 };

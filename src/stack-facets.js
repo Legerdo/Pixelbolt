@@ -163,8 +163,17 @@ export function projectPoint([x, y, z], view, c, s) {
   return [view.anchor[0] + (x * c - y * s) * view.resolution, view.anchor[1] + ((x * s + y * c) * view.squash - z) * view.resolution, z];
 }
 
+// The ground axes on screen at a camera angle, as the [c, s] a projection takes. A view on a map's grid (`grid`, from
+// a stack's `cell`) scales them by the square root of two, so a cell steps `resolution` pixels across and half that
+// down; at the four headings of the grid they are whole numbers, and every cell corner lands on the pixel lattice.
+export function groundAxes(view, angle) {
+  if (!view.grid) return [cosDeg(angle), sinDeg(angle)];
+  if (angle % 90 === 45) return [angle === 45 || angle === 315 ? 1 : -1, angle < 180 ? 1 : -1];
+  return [cosDeg(angle) * Math.SQRT2, sinDeg(angle) * Math.SQRT2];
+}
+
 export function projectFacets(geometry, pose, view, angle) {
-  const c = cosDeg(angle), s = sinDeg(angle);
+  const [c, s] = groundAxes(view, angle);
   return geometry.facets.map(face => ({ ...face, points: face.points.map(p => projectPoint(placed(p, pose), view, c, s)) }));
 }
 
@@ -172,7 +181,7 @@ export function projectFacets(geometry, pose, view, angle) {
 // trace a sinusoid. Bound both amplitudes once so scrubbing cannot crop a tip or pan the camera.
 export function includeRotationBounds(facets, socket, { origin, axis }, view, angle, include) {
   const fixed = 'xyz'.indexOf(axis), a = (fixed + 1) % 3, b = (fixed + 2) % 3;
-  const c = cosDeg(angle), s = sinDeg(angle);
+  const [c, s] = groundAxes(view, angle);
   const horizontal = [c, -s, 0], vertical = [s * view.squash, c * view.squash, -1];
   const radius = v => Math.sqrt(v[a] * v[a] + v[b] * v[b]);
   const dx = view.resolution * radius(horizontal), dy = view.resolution * radius(vertical);

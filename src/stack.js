@@ -3,16 +3,18 @@
 // pivot and canvas. A rotation study holds one camera and pose outside the baked frame cache.
 // Opaque voxel-only sources retain their original single-grid fast path. With `ramps`, each voxel face takes a tone
 // from one light: a key moves along its ramp by the way the surface faces, never to a colour outside the palette.
+// With `cell`, an iso stack lies on a tile map's grid: at the four quarter headings every cell corner is on a whole
+// pixel, so a cube is the box operation's block and stacks on neighbouring cells meet without a gap or an overlap.
 import { fail, frameFits, frameTotalProblem, isObject, pictureSheet, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
-import { stackGeometry, triple, placed, projectPoint, projectFacets, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
+import { stackGeometry, triple, placed, projectPoint, projectFacets, groundAxes, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
 
 import { appendStackReliefs, stackPaths } from './stack-paths.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs', 'ramps', 'light', 'lightTurns'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'cell', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs', 'ramps', 'light', 'lightTurns'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -242,8 +244,9 @@ function sideRows(model, side) {
 function raster(model, view, angle, pose, budget) {
   const { width: w, height: h, levels, cells, decals } = model;
   const { resolution, squash, spacing, anchor, pivot, width, height } = view;
-  const c = cosDeg(angle), s = sinDeg(angle), top = (levels - 1) * spacing + 1;
-  const vx = -s / squash, vy = -c / squash, dx = Math.sign(vx), dy = Math.sign(vy);
+  // On a map's grid the ground axes are scaled (see groundAxes), so going back from the screen divides by their square.
+  const [c, s] = groundAxes(view, angle), n = view.grid ? .5 : 1, top = (levels - 1) * spacing + 1;
+  const vx = -s / squash * n, vy = -c / squash * n, dx = Math.sign(vx), dy = Math.sign(vy);
   const deltaX = dx ? 1 / Math.abs(vx) : Infinity, deltaY = dy ? 1 / Math.abs(vy) : Infinity;
   const faceX = dx > 0 ? 0 : 1, faceY = dy > 0 ? 2 : 3;
   let visits = 0;
@@ -255,8 +258,8 @@ function raster(model, view, angle, pose, budget) {
     const row = new Uint16Array(width).fill(46), sy = (py + .5 - anchor[1]) / resolution / squash;
     for (let px = 0; px < width; px++) {
       const sx = (px + .5 - anchor[0]) / resolution;
-      const ox = pivot[0] + .5 + sx * c + sy * s - top * vx;
-      const oy = pivot[1] + .5 - sx * s + sy * c - top * vy;
+      const ox = pivot[0] + .5 + sx * c * n + sy * s * n - top * vx;
+      const oy = pivot[1] + .5 - sx * s * n + sy * c * n - top * vy;
       if ((!dx && (ox < 0 || ox >= w)) || (!dy && (oy < 0 || oy >= h))) continue;
       const enterX = dx ? ((dx > 0 ? 0 : w) - ox) / vx : -Infinity;
       const enterY = dy ? ((dy > 0 ? 0 : h) - oy) / vy : -Infinity;
@@ -312,9 +315,17 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   if (!['oblique', 'iso'].includes(projection)) fail('stack.projection', 'expected oblique or iso');
   if (projection === 'iso' && source.squash !== undefined) fail('stack.squash', 'iso uses a 2:1 ground grid; set squash with oblique projection');
   const squash = number(source.squash ?? (projection === 'iso' ? .5 : .65), 'stack.squash', .25, 1);
-  const resolution = integer(source.resolution ?? 4, 'stack.resolution', 1, 8);
+  // `cell` puts an iso stack on a map's 2:1 grid: a slice cell steps that many pixels across and half as many down,
+  // and a slice rises as many, so 16 cells at `cell: 1` cover a 32x16 tile and a cube is the standard block.
+  const grid = source.cell !== undefined;
+  if (grid && projection !== 'iso') fail('stack.cell', 'cell puts a stack on an isometric map\'s grid; set projection to iso');
+  if (grid && source.resolution !== undefined) fail('stack.resolution', 'cell sets the size on the map\'s grid; give cell or resolution, not both');
+  const resolution = grid ? integer(source.cell, 'stack.cell', 1, 8) : integer(source.resolution ?? 4, 'stack.resolution', 1, 8);
   const spacing = integer(source.spacing ?? 1, 'stack.spacing', 1, 8);
-  const pivot = point(source.pivot ?? [Math.floor(w / 2), Math.floor(h / 2)], 'stack.pivot');
+  // On the grid a stack turns about the middle of its footprint, on a cell corner when a side is even, so a quarter
+  // turn lays cells on cells; a pivot written out is the centre of its cell either way.
+  const middle = [w, h].map(side => Math.floor(side / 2) - (grid && (w % 2 === 0 || h % 2 === 0) ? .5 : 0));
+  const pivot = source.pivot === undefined ? middle : point(source.pivot, 'stack.pivot');
   if (pivot[0] < 0 || pivot[0] >= w || pivot[1] < 0 || pivot[1] >= h) fail('stack.pivot', 'ground pivot must be inside the slice');
   const headings = source.headings ?? Array.from({ length: 16 }, (_, i) => Math.round(i * 360 / 16));
   if (!Array.isArray(headings) || !headings.length || headings.length > 256 || new Set(headings).size !== headings.length) fail('stack.headings', 'expected 1–256 distinct angles in degrees');
@@ -326,9 +337,9 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   // The top and bottom of the four footprint corners bound every visible cell. Round outwards
   // once for all requested headings, so even an off-centre pivot stays still throughout a turn.
   const sidesX = [-pivot[0] - .5, w - pivot[0] - .5], sidesY = [-pivot[1] - .5, h - pivot[1] - .5];
-  const bounds = {pivot,anchor:[0,0],resolution,squash};
+  const bounds = {pivot,anchor:[0,0],resolution,squash,grid};
   function headingBounds(shape, pose, angle, include) {
-    const c = cosDeg(angle), s = sinDeg(angle);
+    const [c, s] = groundAxes(bounds, angle);
     for (const {origin} of pose.values()) {
       const [u,v] = projectPoint(origin,bounds,c,s);
       include(u,v);
@@ -349,17 +360,22 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const width = right - left, height = bottom - roof, anchor = [-left, -roof];
   if (!frameFits(width, height) || frameTotalProblem(angles.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${angles.length} headings exceeds the recipe budget; reduce resolution, spacing or heading count`);
   if (width * height * angles.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
-  const view = { resolution, squash, spacing, anchor, pivot, width, height }, budget = { left: 96000000 };
+  const view = { resolution, squash, spacing, anchor, pivot, width, height, grid }, budget = { left: 96000000 };
+  // At a heading of the grid the pivot is half a pixel down from the anchor when that is what puts the footprint's far
+  // corner, and so the cell corners, on whole pixels: an odd `cell` with the pivot an odd count of cells from that corner.
+  const px = pivot[0] + .5, py = pivot[1] + .5, far = { 45: px + py, 135: px + h - py, 225: w - px + h - py, 315: w - px + py };
+  const half = angle => grid && angle % 90 === 45 && far[angle] * resolution % 2 ? .5 : 0;
+  const seen = (angle, port = view) => (half(angle) ? { ...port, anchor: [port.anchor[0], port.anchor[1] + .5] } : port);
   const frames = new Array(angles.length);
-  const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, footprint: [w, h], levels, spacing, pivot, anchor, headings };
+  const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, ...(grid && { cell: resolution }), footprint: [w, h], levels, spacing, pivot, anchor, headings };
   function frame(index) {
     integer(index, 'stack.frame', 0, angles.length - 1);
     if (!frames[index]) {
       const heading = headings[index];
       const pose = socketPose(model.geometry.sockets,heading);
       frames[index] = {name:`heading-${heading}`, duration,
-        ...(pose.size && {points:projectSockets(pose,view,angles[index])}),
-        ops:raster(posedModel(heading),view,angles[index],pose,budget)};
+        ...(pose.size && {points:projectSockets(pose,seen(angles[index]),angles[index])}),
+        ops:raster(posedModel(heading),seen(angles[index]),angles[index],pose,budget)};
     }
     return frames[index];
   }
@@ -382,10 +398,10 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     if (!hit) return null;
     const x = hit.at % w - pivot[0] + (face === 0 ? -.5 : face === 1 ? .5 : 0);
     const y = Math.floor(hit.at / w) % h - pivot[1] + (face === 2 ? -.5 : face === 3 ? .5 : 0);
-    const z = (levels - 1 - v) * spacing + .5, c = cosDeg(angle), s = sinDeg(angle);
+    const z = (levels - 1 - v) * spacing + .5, [c, s] = groundAxes(view, angle);
     const left = Math.floor(anchor[0] + (x*c - y*s)*resolution - size/2);
     const top = Math.floor(anchor[1] + ((x*s + y*c)*squash - z)*resolution - size/2);
-    const crop = { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] };
+    const crop = seen(angle, { ...view, width: size, height: size, anchor: [anchor[0]-left, anchor[1]-top] });
     const ops = raster(posedModel(heading), crop, angle, socketPose(model.geometry.sockets,heading), { left: 96000000 });
     return { left, top, rows:ops[0].rows, ops };
   }
@@ -400,13 +416,13 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     return { version: 1, name: source.name, width: size, height: size, palette: source.palette, frames, animations: {} };
   }
   function projectSockets(pose, viewport, angle) {
-    const c = cosDeg(angle), s = sinDeg(angle);
+    const [c, s] = groundAxes(viewport, angle);
     return Object.fromEntries([...pose].map(([name, {origin}]) =>
       [name,projectPoint(origin,viewport,c,s).slice(0,2).map(Math.floor)]));
   }
   function attachments(heading) {
     const angle = cameraAngle(integer(heading,'stack.heading',0,359));
-    return projectSockets(socketPose(model.geometry.sockets,heading),view,angle);
+    return projectSockets(socketPose(model.geometry.sockets,heading),seen(angle),angle);
   }
   const mounted = new Set(model.geometry.facets.flatMap(face => face.points.map(p => p.socket)));
   for (const path of organic?.paths.values() ?? []) mounted.add(path.socket);
@@ -424,7 +440,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     const shape = posedModel(heading);
     if (!headings.includes(heading)) headingBounds(shape, pose, angle, include);
     includeRotationBounds(shape.geometry.facets, socket, pivotPose, bounds, angle, include);
-    const viewport = { ...view, width: x1 - x0, height: y1 - y0, anchor: [-x0, -y0] };
+    const viewport = seen(angle, { ...view, width: x1 - x0, height: y1 - y0, anchor: [-x0, -y0] });
     if (!frameFits(viewport.width, viewport.height)) fail('stack.rotation', 'the full rotation exceeds the frame budget; reduce the stack resolution');
     const points = projectSockets(pose, viewport, angle);
     function rotationRecipe(degrees) {
@@ -467,7 +483,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
       const path=posedModel(phase,new Map()).paths.get(focus);
       const centre=placed({xyz:path.centres[0],socket:path.socket},pose);
       ports=angles.map(angle=>{
-        const [x,y]=projectPoint(centre,bounds,cosDeg(angle),sinDeg(angle));
+        const [x,y]=projectPoint(centre,bounds,...groundAxes(bounds,angle));
         return {...view,width:size,height:size,anchor:[Math.floor(size/2)-Math.floor(x),Math.floor(size/2)-Math.floor(y)]};
       });
     } else {
@@ -476,7 +492,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
         x0=Math.min(x0,Math.floor(x)-2); x1=Math.max(x1,Math.ceil(x)+2);
         y0=Math.min(y0,Math.floor(y)-2); y1=Math.max(y1,Math.ceil(y)+2);
       });
-      ports=angles.map(()=>({...view,width:x1-x0,height:y1-y0,anchor:[-x0,-y0]}));
+      ports=angles.map(angle=>seen(angle,{...view,width:x1-x0,height:y1-y0,anchor:[-x0,-y0]}));
     }
     const {width,height}=ports[0], total=poses.length*cameras.length;
     if (!frameFits(width,height) || frameTotalProblem(total,width,height)) fail('poseSheet','matrix exceeds the frame budget; choose fewer poses, headings or a smaller focus');

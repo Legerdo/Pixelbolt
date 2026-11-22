@@ -55,10 +55,13 @@ const source={format:'pixelforge-stack',version:1,name:'copper-rally',palette,pi
 await writeFile(new URL('../examples/copper-rally.stack.json',import.meta.url), JSON.stringify(source,null,2)+'\n');
 
 // The isometric starters: small things a game's map stands on its tiles, each drawn in one base tone per material and
-// left to `ramps` and the light for its form. Shapes come from whole-number rules, so every engine writes the same file.
+// left to `ramps` and the light for its form. `cell: 1` puts them on a map's grid at the map's own pixel size: 16 cells
+// are a 32x16 tile across, and a slice is a pixel high. Shapes come from whole-number rules, so every engine writes the
+// same file.
 const wood = { a:'#3d2420', b:'#5f372a', c:'#8a5236', d:'#b67646', e:'#dba262', f:'#f3d08f' };
 const iron = { i:'#232a36', j:'#3d4a5c', k:'#667a8e', l:'#a2b6c2' };
-const turn = { projection:'iso', resolution:4, headings:Array.from({length:16},(_,i)=>Math.round(i*22.5)), duration:120 };
+const stone = { s:'#33333f', t:'#55566a', u:'#80829a', v:'#b3b6c6', x:'#e2e5ea' };
+const turn = { projection:'iso', cell:1, headings:Array.from({length:16},(_,i)=>Math.round(i*22.5)), duration:120 };
 const build = (w, h, levels, ink) => Array.from({length:levels},(_,z)=>Array.from({length:h},(_,y)=>
   Array.from({length:w},(_,x)=>ink(x,y,z)).join('')));
 const save = (name, source) => writeFile(new URL(`../examples/${name}.stack.json`,import.meta.url),
@@ -66,7 +69,7 @@ const save = (name, source) => writeFile(new URL(`../examples/${name}.stack.json
 
 // A crate: planks inside a frame of lighter boards, a diagonal brace painted on each side.
 {
-  const n=12, top=10, edge=v=>v===0||v===n-1;
+  const n=8, top=7, edge=v=>v===0||v===n-1;
   const slices=build(n,n,top+1,(x,y,z)=>{
     const rim=Number(edge(x))+Number(edge(y))+Number(z===0||z===top);
     if (rim>=2) return 'd';
@@ -81,82 +84,100 @@ const save = (name, source) => writeFile(new URL(`../examples/${name}.stack.json
 
 // A barrel: staves that swell at the waist, two iron hoops and a lid set a step below the rim.
 {
-  const n=14, top=15, wide=[20,24,30,36,40,43,45,46,46,45,43,40,36,30,24,20];
+  const n=8, top=10, wide=[22,30,38,43,46,46,46,43,38,30,22];
   const slices=build(n,n,top+1,(x,y,z)=>{
-    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v, limit=wide[z]*4+16;
+    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v, limit=wide[z]+18;
     if (r>limit) return '.';
-    if (z===top) return r>limit-56?'d':'.';
-    if (z===top-1 && r<=limit-56) return y===6?'b':'c';
-    if (z===3||z===4||z===11||z===12) return 'k';
+    if (z===top) return r>limit-26?'d':'.';
+    if (z===top-1 && r<=limit-26) return y===3?'b':'c';
+    if (z===2||z===7) return 'k';
     const stave=Math.abs(u)>Math.abs(v)?y:x;
-    return stave%3===1&&r>limit-64?'b':'c';
+    return stave%3===1&&r>limit-30?'b':'c';
   });
   await save('iso-barrel',{palette:{...wood,...iron},ramps:['abcdef','ijkl'],slices});
 }
 
 // A pine: a trunk under three skirts of needles, each narrowing to the next and dark where the one above overhangs it.
 {
-  const n=17, top=27, green={ g:'#16382f', h:'#22573c', m:'#35804a', n:'#62a955', o:'#a5d070' };
-  const tiers=[[5,12,62,7],[12,19,46,6],[19,26,30,4]], tier=z=>tiers.find(([from,to])=>z>=from&&z<to);
-  const skirt=z=>{ const t=tier(z); return t?t[2]-(z-t[0])*t[3]:z===26?3:z===27?1:0; };
+  const n=17, top=38, green={ g:'#16382f', h:'#22573c', m:'#35804a', n:'#62a955', o:'#a5d070' };
+  const tiers=[[7,17,62,5],[17,27,46,4],[27,37,30,3]], tier=z=>tiers.find(([from,to])=>z>=from&&z<to);
+  const skirt=z=>{ const t=tier(z); return t?t[2]-(z-t[0])*t[3]:z===37?3:z===38?1:0; };
   const slices=build(n,n,top+1,(x,y,z)=>{
     const u=x-8, v=y-8, r=u*u+v*v;
-    if (z<6 && r<=2) return 'c';
-    if (z<5) return '.';
-    const reach=skirt(z)+((u*3+v*5+z*7)%5===0?-4:0), under=tier(z)?.[0]===z&&z>5;
+    if (z<8 && r<=2) return 'c';
+    if (z<7) return '.';
+    const reach=skirt(z)+((u*3+v*5+z*7)%5===0?-4:0), under=tier(z)?.[0]===z&&z>7;
     return r<=reach ? (under||r>reach-9&&(u*7+v*3+z)%4===0?'h':'m') : '.';
   });
   await save('iso-pine',{palette:{...wood,...green},ramps:['abcdef','ghmno'],slices});
 }
 
-// A cottage: plaster walls on a stone footing under a pitched roof, with a door, windows and a chimney.
+// A cottage: plaster walls on a stone footing under a pitched roof, with a door, windows and a chimney. Two tiles
+// long and a tile and a half deep.
 {
-  const w=20, h=14, walls=9, top=17;
+  const w=32, h=24, walls=13, top=walls+h/2-1;
   const palette={...wood, s:'#4b4a57', t:'#6f6e7c', u:'#9a99a3', v:'#c6c5c9', p:'#a89a80', q:'#d6c8a6', r:'#f1e7c9', x:'#f8f3e2',
     1:'#5a2430', 2:'#8a2f36', 3:'#bb4a3c', 4:'#e07a4e', 5:'#f3a964', w:'#263b52', y:'#4a7896', z:'#9fd0d8', G:'#ffd76a'};
-  const slices=build(w,h,top+1,(x,y,z)=>{
-    const chimney=x>=14&&x<=15&&y>=3&&y<=4;
-    if (chimney && z<=top) return z===top?'t':z>=top-1?'u':'t';
+  const slices=build(w,h,top+3,(x,y,z)=>{
+    if (x>=22&&x<=24&&y>=6&&y<=8) return z===top+2?'t':z>=top?'u':z%3===0?'t':'u';
+    if (z>top) return '.';
     if (z<walls) {
       if (x<1||x>w-2||y<1||y>h-2) return '.';
       const shell=x===1||x===w-2||y===1||y===h-2;
       if (!shell) return z===0?'b':'.';
-      if (z<2) return (x+y+z)%4===0?'t':'u';
+      if (z<3) return (x+y+z*2)%5===0?'t':'u';
       const post=(x===1||x===w-2)&&(y===1||y===h-2);
       return post||z===walls-1?'c':'q';
     }
     const rise=z-walls, inset=rise;            // the roof climbs a cell for every cell it steps in from the eaves
     if (y<inset||y>h-1-inset) return '.';
-    if (y===inset||y===h-1-inset||y===inset+1&&rise===Math.floor(h/2)-1) return (x+rise)%3===0?'2':'3';
+    if (y===inset||y===h-1-inset) return (x+rise*2)%4===0?'2':'3';
     if (x===0||x===w-1) return '.';
     return x===1||x===w-2 ? 'q' : '.';
   });
-  const door=['cccc','cddc','cddc','cdGc','cddc','cddc','cddc'], pane=['cccc','cyzc','cyyc','cccc'];
+  const door=['cccccc','cddddc','cddddc','cddddc','cddddc','cdddGc','cddddc','cddddc','cddddc','cddddc'];
+  const pane=['ccccc','cyzyc','cyyyc','ccccc','cyyzc','cyyyc','ccccc'], sill=top+2-walls;
   await save('iso-cottage',{palette,ramps:['abcdef','stuv','pqrx','12345','wyz'],slices,decals:{door,pane},paint:[
-    {face:'south',at:[8,top-walls+2],decal:'door'},{face:'south',at:[2,top-walls+3],decal:'pane'},{face:'south',at:[14,top-walls+3],decal:'pane'},
-    {face:'north',at:[4,top-walls+3],decal:'pane'},{face:'north',at:[12,top-walls+3],decal:'pane'},
-    {face:'east',at:[5,top-walls+3],decal:'pane'},{face:'west',at:[5,top-walls+3],decal:'pane'}]});
+    {face:'south',at:[13,sill+3],decal:'door'},{face:'south',at:[4,sill+2],decal:'pane'},{face:'south',at:[23,sill+2],decal:'pane'},
+    {face:'north',at:[7,sill+2],decal:'pane'},{face:'north',at:[20,sill+2],decal:'pane'},
+    {face:'east',at:[9,sill+2],decal:'pane'},{face:'west',at:[10,sill+2],decal:'pane'}]});
 }
 
 // A watchtower: a round stone shaft with courses of darker blocks, a walkway that steps out and a parapet of merlons.
+// One tile across.
 {
-  const n=16, top=25, stone={ s:'#33333f', t:'#55566a', u:'#80829a', v:'#b3b6c6', x:'#e2e5ea' };
+  const n=16, top=35;
   const slices=build(n,n,top+1,(x,y,z)=>{
-    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v, shaft=z<3?196:z<20?148:250;
+    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v, shaft=z<4?196:z<28?148:250;
     if (r>shaft) return '.';
-    if (z>=23) {
+    if (z>=33) {
       if (r<=122) return '.';
       const a=Math.abs(u), b=Math.abs(v);                            // eight merlons, on the axes and the diagonals
-      return z===23||11*b<3*a||11*a<3*b||11*Math.abs(a-b)<3*(a+b)?'u':'.';
+      return z===33||11*b<3*a||11*a<3*b||11*Math.abs(a-b)<3*(a+b)?'u':'.';
     }
-    if (z===22) return r<=122?'s':'u';
-    if (z>=20) return z===20?'t':'u';
-    if (z<3) return 't';
+    if (z>=31) return r<=122?(z===31?'s':'.'):'u';
+    if (z>=28) return z===28?'t':'u';
+    if (z<4) return 't';
     const course=z%4===3, joint=(Math.abs(u)>Math.abs(v)?y:x)+(z>>2)*2;
     return course||joint%4===0&&r>100?'t':'u';
   });
-  const gate=['.bb.','bccb','bccb','bccb','bccb'], slit=['s','s','s'];
+  const gate=['.bb.','bccb','bccb','bccb','bccb','bccb','bccb'], slit=['s','s','s','s'];
   await save('iso-tower',{palette:{...wood,...stone},ramps:['abcdef','stuvx'],slices,decals:{gate,slit},paint:[
-    {face:'south',at:[6,top-4],decal:'gate',depth:1},{face:'south',at:[7,9],decal:'slit'},{face:'east',at:[7,11],decal:'slit'},
-    {face:'west',at:[8,11],decal:'slit'},{face:'north',at:[8,9],decal:'slit'}]});
+    {face:'south',at:[6,top-6],decal:'gate',depth:1},{face:'south',at:[7,12],decal:'slit'},{face:'east',at:[7,15],decal:'slit'},
+    {face:'west',at:[8,15],decal:'slit'},{face:'north',at:[8,12],decal:'slit'}]});
+}
+
+// A wall: a length of battlement that fills one tile from edge to edge, so pieces set on neighbouring cells join into
+// one wall along the map's x axis, or along y at headings 90 and 270.
+{
+  const n=16, top=19, from=5, to=10;
+  const slices=build(n,n,top+1,(x,y,z)=>{
+    if (y<from||y>to) return '.';
+    const face=y===from||y===to;
+    if (z>=17) return face&&(z===17||x%4<2)?'u':'.';
+    if (z===16) return face?'u':'s';
+    if (z<3) return 't';
+    return z%4===3||(x+(z>>2)*2)%4===0&&face?'t':'u';
+  });
+  await save('iso-wall',{palette:stone,ramps:['stuvx'],slices});
 }

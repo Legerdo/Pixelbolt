@@ -76,6 +76,150 @@
     ],
     [
       "................",
+      ".....tttttt.....",
+      "....tttttttt....",
+      "...tttttttttt...",
+      "..tttttttttttt..",
+      ".tttttttttttttt.",
+      ".tttttttttttttt.",
+      ".tttttttttttttt.",
+      ".tttttttttttttt.",
+      ".tttttttttttttt.",
+      ".tttttttttttttt.",
+      "..tttttttttttt..",
+      "...tttttttttt...",
+      "....tttttttt....",
+      ".....tttttt.....",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....utuuut.....",
+      "....uuuuuutu....",
+      "...uuuuuuuuuu...",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..ttuuuuuuuutt..",
+      "...uuuuuuuuuu...",
+      "....uuuuuutu....",
+      ".....utuuut.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....utuuut.....",
+      "....uuuuuutu....",
+      "...uuuuuuuuuu...",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..ttuuuuuuuutt..",
+      "...uuuuuuuuuu...",
+      "....uuuuuutu....",
+      ".....utuuut.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....utuuut.....",
+      "....uuuuuutu....",
+      "...uuuuuuuuuu...",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..ttuuuuuuuutt..",
+      "...uuuuuuuuuu...",
+      "....uuuuuutu....",
+      ".....utuuut.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....tttttt.....",
+      "....tttttttt....",
+      "...tttttttttt...",
+      "..tttttttttttt..",
+      "..tttttttttttt..",
+      "..tttttttttttt..",
+      "..tttttttttttt..",
+      "..tttttttttttt..",
+      "..tttttttttttt..",
+      "...tttttttttt...",
+      "....tttttttt....",
+      ".....tttttt.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....uuutuu.....",
+      "....tuuuuuuu....",
+      "...tuuuuuuuut...",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "...uuuuuuuuuu...",
+      "....tuuuuuuu....",
+      ".....uuutuu.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....uuutuu.....",
+      "....tuuuuuuu....",
+      "...tuuuuuuuut...",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "...uuuuuuuuuu...",
+      "....tuuuuuuu....",
+      ".....uuutuu.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
+      "................",
+      ".....uuutuu.....",
+      "....tuuuuuuu....",
+      "...tuuuuuuuut...",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "..tuuuuuuuuuut..",
+      "..uuuuuuuuuuuu..",
+      "..uuuuuuuuuuuu..",
+      "...uuuuuuuuuu...",
+      "....tuuuuuuu....",
+      ".....uuutuu.....",
+      "................",
+      "................"
+    ],
+    [
+      "................",
       "................",
       ".....tttttt.....",
       "....tttttttt....",
@@ -419,6 +563,24 @@
     [
       ".....uuuuuu.....",
       "...uuuuuuuuuu...",
+      "..uuuuuuuuuuuu..",
+      ".uuuuuuuuuuuuuu.",
+      ".uuuuuuuuuuuuuu.",
+      "uuuuuuuuuuuuuuuu",
+      "uuuuuuuuuuuuuuuu",
+      "uuuuuuuuuuuuuuuu",
+      "uuuuuuuuuuuuuuuu",
+      "uuuuuuuuuuuuuuuu",
+      "uuuuuuuuuuuuuuuu",
+      ".uuuuuuuuuuuuuu.",
+      ".uuuuuuuuuuuuuu.",
+      "..uuuuuuuuuuuu..",
+      "...uuuuuuuuuu...",
+      ".....uuuuuu....."
+    ],
+    [
+      ".....uuuuuu.....",
+      "...uuuuuuuuuu...",
       "..uuuuussuuuuu..",
       ".uuuussssssuuuu.",
       ".uuussssssssuuu.",
@@ -431,6 +593,24 @@
       ".uuussssssssuuu.",
       ".uuuussssssuuuu.",
       "..uuuuussuuuuu..",
+      "...uuuuuuuuuu...",
+      ".....uuuuuu....."
+    ],
+    [
+      ".....uuuuuu.....",
+      "...uuuuuuuuuu...",
+      "..uuuuu..uuuuu..",
+      ".uuuu......uuuu.",
+      ".uuu........uuu.",
+      "uuu..........uuu",
+      "uuu..........uuu",
+      "uu............uu",
+      "uu............uu",
+      "uuu..........uuu",
+      "uuu..........uuu",
+      ".uuu........uuu.",
+      ".uuuu......uuuu.",
+      "..uuuuu..uuuuu..",
       "...uuuuuuuuuu...",
       ".....uuuuuu....."
     ],
@@ -495,9 +675,12 @@
       "bccb",
       "bccb",
       "bccb",
+      "bccb",
+      "bccb",
       "bccb"
     ],
     "slit": [
+      "s",
       "s",
       "s",
       "s"
@@ -508,7 +691,7 @@
       "face": "south",
       "at": [
         6,
-        21
+        29
       ],
       "decal": "gate",
       "depth": 1
@@ -517,7 +700,7 @@
       "face": "south",
       "at": [
         7,
-        9
+        12
       ],
       "decal": "slit"
     },
@@ -525,7 +708,7 @@
       "face": "east",
       "at": [
         7,
-        11
+        15
       ],
       "decal": "slit"
     },
@@ -533,7 +716,7 @@
       "face": "west",
       "at": [
         8,
-        11
+        15
       ],
       "decal": "slit"
     },
@@ -541,13 +724,13 @@
       "face": "north",
       "at": [
         8,
-        9
+        12
       ],
       "decal": "slit"
     }
   ],
   "projection": "iso",
-  "resolution": 4,
+  "cell": 1,
   "headings": [
     0,
     23,

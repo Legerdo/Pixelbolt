@@ -1180,9 +1180,26 @@ const isoGlade = { format: 'pixelforge-scene', version: 1, name: 'iso-glade', wi
     { name: 'coin', asset: 'coin', at: isoCoin, anchor: [12, 19], lift: 9, sort: 'ground', animation: 'spin' }
   ] };
 
+// A hamlet on the same tiles, with nothing placed by pixels: the ground is one sorted map whose `heights` raise a
+// terrace, and every sprite stack (scripts/stack-presets.mjs) stands `on` it at a `cell`. The wall pieces are a tile
+// long, so they join along the terrace's two back edges and meet at the tower.
+const hamletOn = (asset, cell, heading = 0) => ({ asset, on: 'ground', cell, frame: `heading-${heading}` });
+const isoHamlet = { format: 'pixelforge-scene', version: 1, name: 'iso-hamlet', width: 288, height: 236, duration: 1000, background: '#1e2233',
+  assets: { tiles: { recipe: 'iso-tiles.json' }, ...Object.fromEntries(['cottage', 'tower', 'wall', 'pine', 'barrel', 'crate'].map(name => [name, { recipe: `iso-${name}.stack.json` }])) },
+  instances: [
+    { name: 'ground', at: [16, 94], sort: 'ground', ...isoMap(['gggggggg', 'gggggggg', 'gggggggg', 'ggggsggg', 'sssssggg', 'ggggsggg', 'ggggsggg', 'ggggsggg'],
+      { g: { frames: ['turf', 'grass', 'grass-tufts', 'grass-flowers'], weights: [5, 3, 1, 1] }, s: { frames: ['paver', 'paver-worn'] } },
+      { seed: 11, surface: isoT, solid: true, heights: ['33332...', '33332...', '33321...', '2221....', '........', '........', '........', '........'] }) },
+    hamletOn('tower', [0, 0]), hamletOn('wall', [1, 0]), hamletOn('wall', [2, 0]), hamletOn('wall', [3, 0]), hamletOn('wall', [0, 1], 90), hamletOn('wall', [0, 2], 90),
+    hamletOn('crate', [2.4, 1.6], 23), hamletOn('barrel', [1.4, 2.3]), hamletOn('barrel', [3.1, 2.2], 45),
+    hamletOn('pine', [6, 0], 45), hamletOn('pine', [7, 1]), hamletOn('pine', [5.6, 1.5], 135), hamletOn('pine', [0, 7], 45),
+    hamletOn('cottage', [1.5, 5.25]), hamletOn('cottage', [6.25, 4.5], 270),
+    hamletOn('barrel', [3.1, 6.2]), hamletOn('barrel', [3.6, 6.6], 68), hamletOn('crate', [5.3, 6.4], 68), hamletOn('crate', [5.4, 3.1])
+  ] };
+
 await mkdir(new URL('../examples/', import.meta.url), { recursive: true });
 // Authored sources are pretty-printed; compiled recipes use the CLI's compact formatting.
-const authored = { 'forest-spirit': forest, 'iso-tiles': isoTiles, 'iso-glade.scene': isoGlade, ember, coin, shrine, caption, 'effects.fx': effects, 'hero-magic.fx': heroMagic, 'swing-trail.fx': swingTrail, 'fluid-blast.fx': fluidBlast, 'swing.poses': swing, 'hero.poses': hero, 'hero-sword.poses': heroSword, 'knight.poses': knight, 'fox.poses': fox, 'slime-idle.poses': slimeIdle, 'hermit-chest.poses': hermitChest, 'sprite-walk.poses': spriteWalk, 'forest-spirit.normals': spiritNormals, 'forest-spirit-lit.scene': litSpirit, ...Object.fromEntries(Object.entries(fluids).map(([name, source]) => [`${name}.fluid`, source])), ...Object.fromEntries(Object.entries(wavePresets).map(([name, source]) => [`${name}.wave`, source])), ...Object.fromEntries(Object.entries(spellPresets).map(([name, source]) => [`${name}.fx`, source])), ...Object.fromEntries(Object.entries(spellLibrary).map(([element, source]) => [`${element}-spells.fx`, source])) };
+const authored = { 'forest-spirit': forest, 'iso-tiles': isoTiles, 'iso-glade.scene': isoGlade, 'iso-hamlet.scene': isoHamlet, ember, coin, shrine, caption, 'effects.fx': effects, 'hero-magic.fx': heroMagic, 'swing-trail.fx': swingTrail, 'fluid-blast.fx': fluidBlast, 'swing.poses': swing, 'hero.poses': hero, 'hero-sword.poses': heroSword, 'knight.poses': knight, 'fox.poses': fox, 'slime-idle.poses': slimeIdle, 'hermit-chest.poses': hermitChest, 'sprite-walk.poses': spriteWalk, 'forest-spirit.normals': spiritNormals, 'forest-spirit-lit.scene': litSpirit, ...Object.fromEntries(Object.entries(fluids).map(([name, source]) => [`${name}.fluid`, source])), ...Object.fromEntries(Object.entries(wavePresets).map(([name, source]) => [`${name}.wave`, source])), ...Object.fromEntries(Object.entries(spellPresets).map(([name, source]) => [`${name}.fx`, source])), ...Object.fromEntries(Object.entries(spellLibrary).map(([element, source]) => [`${element}-spells.fx`, source])) };
 // Autotile sets drawn from terrain descriptions (scripts/terrain-presets.mjs).
 Object.assign(authored, terrainPresets);
 // Electric gases: arcs, lightning and plasma (scripts/plasma-presets.mjs).

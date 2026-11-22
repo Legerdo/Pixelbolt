@@ -221,6 +221,51 @@ test('ramps and the light are checked at the source field', () => {
   refuse({ lightTurns: 1 }, /stack\.lightTurns/);
 });
 
+test('cell puts an iso stack on a map grid: a cube is the box op block at every quarter turn', () => {
+  const cube = (n, extra) => ({ format: 'pixelforge-stack', version: 1, name: 'cube', palette: { w: '#805030' }, slices: Array.from({ length: n }, () => Array(n).fill('w'.repeat(n))),
+    projection: 'iso', headings: [0, 90, 180, 270], ...extra });
+  const widths = rows => rows.map(row => row.replaceAll('.', '').length).filter(Boolean);
+  // The 32x32 block of a 32x16 grid: a diamond two pixels wider each row, sixteen full rows, and the diamond's near half.
+  const far = [2, 6, 10, 14, 18, 22, 26, 30], block = [...far, ...Array(16).fill(32), ...far.toReversed()];
+  const box = renderProject({ version: 1, name: 'box', width: 32, height: 32, palette: { w: '#805030' }, frames: [{ name: 'a', ops: [{ op: 'box', w: 16, d: 16, h: 16, top: 'w', left: 'w', right: 'w' }] }] }).frames[0];
+  assert.deepEqual(Array.from({ length: 32 }, (_, y) => Array.from({ length: 32 }, (_, x) => box.data[(y * 32 + x) * 4 + 3] > 0).filter(Boolean).length), block);
+  for (const source of [cube(16, { cell: 1 }), cube(8, { cell: 2 }), cube(16, { cell: 1, pivot: [8, 8] }), cube(16, { cell: 1, pivot: [3, 12] })]) {
+    const { recipe, metadata } = compileStack(source);
+    assert.equal(metadata.cell, source.cell);
+    for (const frame of recipe.frames) assert.deepEqual(widths(frame.ops[0].rows), block, `${source.slices.length} cells, pivot ${source.pivot}, ${frame.name}`);
+  }
+  // It turns about the middle of its footprint, so the block lies on the same pixels at each quarter turn, and its
+  // anchor is the centre of its ground diamond: 16 across, 16 levels and 8 rows down.
+  const { recipe } = compileStack(cube(16, { cell: 1 }));
+  assert.deepEqual([recipe.width, recipe.height, recipe.anchor], [32, 32, [16, 24]]);
+  for (const frame of recipe.frames) assert.deepEqual(frame.ops[0].rows, recipe.frames[0].ops[0].rows, frame.name);
+  // An odd footprint turns about its middle cell and is the same diamond each time, a pixel narrower than two cells more.
+  for (const frame of compileStack(cube(15, { cell: 1 })).recipe.frames) assert.deepEqual(widths(frame.ops[0].rows).slice(0, 4), [2, 6, 10, 14], frame.name);
+  // Between the quarter turns it is the same solid at the same size, turned.
+  const eighth = compileStack(cube(16, { cell: 1, headings: [45] })).recipe;
+  assert.equal(Math.max(...widths(eighth.frames[0].ops[0].rows)), 22);
+  const refuse = (extra, pattern) => assert.throws(() => compileStack(cube(4, extra)), pattern);
+  refuse({ cell: 1, projection: 'oblique' }, /stack\.cell: cell puts a stack on an isometric map/);
+  refuse({ cell: 1, resolution: 4 }, /stack\.resolution: cell sets the size on the map's grid/);
+  refuse({ cell: 0 }, /stack\.cell/);
+  refuse({ cell: 9 }, /stack\.cell/);
+});
+
+test('wall pieces a tile long, set a tile apart, are the pixels of one wall two tiles long', async () => {
+  const wall = JSON.parse(await readFile(new URL('../examples/iso-wall.stack.json', import.meta.url), 'utf8'));
+  delete wall.ramps;
+  // Along x at heading 0 the next cell is 16 pixels right and 8 down; at 90 the wall runs the other way.
+  for (const [heading, across] of [[0, 8], [90, -8], [180, 8], [270, -8]]) {
+    const piece = compileStack({ ...wall, headings: [heading] }).recipe, long = compileStack({ ...wall, headings: [heading], slices: wall.slices.map(rows => rows.map(row => row + row)) }).recipe;
+    const joined = Array.from({ length: long.height }, () => Array(long.width).fill('.'));
+    // The far piece first, then the near one over it, each by its anchor, half a tile either side of the long wall's.
+    for (const side of [-1, 1]) for (const [y, row] of piece.frames[0].ops[0].rows.entries()) for (const [x, key] of [...row].entries()) {
+      if (key !== '.') joined[long.anchor[1] + side * 4 + y - piece.anchor[1]][long.anchor[0] + side * across + x - piece.anchor[0]] = key;
+    }
+    assert.deepEqual(joined.map(row => row.join('')), long.frames[0].ops[0].rows, `heading ${heading}`);
+  }
+});
+
 test('CLI inspection of a pinned stack cell renders intermediate headings and reports an empty pin', () => {
   const inspect = pin => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/pixelbolt.js', import.meta.url)),
@@ -499,17 +544,13 @@ golden.test('Copper Rally keeps two connected silver rims throughout the turn, w
 });
 
 golden.test('the isometric starters are whole from every heading and shaded by their ramps', async () => {
-  for (const name of ['iso-crate', 'iso-barrel', 'iso-pine', 'iso-cottage', 'iso-tower']) {
+  for (const name of ['iso-crate', 'iso-barrel', 'iso-pine', 'iso-cottage', 'iso-tower', 'iso-wall']) {
     const source = JSON.parse(await readFile(new URL(`../examples/${name}.stack.json`, import.meta.url), 'utf8'));
-    assert.equal(source.projection, 'iso');
+    assert.deepEqual([source.projection, source.cell], ['iso', 1], `${name} is on the map's grid at the map's pixel size`);
     assert.ok(source.ramps.length && source.light === undefined, name);
     const { recipe } = compileStack(source), pixels = createHash('sha256'), { frames } = renderProject(recipe);
     assert.equal(frames.length, 16);
-    for (const frame of frames) {
-      pixels.update(frame.data);
-      // Nothing is cut by the canvas: the first and last rows are clear.
-      for (let x = 0; x < recipe.width; x++) assert.equal(frame.data[x * 4 + 3] + frame.data[((recipe.height - 1) * recipe.width + x) * 4 + 3], 0, `${name} ${frame.name}`);
-    }
+    for (const frame of frames) pixels.update(frame.data);
     // Each heading holds at least a lit tone, a tone as drawn and a shaded one.
     for (const frame of recipe.frames) assert.ok(tonesOf(frame.ops[0].rows).size >= 3, `${name} ${frame.name}`);
     golden.equal(name, pixels.digest('hex'), { recipe });

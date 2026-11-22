@@ -221,7 +221,28 @@
             },
             "maxItems": 2,
             "minItems": 2,
-            "description": "[x, y] in unscaled canvas pixels; the top-left corner of that pixel."
+            "description": "Where it stands, in scene pixels. Give at, or on and cell."
+          },
+          "on": {
+            "type": "string",
+            "description": "Name of a tilemap placement to stand on, with cell, instead of at."
+          },
+          "cell": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -256,
+              "maximum": 512
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "description": "[column, row] on that map: the centre of an iso cell's diamond, or the middle of a square cell's bottom edge. Halves stand between cells. On a raised cell it is drawn that much higher and keeps its place in the order."
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64,
+            "description": "With cell: the height it stands at, in the map's levels. Default: the height of its cell."
           },
           "anchor": {
             "oneOf": [
@@ -524,6 +545,32 @@
                 ],
                 "description": "square (default): cells side by side, each drawing from its top-left. iso: a 2:1 diamond grid (even tile sizes such as [32, 16]), drawn back to front, cell [x, y] at [(x - y + rows - 1) * w/2, (x + y) * h/2]; each drawing stands on its diamond, bottoms aligned and centred across, so a block taller than the tile rises above its cell."
               },
+              "heights": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9. ]+$",
+                  "maxLength": 256
+                },
+                "maxItems": 256,
+                "description": "Iso maps: a row of digits for each row of the map, a cell's level; a dot is the ground. A raised cell is drawn higher and keeps its place in the order. Sort the map so it covers what stands behind it."
+              },
+              "rise": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256,
+                "description": "With heights: pixels a level. Default: half the tile's height."
+              },
+              "solid": {
+                "type": "boolean",
+                "description": "With heights: draw the cell's tile again at each level under it, so a block tile at least `rise` thick leaves no gap."
+              },
+              "surface": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256,
+                "description": "Iso maps: how far the ground stands above a cell's diamond, the thickness of a block tile. A placement standing on the map stands that much higher."
+              },
               "legend": {
                 "type": "object",
                 "propertyNames": {
@@ -752,8 +799,7 @@
           }
         },
         "required": [
-          "asset",
-          "at"
+          "asset"
         ],
         "additionalProperties": false
       },
@@ -4141,6 +4187,12 @@
           "minimum": 1,
           "maximum": 8,
           "description": "Output pixels per slice cell; default 4."
+        },
+        "cell": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "With projection iso, instead of resolution: puts the stack on a map's 2:1 grid. A slice cell steps this many pixels across and half as many down, and a slice rises as many: at 1, 16 cells cover a 32x16 tile and a cube is the standard block. Whole pixels at headings 0, 90, 180 and 270."
         },
         "spacing": {
           "type": "integer",

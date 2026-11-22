@@ -114,12 +114,85 @@ test('a sorted iso scene map covers what stands behind a block and stays under w
   for (let x = 1; x < 23; x++) assert.notDeepEqual([...data.subarray((row * 24 + x) * 4, (row * 24 + x) * 4 + 3)], [0, 0, 0], `pixel ${x}`);
 });
 
+test('a placement stands on a cell of a named map, and a raised cell lifts its tile and whatever stands on it', () => {
+  const tiles = { version: 1, name: 'tiles', width: 8, height: 8, palette: FACES, frames: [{ name: 'block', ops: [{ op: 'box', w: 4, d: 4, h: 4, top: 't', left: 'l', right: 'r' }] }] };
+  const figure = { version: 1, name: 'figure', width: 2, height: 4, palette: { e: '#ffffff' }, anchor: [1, 3], frames: [{ name: 'a', ops: [{ op: 'rect', w: 2, h: 4, color: 'e' }] }] };
+  const source = (placement, map = {}) => ({ format: 'pixelforge-scene', version: 1, name: 'iso', width: 24, height: 32, background: '#000000', assets: { tiles, figure },
+    instances: [
+      { name: 'figure', asset: 'figure', anchor: 'frame', sort: 'ground', ...placement },
+      { name: 'ground', asset: 'tiles', at: [0, 16], sort: 'ground', tilemap: { layout: 'iso', tile: [8, 4], rows: ['bbb', 'bbb', 'bbb'], legend: { b: 'block' }, ...map } }] });
+  const view = (placement, map) => renderScene(prepareScene(source(placement, map)), { depth: true });
+  const placed = (placement, map) => { const { x, y } = view(placement, map).placements.find(p => p.name === 'figure'); return [x + 1, y + 3]; };
+  // Cell [x, y] of a 3-row map has its centre at [(x - y + 3) * 4, (x + y + 1) * 2] from the map's corner, and the
+  // map may be listed after what stands on it.
+  assert.deepEqual(placed({ on: 'ground', cell: [2, 1] }), [16, 16 + 8]);
+  assert.deepEqual(view({ on: 'ground', cell: [2, 1] }).data, view({ at: [16, 24] }).data);
+  assert.deepEqual(placed({ on: 'ground', cell: [1.5, 0.5] }), [16, 16 + 6], 'halves stand between cells');
+  // `surface` is the block's thickness: the figure stands that much higher, on the top the tile shows, and still after
+  // the tile of its own cell.
+  const thick = view({ on: 'ground', cell: [1, 1] }, { surface: 4 });
+  assert.deepEqual(placed({ on: 'ground', cell: [1, 1] }, { surface: 4 }), [12, 16 + 6 - 4]);
+  const order = reply => reply.depth.sorted.map(s => s.name === 'figure' ? 'figure' : s.ground);
+  assert.deepEqual(order(thick), [17, 19, 21, 'figure', 23, 25]);
+  assert.deepEqual(thick.depth.sorted[3], { name: 'figure', at: [12, 18], raise: 4 });
+  // A raised cell is drawn `rise` pixels higher a level and keeps its place in the order; what stands on it rises too.
+  const heights = ['...', '.2.', '...'];
+  const raised = view({ on: 'ground', cell: [1, 1] }, { heights, rise: 3 }), flat = view({ on: 'ground', cell: [1, 1] });
+  assert.deepEqual(placed({ on: 'ground', cell: [1, 1] }, { heights, rise: 3 }), [12, 16 + 6 - 6]);
+  assert.deepEqual(order(raised), order(flat));
+  const topRow = reply => { for (let y = 0; y < 32; y++) for (let x = 0; x < 24; x++) if (reply.data[(y * 24 + x) * 4] === 255 && reply.data[(y * 24 + x) * 4 + 1] === 0) return y; };
+  assert.equal(topRow(flat) - topRow(raised), 2, 'two levels of 3 lift the middle cell 6 rows: 2 above the back cell, which stands 4 rows up the screen from it');
+  assert.equal(view({ on: 'ground', cell: [1, 1] }, { heights: ['...', '.3.', '...'], rise: 3 }).placements.find(p => p.name === 'figure').y, 16 + 6 - 9 - 3);
+  // The default rise is half the tile's height, and `level` stands a placement at another height than its cell's.
+  assert.deepEqual(placed({ on: 'ground', cell: [1, 1] }, { heights }), [12, 16 + 6 - 4]);
+  assert.deepEqual(placed({ on: 'ground', cell: [1, 1], level: 0 }, { heights }), [12, 16 + 6]);
+  assert.deepEqual(placed({ on: 'ground', cell: [0, 0], level: 3 }, { heights }), [12, 16 + 2 - 6]);
+  // A solid map draws the tile again at each level under a raised cell.
+  const tilesOf = map => view({ on: 'ground', cell: [0, 0] }, map).placements.find(p => p.name === 'ground').tiles;
+  assert.deepEqual([tilesOf({ heights }), tilesOf({ heights, solid: true })], [9, 11]);
+  // On a square map a placement stands on the middle of the cell's bottom edge.
+  const square = prepareScene({ ...source({ on: 'ground', cell: [2, 1] }), instances: [source({ on: 'ground', cell: [2, 1] }).instances[0], { name: 'ground', asset: 'tiles', at: [0, 4], tilemap: { rows: ['bbb', 'bbb'], legend: { b: 'block' } } }] });
+  assert.deepEqual(renderScene(square).placements.find(p => p.name === 'figure').y + 3, 4 + 16);
+  const refuse = (placement, map, pattern) => assert.throws(() => prepareScene(source(placement, map)), pattern);
+  refuse({ on: 'floor', cell: [0, 0] }, {}, /instances\[0\]\.on: expected the name of a tilemap placement/);
+  refuse({ on: 'ground' }, {}, /instances\[0\]\.cell: expected \[column, row\] on ground/);
+  refuse({ on: 'ground', cell: [0, 0], at: [1, 1] }, {}, /instances\[0\]\.at: a placement on a cell stands where the cell is/);
+  refuse({ on: 'ground', cell: [0, 0], level: 1 }, {}, /instances\[0\]\.level: ground has no heights/);
+  refuse({ at: [0, 0] }, { heights: ['...', '.2.'] }, /tilemap\.heights: expected 3 rows of 3 characters/);
+  refuse({ at: [0, 0] }, { rise: 3 }, /tilemap\.rise: rise and solid go with heights/);
+  refuse({ at: [0, 0] }, { layout: 'square', heights }, /tilemap\.heights: heights raise the cells of an iso map/);
+});
+
+test('the hamlet example stands every sprite stack on a cell of one terraced, sorted map', async () => {
+  const { resolveReferences } = await import('../src/resolve.js');
+  const { fileURLToPath } = await import('node:url');
+  const source = JSON.parse(readFileSync(new URL('../examples/iso-hamlet.scene.json', import.meta.url), 'utf8'));
+  const [ground, ...things] = source.instances;
+  assert.deepEqual([ground.name, ground.sort, ground.tilemap.solid, ground.tilemap.surface], ['ground', 'ground', true, 10]);
+  for (const thing of things) assert.deepEqual([thing.on, thing.at, thing.cell.length], ['ground', undefined, 2], thing.asset);
+  const { document } = await resolveReferences(source, { baseDir: fileURLToPath(new URL('../examples/', import.meta.url)) });
+  const scene = prepareScene(document), view = renderScene(scene, { depth: true });
+  assert.deepEqual(scene.warnings, []);
+  // The tower stands on the back corner, three levels of 8 and the tiles' 10 pixels of earth above its cell's centre.
+  const tower = view.depth.sorted.find(entry => entry.name.startsWith('tower'));
+  assert.deepEqual(tower, { name: 'tower#1', at: [16 + 8 * 16, 94 + 8 - 34], raise: 34 });
+  // The raised tiles are drawn at every level under them: 64 cells and 3, 3, 3, 3, 2 + 3, 3, 3, 3, 2 + 3, 3, 3, 2, 1 + 2, 2, 2, 1 more.
+  assert.equal(view.placements.find(p => p.name === 'ground').tiles, 64 + 14 + 14 + 12 + 7);
+  // Every wall piece and the tower between them is one of the four quarter headings, where cells are whole pixels.
+  for (const thing of things) if (thing.asset === 'wall' || thing.asset === 'tower') assert.match(thing.frame, /^heading-(0|90|180|270)$/);
+});
+
 test('the schemas offer box and the iso layout', () => {
   const recipe = schema('schema.json'), box = recipe.$defs.op.oneOf.find(op => op.properties.op.const === 'box');
   assert.deepEqual(box.required, ['op', 'w', 'd']);
   assert.equal(box.properties.w.multipleOf, 2);
   assert.deepEqual(recipe.$defs.op.oneOf.find(op => op.properties.op.const === 'tilemap').properties.layout.enum, ['square', 'iso']);
-  assert.deepEqual(schema('scene.schema.json').properties.instances.items.properties.tilemap.properties.layout.enum, ['square', 'iso']);
+  const placement = schema('scene.schema.json').properties.instances.items;
+  assert.deepEqual(placement.properties.tilemap.properties.layout.enum, ['square', 'iso']);
+  for (const key of ['on', 'cell', 'level']) assert.ok(placement.properties[key], key);
+  for (const key of ['heights', 'rise', 'solid', 'surface']) assert.ok(placement.properties.tilemap.properties[key], key);
+  assert.deepEqual(placement.required, ['asset'], 'a placement stands at pixels or on a cell');
+  assert.ok(schema('stack.schema.json').properties.cell);
 });
 
 test('the isometric examples: a tile set on 32x16 diamonds, and a scene that lays it out, shades it, sorts it and hovers a coin over a cell', async () => {

@@ -756,6 +756,12 @@
       "maximum": 8,
       "description": "Output pixels per slice cell; default 4."
     },
+    "cell": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "description": "With projection iso, instead of resolution: puts the stack on a map's 2:1 grid. A slice cell steps this many pixels across and half as many down, and a slice rises as many: at 1, 16 cells cover a 32x16 tile and a cube is the standard block. Whole pixels at headings 0, 90, 180 and 270."
+    },
     "spacing": {
       "type": "integer",
       "minimum": 1,
