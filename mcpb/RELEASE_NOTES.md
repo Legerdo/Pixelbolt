@@ -1,19 +1,31 @@
-# 0.19.0
+# 0.20.0
 
-Shapes drawn once and moved as parts: filled polygons, layers that move together, and a wing drawn once that beats on a keyed track. Exports compress four to five times faster.
+Sprite stacks: draw a solid in slices and get it from every heading, with shaded faces, moving parts and animations, on the grid of an isometric map. Scenes stand things on map cells and terraces and export as isometric maps. Godot gets an editor addon.
 
-- **Polygons and parts:** a `polygon` operation draws a filled or outlined shape from editable vertices. A part drawn once in the project's `parts` is placed on any number of layers around its `pivot`, mirrored with `flipX` or `flipY`, and scaled per axis by a number or a named track in `scaleTracks`, keyed in milliseconds with easing and a per-layer `delay`. A frame's `groups` move several layers together. The Midnight Ramen and Eclipse Moth showcases use them.
-- **Inspection:** `alpha-blend` names the off-palette colours that translucent paint or layer opacity made; `palette` keeps the ones drawn directly. `inspect --beside` fills a stack's gutters in one pass (about 140 ms to 7 ms for a full stack).
-- **Faster exports:** every PNG and animated PNG is compressed at zlib's level 6 instead of 9: a render at the full frame total that barely compresses went from 11 s to 2.4 s, with the same pixels.
-- **The skill is found for effects:** its description names fire, explosions, splashes, smoke, water, magic spells and sparks first, and says to use it before writing a drawing script by hand.
-- **Reported faults:** `gif.scale` past 16 is refused at once (0.18.0 could run a call to its 50 s limit); a forced re-export removes the lit SpriteFrames it no longer writes; a `[*]` patch that ends at a named item passes over the lists without it; `pixelbolt/terrain`'s `layeredTestMapRecipe(recipe, layers)` works without its options again.
+- **Sprite stacks:** a new source format, `pixelforge-stack` (`pixelbolt help stack`), compiles a solid drawn as slices into a frame at every heading. `ramps` and one `light` shade its faces; `"projection": "iso", "cell": 1` draws it in the pixels of an isometric tile map; side paint, glass, facets, jointed paths, surface reliefs and contours add detail. `inspect --rotate`, `--pin` and `--pose-sheet` review a turn, and Studio paints faces and scrubs headings.
+- **Moving parts and animations:** a part rides a socket and turns about its axis (a lid, sails, a gun, a leg), and an animation keys sockets and poses by frame and is baked at every heading as `<name>-<heading>` or `<name>-<direction>`.
+- **Twelve stack presets:** `copper-rally`, `lodekeeper-faceted`, six shaded pieces for an isometric map (`iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower`, `iso-wall`) and four that move (`iso-windmill`, `iso-chest`, `iso-cannon`, and `iso-villager`, who walks and idles in eight directions).
+- **Scenes on isometric ground:** a placement stands on a map cell with `"on"` and `"cell"`, an iso map's `heights` raise cells into terraces, and what stands on a cell is drawn with it. `examples/iso-hamlet.scene.json` is a terraced hamlet placed by cell.
+- **For a game:** a recipe's `headings` say which frame and animation stand at each heading, and `player.js` (`nearestHeading`, `headingFrame`, `headingAnimation`, `headingToward`) and the Godot `SpriteFrames` metadata look them up. `compile --slices` writes a stack's slices as a sheet, which `drawStack` and the addon's `sprite_stack.gd` turn to any heading at run time. A scene on iso ground exports an isometric Tiled map (`scene.tmx`) and an isometric Godot TileSet (`tileset_iso.tres`).
+- **Pixelbolt for Godot:** `pixelbolt-godot-0.20.0.zip`, attached to this release, is an editor addon that imports `*.pixel.json` (Godot 4.5 and later) and `*.pixelbolt` (4.3 and later) files as `SpriteFrames` or a `TileSet`, using your own Pixelbolt CLI.
+- **Air pockets keep their air:** the last of a glugging bottle runs out instead of leaping back to the bottle's roof, a thin film of liquid lets air through, and a pocket draws air up through hanging liquid as bubbles.
+- **Other agents:** Agent Plugins 1.0.0 clients, such as Codex and GitHub Copilot CLI, load the repository's `plugin.json` and `mcp.json`.
+- **Animate a sprite you already have:** the `sprite-walk` example and its guide turn one side-view PNG into a walk and an idle.
+- **Reported faults:** a filled polygon is its outline plus every pixel centre inside it; a tile set's preview row wider than 256 tiles is refused at compile; a falling-sand source that breaks a starter reaction is told which material and reaction.
 
-Changed since 0.18.0, check before upgrading:
-- Exported PNG files are about 8% larger (15% for noisy art) and their bytes differ from earlier releases; the pixels are the same. Re-hash anything that pins a PNG's bytes.
-- Off-palette colours made by translucent paint or layer opacity are reported as `alpha-blend` in inspection, no longer as `palette`.
-- `--gif-scale` takes 1 to 16; 0 and 17 to 99 are refused by the CLI's own message.
+Changed since 0.19.0, check before upgrading:
+- A filled `polygon` drawn by 0.19.0 gains the pinholes inside its down-left sloping right edges and loses a stray pixel outside the left ones. Review a piece that pins those pixels.
+- Liquids with trapped air (an upturned bottle, a pocket under a shelf that opens) play out differently, and the `glug` preset is redrawn. Every other fluid preset renders as before.
+- In the repository the skill's folder is `skills/pixelbolt-pixel-art/` (it was `skills/pixel-art/`); update anything that reads it from a checkout. `pixelbolt skill install` writes the same folder as before.
 
 Known issues:
+- A slice sheet (`compile --slices`) leaves out moving parts, animations, facets and paths, and says so: those play from the baked frames.
+- A stack on a map's grid (`cell`) is baked about 1.4 times wider than its slices stack at run time, so bake what stands on a map and stack what turns freely.
+- On a canvas, a run-time stack turned between quarter turns has soft outer edges below scale 3. At quarter turns it is the baked frame pixel for pixel.
+- `compile --slices` is refused when the stack's baked frames would not fit a recipe, though the slices would: give the source a lower `resolution` or one heading for that compile.
+- A stack's sockets do not carry one another, a part cannot be hidden for a frame, and facets and paths take no shade from `ramps`. Studio plays parts and animations but does not edit them.
+- An iso tilemap with `heights`, or one sorted among the placements, reaches Tiled as tile objects, not a tile layer. The isometric Godot TileSet has plain tiles and no terrains, and `scene.tscn` draws the scene from baked planes, not a `TileMapLayer`.
+- A scene placement that moves is placed by pixels, not by cell.
 - A forced re-export that drops the normal pass leaves `<name>.canvas.tres`, `<name>.normal.png` and `<name>.normal_y_up.png` in the folder: a TileSet or SpriteFrames saved in Godot may still use them, so delete them by hand if nothing does.
 - In Godot's `scene.tscn`, a placement that moves, follows `sequence` cues or changes anchor between frames is drawn as it is at the scene's start; the export warns and names it.
 - Pose, bodies, crystal, normals and falling-sand sources keep 256 pixels a side, and fluid and wave sources 128.
