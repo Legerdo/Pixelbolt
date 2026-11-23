@@ -87,6 +87,10 @@ func canonical(value: Variant) -> Variant:
 func compare_frames(actual: SpriteFrames, expected: SpriteFrames, entry: Dictionary) -> void:
 	var names := actual.get_animation_names()
 	require(names == expected.get_animation_names(), entry["key"] + ": animation names")
+	# A sprite stack's headings: the importer keeps the CLI's lookup as it wrote it.
+	require(actual.get_meta("headings", {}) == expected.get_meta("headings", {}), entry["key"] + ": headings")
+	if entry.get("headings", false):
+		require(actual.get_meta("headings", {}).has("frames"), entry["key"] + ": no headings were imported")
 	for animation in expected.get_animation_names():
 		var context: String = entry["key"] + "/" + animation
 		require(actual.has_animation(animation), context + ": missing animation")

@@ -37,6 +37,11 @@ The import option **Texture Filter → Nearest** embeds a CanvasTexture with nea
 filtering. CanvasTexture draws only in 2D. For AnimatedSprite3D, choose **Inherit**
 and set the node's texture filter to Nearest. Inherit uses a plain ImageTexture.
 
+A sprite stack imports with its headings as the resource's `headings` metadata.
+`headings.gd` reads it: `Headings.animation(frames, &"walk", Headings.toward(frames,
+velocity, &"walk"))` names the walk that faces the way a character moves, after
+`const Headings := preload("res://addons/pixelbolt/headings.gd")`.
+
 On failure, look for `Pixelbolt: res://…:` in Output. A previous successful import
 is retained; a first failure is reported to Godot. Fix the recipe or CLI settings,
 then use **Project → Tools → Pixelbolt: Reimport all recipes**. Use this command

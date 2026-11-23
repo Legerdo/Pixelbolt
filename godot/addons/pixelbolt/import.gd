@@ -165,6 +165,9 @@ func _build(source: String, folder: String, filter_mode: int) -> Dictionary:
 				count += 1
 		result = SpriteFrames.new()
 		result.set("animations", animations)
+		# The recipe's headings (a sprite stack's turn and its animations at each heading), for headings.gd.
+		if loaded.has_meta("headings"):
+			result.set_meta("headings", loaded.get_meta("headings"))
 		summary = "%d animations, %d frames" % [animations.size(), count]
 	elif tiles and loaded is TileSet:
 		# duplicate(true) keeps every TileData/animation/property from the CLI.

@@ -286,7 +286,7 @@ const AREA = new Set(['clear', 'fill', 'replace', 'tilemap', 'outline', 'dither'
 // `stills: false` keeps a document to the animation limit even with one frame, and `side` gives a source that keeps a
 // smaller canvas its own (pose sources compile to animations at most POSE_SIDE a side).
 function readProject(spec, { stills = true, side: most = CANVAS_SIDE } = {}) {
-  object(spec, 'project', ['$schema', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'background', 'symbols', 'parts', 'scaleTracks', 'frames', 'animations', 'sheet', 'anchor']);
+  object(spec, 'project', ['$schema', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'background', 'symbols', 'parts', 'scaleTracks', 'frames', 'animations', 'sheet', 'anchor', 'headings']);
   if (spec.version !== 1) fail('project.version', 'expected 1');
   const projectName = name(spec.name, 'project.name');
   const frameCount = Array.isArray(spec.frames) ? spec.frames.length : 0, still = stills && frameCount === 1;
@@ -1173,6 +1173,7 @@ export function renderProject(spec, options = {}) {
     return result;
   }));
   const animations = checked(() => readAnimations(spec, frames));
+  const headings = checked(() => readHeadings(spec, frames, animations));
   const sheet = checked(() => readSheet(spec, frames, width, height));
   if (noted.length) throw together();
   const warnings = [], clipping = [...clipped].map(([path, pixels]) => ({ path, pixels }));
@@ -1191,6 +1192,7 @@ export function renderProject(spec, options = {}) {
   if (clipping.length) warnings.push(`Some drawing falls outside the canvas and is clipped: ${clipping[0].path} (${clipping[0].pixels} px)${clipping.length > 1 ? ` and ${clipping.length - 1} more location${clipping.length > 2 ? 's' : ''}` : ''}.`);
   return {
     name: projectName, width, height, frames, animations, palette, ramps,
+    ...(headings && { headings }),
     ...(isStills(spec) && { stills: true }),
     ...(options.stats && { work: { pixels: work, layerPixels, operations: operationCount } }),
     ...(ownerNames && { ownerNames }),
@@ -1302,6 +1304,7 @@ export function describeStampRecipe(spec) {
     return { name: frameName, duration };
   });
   const animations = readAnimations(spec, frames);
+  readHeadings(spec, frames, animations);
   const sheet = readSheet(spec, frames, width, height, boxes);
   return { frames, animations, sheet };
 }
@@ -1361,6 +1364,43 @@ function readAnimations(spec, frames) {
     animations[key] = { frames: indices, loop, duration: indices.reduce((sum, i) => sum + frames[i].duration, 0) };
   }
   return animations;
+}
+
+// A recipe may say which frames and animations show its subject at which heading, in whole degrees: a sprite stack's
+// turn, or a character drawn facing eight ways. `frames` maps a heading to the frame that stands at it, `animations` an
+// animation's name to the animation that plays it at each heading, and `toward` a heading to the direction on screen
+// the subject faces there ([x, y], y down). An atlas carries it as meta.headings, where a game picks the nearest
+// heading (runtime.js). Returns the map as written, or undefined.
+function readHeadings(spec, frames, animations) {
+  if (spec.headings === undefined) return undefined;
+  const path = 'project.headings', headings = object(spec.headings, path, ['frames', 'animations', 'toward']);
+  if (headings.frames === undefined && headings.animations === undefined) fail(path, 'expected frames, animations or both: which frame or animation stands at each heading');
+  const degrees = (key, at) => { if (!/^(0|[1-9]\d{0,2})$/.test(key) || Number(key) > 359) fail(at, 'a heading is a whole number of degrees from 0 to 359, written without leading zeros'); };
+  const byHeading = (value, at, known, what) => {
+    const entries = Object.entries(object(value, at));
+    if (!entries.length) fail(at, 'expected at least one heading');
+    for (const [key, ref] of entries) {
+      degrees(key, `${at}.${key}`);
+      if (typeof ref !== 'string' || !known(ref)) fail(`${at}.${key}`, `unknown ${what} ${JSON.stringify(ref)}`);
+    }
+  };
+  if (headings.frames !== undefined) byHeading(headings.frames, `${path}.frames`, ref => frames.some(frame => frame.name === ref), 'frame');
+  if (headings.animations !== undefined) {
+    const named = Object.entries(object(headings.animations, `${path}.animations`));
+    if (!named.length || named.length > 64) fail(`${path}.animations`, 'expected 1–64 named animations, each with the animation that plays it at each heading');
+    if (spec.animations === undefined) fail(`${path}.animations`, 'the recipe names no animations');
+    for (const [key, value] of named) { name(key, `${path}.animations.${key}`); byHeading(value, `${path}.animations.${key}`, ref => own(animations, ref), 'animation'); }
+  }
+  if (headings.toward !== undefined) {
+    for (const [key, value] of Object.entries(object(headings.toward, `${path}.toward`))) {
+      const at = `${path}.toward.${key}`;
+      degrees(key, at);
+      if (!Array.isArray(value) || value.length !== 2) fail(at, 'expected [x, y], the direction on screen the subject faces at this heading (y down)');
+      const [x, y] = value.map((part, i) => number(part, `${at}[${i}]`, -1, 1));
+      if (!x && !y) fail(at, 'a direction is not [0, 0]');
+    }
+  }
+  return headings;
 }
 
 function readSheet(spec, frames, width, height, boxes = null) {
@@ -1585,7 +1625,7 @@ export function buildAtlas(project, { trim } = {}) {
   });
   const animations = Object.fromEntries(Object.entries(project.animations).map(([key, a]) => [key, { ...a, frames: a.frames.map(i => frames[i].name) }]));
   const frameTags = Object.entries(project.animations).map(([key, a]) => frameTag(key, a.frames)).filter(Boolean);
-  const meta = { app: 'Pixelbolt', version: '1', image: `${project.name}.png`, format: 'RGBA8888', size: { w: atlasWidth, h: atlasHeight }, scale: String(s), frameTags };
+  const meta = { app: 'Pixelbolt', version: '1', image: `${project.name}.png`, format: 'RGBA8888', size: { w: atlasWidth, h: atlasHeight }, scale: String(s), frameTags, ...(project.headings && { headings: project.headings }) };
   return { data, width: atlasWidth, height: atlasHeight, metadata: { frames: entries, animations, meta } };
 }
 

@@ -15,6 +15,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createBundle } from '../src/export.js';
+import { compileStack } from '../src/stack.js';
+import { nearestHeading, headingFrame, headingAnimation, headingToward } from '../src/runtime.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { compileAutotile, compileNormals } from '../src/authoring.js';
 import { neighbourMask, expandTilemap } from '../src/autotile.js';
@@ -1171,10 +1173,118 @@ export async function verifyGodotTiles({ godot = findGodot(), keep = false, log 
   }
 }
 
+// A small stack that turns through six headings, with a lid that lifts at four of them under named directions: an
+// animation listed at fewer headings than the frames, and names in place of degrees.
+export const GODOT_HEADINGS_STACK = {
+  format: 'pixelforge-stack', version: 1, name: 'godot-headings', palette: { a: '#402010', b: '#804020', c: '#c08040', t: '#8090a0' }, ramps: ['abc'],
+  projection: 'iso', cell: 1, headings: [0, 60, 120, 180, 240, 300], slices: [['bbbb', 'bbbb', 'bbbb', 'bbbb'], ['bbbb', 'bbbb', 'bbbb', 'bbbb']],
+  sockets: { top: { at: [2, 2, 2] } }, parts: { lid: { socket: 'top', at: [-1, -2, 0], slices: [['tt', 'tt', 'tt', 'tt']] } },
+  directions: { front: 0, back: 180 },
+  animations: { lift: { frames: 3, headings: [0, 90, 180, 270], sockets: { top: [{ frame: 0 }, { frame: 3, offset: [0, 0, 3] }] } } }
+};
+// What the check asks of every lookup: headings on and between the listed ones, past a turn and below zero, and
+// directions along the axes, the diagonals and just off them.
+const HEADING_DEGREES = [0, 29, 30, 31, 59.9, 60, 89, 91, 135, 180, 269, 315, 330, 331, 359.5, 360, 400, 725, -1, -45, -200];
+const HEADING_VECTORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [2, 1], [-2, 1], [0.1, 3], [-5, -0.2], [0.3, -0.7]];
+
+// Runs in Godot: loads the SpriteFrames, reads its headings and asks the addon's headings.gd each question.
+const HEADINGS_CHECK = `extends SceneTree
+
+const Headings := preload("res://addons/pixelbolt/headings.gd")
+
+func _initialize():
+    var plan = JSON.parse_string(FileAccess.get_file_as_string("res://headings.json"))
+    var frames = load(plan["tres"])
+    var report := {"sprite_frames": frames is SpriteFrames, "meta": false}
+    if frames is SpriteFrames and frames.has_meta("headings"):
+        report["meta"] = true
+        var meta: Dictionary = frames.get_meta("headings")
+        var stills := {}
+        for heading in meta.get("frames", {}):
+            var at: Array = meta["frames"][heading]
+            var texture = frames.get_frame_texture(at[0], at[1])
+            stills[str(heading)] = [String(at[0]), at[1], texture.region.position.x, texture.region.position.y, texture.region.size.x, texture.region.size.y]
+        report["stills"] = stills
+        var faces := {}
+        for heading in meta.get("toward", {}):
+            faces[str(heading)] = [meta["toward"][heading].x, meta["toward"][heading].y]
+        report["toward"] = faces
+        var nearest := []
+        var still := []
+        var played := []
+        var near_played := []
+        for degrees in plan["degrees"]:
+            nearest.append(Headings.nearest(frames, degrees))
+            still.append(Headings.frame(frames, degrees))
+            played.append(String(Headings.animation(frames, &"lift", degrees)))
+            near_played.append(Headings.nearest(frames, degrees, &"lift"))
+        report["nearest"] = nearest
+        report["still"] = still
+        report["played"] = played
+        report["near_played"] = near_played
+        var facing := []
+        var facing_played := []
+        for v in plan["vectors"]:
+            facing.append(Headings.toward(frames, Vector2(v[0], v[1])))
+            facing_played.append(Headings.toward(frames, Vector2(v[0], v[1]), &"lift"))
+        report["facing"] = facing
+        report["facing_played"] = facing_played
+        report["none"] = [Headings.nearest(frames, 10.0, &"missing"), String(Headings.animation(frames, &"missing", 10.0)), Headings.toward(frames, Vector2.ZERO), Headings.frame(SpriteFrames.new(), 0.0), Headings.nearest(SpriteFrames.new(), 0.0)]
+    print("PIXELBOLT ", JSON.stringify(report))
+    quit()
+`;
+
+// A sprite stack's headings in a real Godot 4: the exported SpriteFrames carries them as its "headings" metadata, each
+// heading's frame is the texture of that frame's rectangle, and the addon's headings.gd answers every lookup as the
+// Canvas runtime does (nearest heading, the frame there, an animation's name there, and the heading facing a direction).
+export async function verifyGodotHeadings({ godot = findGodot(), keep = false, log = console.log } = {}) {
+  if (!godot) throw new Error('Godot 4 was not found: pass --godot <path> or set GODOT');
+  const version = godotRun(godot, ['--version']).output.trim().split('\n')[0];
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-godot-headings-'));
+  try {
+    await writeFile(path.join(dir, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="Pixelbolt headings check"\n');
+    const bundle = await createBundle(compileStack(GODOT_HEADINGS_STACK).recipe), { name } = bundle.project, atlas = JSON.parse(bundle.files.get(`${name}.atlas.json`));
+    await mkdir(path.join(dir, 'stack'), { recursive: true });
+    for (const file of [`${name}.png`, `${name}.tres`]) await writeFile(path.join(dir, 'stack', file), bundle.files.get(file));
+    await mkdir(path.join(dir, 'addons/pixelbolt'), { recursive: true });
+    await writeFile(path.join(dir, 'addons/pixelbolt/headings.gd'), await readFile(fileURLToPath(new URL('../godot/addons/pixelbolt/headings.gd', import.meta.url))));
+    await writeFile(path.join(dir, 'headings.json'), JSON.stringify({ tres: `res://stack/${name}.tres`, degrees: HEADING_DEGREES, vectors: HEADING_VECTORS }));
+    await writeFile(path.join(dir, 'headingscheck.gd'), HEADINGS_CHECK);
+    const imported = godotRun(godot, ['--path', dir, '--import']);
+    const problems = imported.output.split('\n').filter(line => /ERROR|WARNING/.test(line) && /stack\/|headings/.test(line));
+    assert.deepEqual(problems, [], `Godot reported problems while importing:\n${imported.output}`);
+    const report = godotReport(godotRun(godot, ['--path', dir, '--script', 'res://headingscheck.gd']));
+    assert.deepEqual([report.sprite_frames, report.meta], [true, true], 'the SpriteFrames loads with its headings metadata');
+    const { frames: stills, animations, toward } = atlas.meta.headings;
+    // Each heading's frame, as [animation, index], is the texture of the atlas's rectangle for that frame.
+    assert.deepEqual(Object.keys(report.stills), Object.keys(stills), 'the headings of the still frames');
+    for (const [heading, frame] of Object.entries(stills)) {
+      const { x, y, w, h } = atlas.frames[frame].frame, [animation, index, ...region] = report.stills[heading];
+      assert.equal(atlas.animations[animation].frames[index], frame, `heading ${heading}: ${animation}[${index}]`);
+      assert.deepEqual(region, [x, y, w, h], `heading ${heading}: the frame's rectangle`);
+    }
+    for (const [heading, [x, y]] of Object.entries(toward)) assert.ok(Math.abs(report.toward[heading][0] - x) < 1e-6 && Math.abs(report.toward[heading][1] - y) < 1e-6, `heading ${heading} faces ${report.toward[heading]}, not ${[x, y]}`);
+    assert.equal(Object.keys(report.toward).length, Object.keys(toward).length);
+    // The same answers as runtime.js gives from the atlas.
+    assert.deepEqual(report.nearest, HEADING_DEGREES.map(degrees => nearestHeading(atlas, degrees)), 'the nearest heading');
+    assert.deepEqual(report.still.map(([animation, index]) => atlas.animations[animation].frames[index]), HEADING_DEGREES.map(degrees => headingFrame(atlas, degrees)), 'the frame at a heading');
+    assert.deepEqual(report.near_played, HEADING_DEGREES.map(degrees => nearestHeading(atlas, degrees, 'lift')), 'the nearest heading of an animation');
+    assert.deepEqual(report.played, HEADING_DEGREES.map(degrees => headingAnimation(atlas, 'lift', degrees)), 'the animation at a heading');
+    assert.deepEqual(report.facing, HEADING_VECTORS.map(([x, y]) => headingToward(atlas, x, y)), 'the heading facing a direction');
+    assert.deepEqual(report.facing_played, HEADING_VECTORS.map(([x, y]) => headingToward(atlas, x, y, 'lift')), 'the heading of an animation facing a direction');
+    assert.deepEqual(report.none, [-1, '', -1, [], -1], 'what is not listed answers with none, and raises nothing');
+    assert.deepEqual([animations.lift[0], animations.lift[180], animations.lift[90]], ['lift-front', 'lift-back', 'lift-90']);
+    log(`${version}: the stack's SpriteFrames carries its headings: ${Object.keys(stills).length} still frames, each the frame's own rectangle, ${Object.keys(animations.lift).length} headings of an animation and the way each of ${Object.keys(toward).length} headings faces; the addon's headings.gd gave the runtime's answer to ${HEADING_DEGREES.length * 4 + HEADING_VECTORS.length * 2} lookups by degrees and by direction.`);
+    return { version, report, dir: keep ? dir : null };
+  } finally {
+    if (!keep) await rm(dir, { recursive: true, force: true });
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2), at = args.indexOf('--godot');
   try {
-    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax]) {
+    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax, verifyGodotHeadings]) {
       const result = await verify({ ...(at >= 0 && { godot: args[at + 1] }), keep: args.includes('--keep'), render: args.includes('--render') });
       if (result.dir) console.log(`Kept the Godot project at ${result.dir}`);
     }

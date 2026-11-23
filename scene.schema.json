@@ -3355,6 +3355,71 @@
           "maxItems": 256,
           "minItems": 1
         },
+        "headings": {
+          "type": "object",
+          "properties": {
+            "frames": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^(0|[1-9][0-9]?|[12][0-9][0-9]|3[0-5][0-9])$"
+              },
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "The frame that stands at each heading: {\"0\": \"south\", \"90\": \"west\"}."
+            },
+            "animations": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 64,
+              "additionalProperties": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^(0|[1-9][0-9]?|[12][0-9][0-9]|3[0-5][0-9])$"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "description": "For a name, the animation that plays it at each heading: {\"walk\": {\"0\": \"walk-south\", \"90\": \"walk-west\"}}."
+            },
+            "toward": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^(0|[1-9][0-9]?|[12][0-9][0-9]|3[0-5][0-9])$"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "description": "The direction on screen the subject faces at a heading, [x, y] with y down, so a game can pick a heading by the way something moves."
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "frames"
+              ]
+            },
+            {
+              "required": [
+                "animations"
+              ]
+            }
+          ],
+          "description": "Which frames and animations show the subject at which heading, in whole degrees from 0 to 359. The atlas carries it as meta.headings and the Godot SpriteFrames as its \"headings\" metadata; a compiled sprite stack has it."
+        },
         "animations": {
           "type": "object",
           "maxProperties": 65524,

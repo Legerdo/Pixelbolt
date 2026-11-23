@@ -5,6 +5,8 @@ import { FX_EVENTS, SPRITE_PIXELS, EMITTER_DEPTHS, EDGE_SIDES } from '../src/fx.
 import { SHAPE_KINDS, LAYER_DEPTHS } from '../src/shapes.js';
 import { NORMAL_DIRECTIONS } from '../src/authoring.js';
 const NORMAL_KEYS = Object.keys(NORMAL_DIRECTIONS);
+// A map from a heading in whole degrees ("0" to "359") to a value.
+const byHeading = value => ({ type: 'object', minProperties: 1, propertyNames: { pattern: '^(0|[1-9][0-9]?|[12][0-9][0-9]|3[0-5][0-9])$' }, additionalProperties: value });
 const int = (minimum, maximum, description) => ({ type: 'integer', minimum, maximum, ...(description ? { description } : {}) });
 const num = (minimum, maximum, description) => ({ type: 'number', minimum, maximum, ...(description ? { description } : {}) });
 const bool = { type: 'boolean' }, color = { type: 'string', description: 'Palette name, transparent, or #RGB/#RGBA/#RRGGBB/#RRGGBBAA.' };
@@ -95,6 +97,11 @@ const schema = {
       then: { properties: { keys: { minItems: 2, prefixItems: [{ properties: { at: { const: 0 } } }] } } } }),
     anchor: { ...point, description: 'Default pivot for every frame, exported to the atlas as anchorPx (exported pixels) and as anchor and pivot (anchor / source size, the 0-1 origin Phaser and PixiJS read).' },
     frames: { ...array(ref('frame'), 256), minItems: 1 },
+    headings: { ...object({
+      frames: { ...byHeading({ type: 'string' }), description: 'The frame that stands at each heading: {"0": "south", "90": "west"}.' },
+      animations: { type: 'object', minProperties: 1, maxProperties: 64, additionalProperties: byHeading({ type: 'string' }), description: 'For a name, the animation that plays it at each heading: {"walk": {"0": "walk-south", "90": "walk-west"}}.' },
+      toward: { ...byHeading({ type: 'array', items: { type: 'number', minimum: -1, maximum: 1 }, minItems: 2, maxItems: 2 }), description: 'The direction on screen the subject faces at a heading, [x, y] with y down, so a game can pick a heading by the way something moves.' }
+    }), anyOf: [{ required: ['frames'] }, { required: ['animations'] }], description: 'Which frames and animations show the subject at which heading, in whole degrees from 0 to 359. The atlas carries it as meta.headings and the Godot SpriteFrames as its "headings" metadata; a compiled sprite stack has it.' },
     animations: { type: 'object', maxProperties: 65524, description: 'Named animations; left out, one plays every frame in order. {} says the frames are stills (icons, UI states, tiles), exported with no animation. ZIP32 bundle budget: animation count + frame count + 10 support files must not exceed 65,535.', propertyNames: id, additionalProperties: object({ frames: { ...array(id, 1024), minItems: 1 }, direction: { enum: ['forward', 'reverse', 'pingpong'] }, loop: bool }, ['frames']) },
     sheet: object({ columns: int(1, 256), padding: int(0, 16), scale: int(1, 16), trim: { type: 'boolean', description: 'Pack each frame by its visible bounds; the atlas reports trimmed rectangles with spriteSourceSize. Ignores columns. Frames whose visible pictures are the same (a hold, a frame moved whole) share one rectangle.' } })
   }, ['version', 'name', 'width', 'height', 'frames']),

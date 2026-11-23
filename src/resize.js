@@ -3,7 +3,7 @@
 // offset (a layer's by its own x and y as well), and the result renders exactly as that window of the original does:
 // a margin shows the background, or nothing. With fewer frames (`keepFrames`): evenly spaced frames of each
 // animation, playing as long as before. Browser-compatible.
-import { CANVAS_SIDE, FRAME_AREA, frameAreaProblem, frameTotalProblem, layerOffset, parseColor, renderProject, fail } from './core.js';
+import { CANVAS_SIDE, FRAME_AREA, frameAreaProblem, frameTotalProblem, isObject, layerOffset, parseColor, renderProject, fail } from './core.js';
 import { frameParts } from './fx.js';
 
 
@@ -263,7 +263,16 @@ export function keepFrames(recipe, count, path = 'frames') {
   }).filter(remains);
   // Frames kept only to draw others from are no longer played, so the animation that played every frame is spelled out.
   const explicit = recipe.animations !== undefined || frames.length > next.default.frames.length;
-  return { recipe: { ...recipe, frames, ...(explicit && { animations: next }) }, kept, notes };
+  const made = { ...recipe, frames, ...(explicit && { animations: next }) };
+  // A heading whose frame was removed no longer has one: the lookup keeps the headings that do.
+  if (isObject(recipe.headings?.frames)) {
+    const left = new Set(frames.map(frame => frame.name)), standing = Object.fromEntries(Object.entries(recipe.headings.frames).filter(([, frame]) => left.has(frame)));
+    const { frames: all, ...rest } = recipe.headings;
+    if (Object.keys(standing).length) made.headings = { ...recipe.headings, frames: standing };
+    else if (rest.animations) made.headings = rest;
+    else delete made.headings;
+  }
+  return { recipe: made, kept, notes };
 }
 
 // What keepFrames reads of each frame: its duration (project.frames[i].duration) and whether it draws. An effect

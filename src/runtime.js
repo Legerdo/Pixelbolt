@@ -27,6 +27,49 @@ export function frameAt(atlas, animation, time) {
   }
   return sequence.frames.at(-1);
 }
+// What an atlas lists by heading (meta.headings, from a recipe's `headings`): its frames, or one animation.
+function byHeading(atlas, animation) {
+  const lookup = atlas.meta?.headings, listed = animation === undefined ? lookup?.frames : lookup?.animations?.[animation];
+  if (!listed) throw new Error(animation === undefined ? 'This atlas lists no frames by heading' : `This atlas lists no headings for the animation: ${animation}`);
+  return listed;
+}
+/**
+ * The heading the atlas holds nearest to `degrees`, which may be any number: headings go round at 360. Of its still
+ * frames, or with `animation` (a name the atlas lists by heading, such as "walk") of that animation's headings.
+ * Between two headings equally near, the lower.
+ */
+export function nearestHeading(atlas, degrees, animation) {
+  if (typeof degrees !== 'number' || !Number.isFinite(degrees)) throw new Error('A heading is a number of degrees');
+  const at = ((degrees % 360) + 360) % 360;
+  let nearest = null, least = Infinity;
+  for (const key of Object.keys(byHeading(atlas, animation))) {
+    const apart = Math.abs(Number(key) - at), gap = Math.min(apart, 360 - apart);
+    if (gap < least) { least = gap; nearest = Number(key); }
+  }
+  return nearest;
+}
+/** The frame that stands at the heading nearest `degrees`: a sprite stack's "heading-90". Draw it with drawFrame. */
+export const headingFrame = (atlas, degrees) => byHeading(atlas)[nearestHeading(atlas, degrees)];
+/** The animation that plays `animation` at the heading nearest `degrees`: "walk" at 270 is "walk-se". Give it to frameAt. */
+export const headingAnimation = (atlas, animation, degrees) => byHeading(atlas, animation)[nearestHeading(atlas, degrees, animation)];
+/**
+ * The heading at which the subject faces most nearly along (dx, dy) on screen, y down: the way a character moves, or
+ * from a turret to its target. Of the still frames' headings, or of `animation`'s. Needs the atlas to say which way
+ * each heading faces (meta.headings.toward, which a sprite stack's atlas does: its front is its +y side).
+ */
+export function headingToward(atlas, dx, dy, animation) {
+  const toward = atlas.meta?.headings?.toward;
+  if (!toward) throw new Error('This atlas does not say which way its headings face');
+  if (![dx, dy].every(Number.isFinite) || (!dx && !dy)) throw new Error('A direction is two numbers, not both zero');
+  let nearest = null, most = -Infinity;
+  for (const key of Object.keys(byHeading(atlas, animation))) {
+    if (!Object.hasOwn(toward, key)) continue;
+    const along = toward[key][0] * dx + toward[key][1] * dy;
+    if (along > most) { most = along; nearest = Number(key); }
+  }
+  if (nearest === null) throw new Error('This atlas does not say which way these headings face');
+  return nearest;
+}
 // The pixel a frame's anchor names, in the source canvas. Atlases write it as `anchorPx` beside the 0-1 `anchor`;
 // one without `anchorPx` (written before it, or by hand) keeps its `anchor` in pixels, read as it always was.
 const anchorPixels = entry => entry.anchorPx ?? entry.anchor ?? { x: 0, y: 0 };

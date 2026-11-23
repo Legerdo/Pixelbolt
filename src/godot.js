@@ -77,8 +77,29 @@ export function spriteFrames(atlas, { image = atlas.meta.image } = {}) {
     const frames = animation.frames.map((name, index) => `{\n"duration": ${real(timing.durations[index])},\n"texture": SubResource(${quote(id(name))})\n}`);
     return `{\n"frames": [${frames.join(', ')}],\n"loop": ${animation.loop ? 'true' : 'false'},\n"name": &${quote(key)},\n"speed": ${real(timing.speed)}\n}`;
   });
-  lines.push('[resource]', `animations = [${entries.join(', ')}]`, '');
+  lines.push('[resource]', `animations = [${entries.join(', ')}]`);
+  // A recipe's headings, as metadata a script reads with get_meta("headings"): each heading's frame as the animation
+  // that plays it and its place there, each animation's name at each heading, and the way each heading faces.
+  const headings = atlas.meta.headings && headingsMeta(atlas, animations);
+  if (headings) lines.push(`metadata/headings = ${headings}`);
+  lines.push('');
   return { text: lines.join('\n'), approximate };
+}
+
+// meta.headings as a Godot Dictionary with whole-number keys. A SpriteFrames holds frames only inside animations, so a
+// heading's frame is given as [animation, index]: the first animation that plays it, and where. A heading whose frame
+// no animation plays is left out.
+function headingsMeta(atlas, animations) {
+  const { frames, animations: named, toward } = atlas.meta.headings, parts = [];
+  const map = entries => `{\n${entries.map(([key, value]) => `${Number(key)}: ${value}`).join(',\n')}\n}`;
+  const placed = Object.entries(frames ?? {}).flatMap(([heading, frame]) => {
+    const playing = animations.find(([, animation]) => animation.frames.includes(frame));
+    return playing ? [[heading, `[&${quote(playing[0])}, ${playing[1].frames.indexOf(frame)}]`]] : [];
+  });
+  if (placed.length) parts.push(`"frames": ${map(placed)}`);
+  if (named) parts.push(`"animations": {\n${Object.entries(named).map(([key, each]) => `${quote(key)}: ${map(Object.entries(each).map(([heading, animation]) => [heading, `&${quote(animation)}`]))}`).join(',\n')}\n}`);
+  if (toward) parts.push(`"toward": ${map(Object.entries(toward).map(([heading, [x, y]]) => [heading, `Vector2(${real(x)}, ${real(y)})`]))}`);
+  return parts.length ? `{\n${parts.join(',\n')}\n}` : null;
 }
 
 // A resource written here, with its sheet named by another path relative to the .tres (for a copy saved elsewhere).

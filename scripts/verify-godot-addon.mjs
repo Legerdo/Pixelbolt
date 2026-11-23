@@ -329,7 +329,7 @@ export async function verifyGodotAddon({ godot = findGodot(), work = os.tmpdir()
       await put(dir, source, JSON.stringify(data));
       if (options.tiles || options.inherit) await seedImport(dir, source, options);
       const expected = await renderExpected(dir, source, 'expected/' + key + '-' + expectedRevision++);
-      const entry = { key, source: 'res://' + source, expected: 'res://' + expected[options.tiles ? 'tiles' : 'frames'], inherit: !!options.inherit };
+      const entry = { key, source: 'res://' + source, expected: 'res://' + expected[options.tiles ? 'tiles' : 'frames'], inherit: !!options.inherit, ...(options.headings && { headings: true }) };
       cases.push(entry);
       return entry;
     };
@@ -337,6 +337,8 @@ export async function verifyGodotAddon({ godot = findGodot(), work = os.tmpdir()
     const fixture = await add('timing', GODOT_FIXTURE, { extension: '.pixelbolt' });
     await add('inherit', GODOT_FIXTURE, { inherit: true });
     await add('hero', JSON.parse(await readFile(path.join(ROOT, 'examples/hero.poses.json'), 'utf8')));
+    // A sprite stack compiles first, and its SpriteFrames keeps the headings the CLI wrote as metadata.
+    await add('chest', JSON.parse(await readFile(path.join(ROOT, 'examples/iso-chest.stack.json'), 'utf8')), { headings: true });
     await add('ground', JSON.parse(await readFile(path.join(ROOT, 'examples/ground.autotile.json'), 'utf8')), { tiles: true });
     // Make tile animations, weighted collisions and alternate tiles non-vacuous checks.
     for (const [i, source] of GODOT_TILE_SOURCES.entries()) await add('tile-' + i, source, { tiles: true, inherit: i === 1 });

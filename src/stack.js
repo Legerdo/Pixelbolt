@@ -525,6 +525,16 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const px = pivot[0] + .5, py = pivot[1] + .5, far = { 45: px + py, 135: px + h - py, 225: w - px + h - py, 315: w - px + py };
   const half = angle => grid && angle % 90 === 45 && far[angle] * resolution % 2 ? .5 : 0;
   const seen = (angle, port = view) => (half(angle) ? { ...port, anchor: [port.anchor[0], port.anchor[1] + .5] } : port);
+  // What a game looks a heading up in (the recipe's `headings`, which its atlas carries): the frame that stands at
+  // each heading, the animation that plays each animation there, and the way the stack's +y, its front, points on
+  // screen at that heading, so a game can pick a heading by the direction something moves.
+  const toward = heading => {
+    const [c, s] = groundAxes(view, cameraAngle(heading)), x = -s, y = c * squash, length = Math.sqrt(x * x + y * y);
+    return [Math.round(x / length * 10000) / 10000 + 0, Math.round(y / length * 10000) / 10000 + 0];
+  };
+  const lookup = { frames: Object.fromEntries(headings.map(heading => [heading, `heading-${heading}`])),
+    ...(clips.length && { animations: Object.fromEntries(clips.map(clip => [clip.name, Object.fromEntries(clip.headings.map(heading => [heading, `${clip.name}-${facing(heading)}`]))])) }),
+    toward: Object.fromEntries([...new Set(plan.map(frame => frame.heading))].map(heading => [heading, toward(heading)])) };
   const frames = new Array(plan.length);
   // An animation is listed with its frame count and headings; it plays at a heading as `<name>-<heading>`, or
   // `<name>-<direction>` where that heading has a name, and its frames there are that name with -0, -1 and so on.
@@ -554,7 +564,8 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
       }
     }
     return { version: 1, name: source.name, width, height, anchor, palette: source.palette,
-      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames: drawn, animations };
+      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames: drawn, animations,
+      ...(index === undefined && { headings: lookup }) };
   }
   // Follow the centre of the picked vertical face in model space. Keep the original sample
   // lattice and occlusion, even when the face turns away or the angle is between saved frames.
