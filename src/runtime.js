@@ -112,6 +112,42 @@ export function drawFrame(context, sheet, name, x, y, { scale = 1, flipX = false
   context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, 0, 0, frame.w * scale, frame.h * scale);
   context.restore();
 }
+/**
+ * Draws a sprite stack from an atlas of its slices (pixelbolt compile --slices), ground first, as a game that stacks
+ * at run time does: each slice turned to `heading` about the stack's pivot and drawn `rise` canvas pixels above the
+ * one below, once for each of those pixels so the sides are solid. (x, y) is the pivot on the ground, snapped so that
+ * an unturned slice's pixels fall on whole pixels of the canvas (a pivot at a pixel's centre sits half a pixel on). heading is in degrees and turns as the baked frames do. squash flattens the ground as a camera looking
+ * down at a slant does: 1 looks straight down, and a baked view is the stack's own squash (0.5 for an isometric one,
+ * whose heading h is this heading h + 45). scale enlarges the slices and, unless rise says otherwise, the step
+ * between them. Any heading draws, at the cost of a drawImage for each slice and pixel of rise.
+ */
+export function drawStack(context, sheet, x, y, { heading = 0, scale = 1, rise = scale, squash = 1, animation = 'slices' } = {}) {
+  if (typeof heading !== 'number' || !Number.isFinite(heading)) throw new Error('Stack heading must be a number of degrees');
+  if (!Number.isInteger(scale) || scale < 1 || scale > 32) throw new Error('Stack scale must be an integer from 1 to 32');
+  if (!Number.isInteger(rise) || rise < 1 || rise > 64) throw new Error('Stack rise must be an integer from 1 to 64');
+  if (typeof squash !== 'number' || !(squash > 0 && squash <= 1)) throw new Error('Stack squash must be a number above 0, up to 1');
+  const slices = sheet.atlas.animations && Object.hasOwn(sheet.atlas.animations, animation) ? sheet.atlas.animations[animation].frames : null;
+  if (!slices) throw new Error(`This atlas has no slices to stack: no animation ${animation}`);
+  const turn = heading * Math.PI / 180, left = Math.round(x), ground = Math.round(y);
+  context.imageSmoothingEnabled = false;
+  slices.forEach((name, level) => {
+    const entry = sheet.atlas.frames[name], { frame } = entry, offset = entry.spriteSourceSize ?? { x: 0, y: 0 };
+    // The pivot exactly, where the sheet names it at twice its coordinates; else the anchor pixel's centre.
+    const twice = entry.points?.['pivot-x2'], anchor = anchorPixels(entry), sheetScale = Number(sheet.atlas.meta?.scale) || 1;
+    const origin = twice ? { x: twice.x / 2, y: twice.y / 2 } : { x: anchor.x + sheetScale / 2, y: anchor.y + sheetScale / 2 };
+    // Half a pixel on where the pivot is a pixel's centre: at a whole pixel every sample of an unturned slice would
+    // fall on the line between two of its pixels, and which of them is drawn there varies from canvas to canvas.
+    const half = { x: (origin.x * scale) % 1, y: (origin.y * scale) % 1 };
+    for (let step = 0; step < rise; step++) {
+      context.save();
+      context.translate(left + half.x, ground + half.y - level * rise - step);
+      context.scale(1, squash);
+      context.rotate(turn);
+      context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, (offset.x - origin.x) * scale, (offset.y - origin.y) * scale, frame.w * scale, frame.h * scale);
+      context.restore();
+    }
+  });
+}
 export class SpritePlayer {
   static async load(canvas, atlasURL, options = {}) {
     const { image, atlas } = await loadSpriteSheet(atlasURL);

@@ -91,6 +91,28 @@ func _process(_delta: float) -> void:
 
 `Headings.frame(frames, degrees)` returns `[animation, index]` for a still: stop the sprite and set its `animation` and `frame`. `Headings.nearest` gives the heading alone. Each returns -1, `[]` or `&""` for a resource that lists none.
 
+### Stacking at run time
+
+A slice sheet (`pixelbolt compile car.stack.json --slices --out car-slices.pixel.json`, then render it) holds a stack's slices, ground first, for a game that turns the stack itself. `player.js` draws one:
+
+```js
+import { loadSpriteSheet, drawStack } from './player.js';
+const car = await loadSpriteSheet('./car-slices.atlas.json');
+drawStack(context, car, x, y, { heading: degrees, scale: 3, squash: 0.6 });
+```
+
+`(x, y)` is the stack's pivot on the ground. `heading` is in degrees and turns as the baked frames do. `squash` flattens the ground as a camera looking down at a slant does: 1 looks straight down, and the stack's own squash (in the compile's metadata) gives the baked view. For a baked isometric heading `h`, draw `heading: h + 45` at `squash: 0.5`. Each slice is drawn `rise` pixels above the one below (`scale` unless you set it), once for each of those pixels so the sides are solid, so a stack of 15 slices at scale 3 is 45 `drawImage` calls. Unturned and at quarter turns the slices' pixels land on the canvas's own. At other angles a canvas softens the outer edge of a turned image even with smoothing off, so draw stacks that turn at scale 3 or more.
+
+In Godot, attach the addon's `sprite_stack.gd` to a `Node2D` and give it the imported slice sheet:
+
+```gdscript
+$Car.sprite_frames = preload("res://car-slices.pixel.json")   # or the exported .tres
+$Car.heading = rad_to_deg(velocity.angle())
+$Car.squash = 0.6
+```
+
+The node's position is the pivot on the ground; `rise` and `pivot` are its other properties, and the pivot comes from the sheet's `stack_pivot` metadata unless you set one. Set its texture filter to Nearest. Other engines do the same from the atlas: draw each frame of `animations.slices` in order, turned about `points["pivot-x2"]` halved, each a step higher than the last.
+
 ### Tile sets
 
 A recipe whose frames are an autotile set also exports `name.tileset.tres`, a Godot 4 `TileSet`. That means a recipe compiled from a `pixelforge-autotile` source, any recipe whose frames each draw one `autotile` operation at their corner for at least two masks, or any recipe with a frame that has `tile`. The TileSet has one atlas source on the sheet's grid and one terrain named after the recipe; every other frame that draws something is a plain tile without a terrain (a rock, a flower), and an empty frame is no tile. A tile set with no `animations` of its own exports no SpriteFrames, APNGs, CSS or player, and its README says how to paint it. A blob set matches corners and sides (Godot's terrain mode 0), a cardinal set sides only (mode 2) and a corner set corners only (mode 1), and each tile's peering bits are its neighbour mask. Copy `name.png` and `name.tileset.tres` into one folder of your project, give a `TileMapLayer` the TileSet, and paint with the terrain: the **Terrains** tab of the TileMap panel in the editor, or `set_cells_terrain_connect` in code. Godot then picks the tile Pixelbolt's own tilemap picks for the same map, with cells outside the map empty. A corner terrain lives on the points where cells meet: Godot puts it where four painted cells meet, so the ground ends half a cell inside what you paint (3 × 3 painted cells draw 2 × 2 cells of ground, centred), and every painted cell holds the tile whose corners are those points, the empty tile where it has none. That is Pixelbolt's corner tilemap of the map of those points, drawn on the painted cells.
@@ -243,4 +265,4 @@ Stills (a recipe whose `"animations"` is `{}`: icons, UI states, a 9-slice panel
 
 `meta.frameTags` lists Aseprite-style tags for tools that read Aseprite's JSON: `from` and `to` index the atlas's frames in order, and `direction` is `forward`, `reverse` or `pingpong` (forward and back without repeating either end). A tag can only name one run of frames, so an animation that holds, skips or reorders frames, such as the forest spirit's `idle`, has none; `animations` lists every animation in full, with its loop flag.
 
-With `sheet.trim: true`, each `frame` rectangle holds only the visible pixels: `trimmed` is true, `spriteSourceSize` gives the rectangle's offset inside the unchanged `sourceSize`, and the frames/ PNGs stay full-canvas. Two frames that show the same picture (a hold, or one frame moved whole) have the same `frame` rectangle and their own `spriteSourceSize`, as TexturePacker's aliases do, so read each frame's rectangle by name rather than expecting one cell per frame. Recipes with an `anchor` (compiled poses always have one) add `anchor` in exported pixels and `pivot` = anchor ÷ source size, which Phaser's JSON-hash loader reads as a custom pivot. Frames with named `points` (pose markers such as a blade tip or foot contact, or glyph advances) list them in exported pixels. The bundled `player.js` exports `loadSpriteSheet`, `frameAt` and `drawFrame`, which honor all of these, and `nearestHeading`, `headingFrame`, `headingAnimation` and `headingToward` for an atlas with `meta.headings` ([facing and headings](#facing-and-headings)). The TexturePacker-style frame layout is intended for existing atlas importers, but engine-specific integration should be checked in your target engine; this repository tests the bundled Canvas runtime and binary exports.
+With `sheet.trim: true`, each `frame` rectangle holds only the visible pixels: `trimmed` is true, `spriteSourceSize` gives the rectangle's offset inside the unchanged `sourceSize`, and the frames/ PNGs stay full-canvas. Two frames that show the same picture (a hold, or one frame moved whole) have the same `frame` rectangle and their own `spriteSourceSize`, as TexturePacker's aliases do, so read each frame's rectangle by name rather than expecting one cell per frame. Recipes with an `anchor` (compiled poses always have one) add `anchor` in exported pixels and `pivot` = anchor ÷ source size, which Phaser's JSON-hash loader reads as a custom pivot. Frames with named `points` (pose markers such as a blade tip or foot contact, or glyph advances) list them in exported pixels. The bundled `player.js` exports `loadSpriteSheet`, `frameAt` and `drawFrame`, which honor all of these, and `nearestHeading`, `headingFrame`, `headingAnimation` and `headingToward` for an atlas with `meta.headings` ([facing and headings](#facing-and-headings)), and `drawStack` for a slice sheet ([stacking at run time](#stacking-at-run-time)). The TexturePacker-style frame layout is intended for existing atlas importers, but engine-specific integration should be checked in your target engine; this repository tests the bundled Canvas runtime and binary exports.

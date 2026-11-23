@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareStack, inspectPoseSheet } from '../src/stack.js';
+import { prepareStack, inspectPoseSheet, compileStackSlices } from '../src/stack.js';
 import { inspectMotion } from '../src/motion.js';
 import { expandPoses } from '../src/authoring.js';
 import { PixelError, isObject, largestScale, columnsOfCall, meant, frameTotalProblem } from '../src/core.js';
@@ -72,6 +72,10 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            normals source (a lighting normal pass derived from a colour recipe)
   pixelbolt compile <source.json> --expand [--out expanded.poses.json]
                                            Print editable poses with motion templates expanded
+  pixelbolt compile <stack.json> --slices --out slices.json [--metadata meta.json]
+                                           A sprite stack's slices as a sheet for a game that stacks them at run
+                                           time (player.js's drawStack, the Godot addon's sprite_stack.gd), in
+                                           place of its baked headings
   pixelbolt compile <source.json> --draft-views boot:30,330[,hand:45] [--preview drafts.png] [--out drafts.json]
                                            Draft turned views of small grid parts to correct and paste into
                                            parts.<name>.views; --preview draws flat, today's turn, draft and drawn
@@ -175,7 +179,7 @@ Checkout: node bin/pixelbolt.js <command>. Portable build folder: .\\pixelbolt (
 
 // The options each command takes: the one place an option is listed. One named in FLAGS takes no value; every other
 // takes the argument after it.
-const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'open', 'expand', 'embed-recipe', 'embedded', 'project', 'list-files', 'full', 'gif', 'look']);
+const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'open', 'expand', 'embed-recipe', 'embedded', 'project', 'list-files', 'full', 'gif', 'look', 'slices']);
 const OPTIONS = {
   init: ['force'],
   validate: ['fps'],
@@ -188,7 +192,7 @@ const OPTIONS = {
   preview: ['port', 'open'],
   mcp: ['out', 'root', 'time-limit'],
   schema: [],
-  compile: ['out', 'metadata', 'preview', 'force', 'expand', 'preset', 'draft-views', 'size', 'frames', 'animation'],
+  compile: ['out', 'metadata', 'preview', 'force', 'expand', 'preset', 'draft-views', 'size', 'frames', 'animation', 'slices'],
   autotile: ['out', 'metadata', 'preview', 'force'],
   scene: ['out', 'force', 'image', 'time', 'view', 'scale', 'guides', 'list-files', 'embed-recipe'],
   overlay: ['changes', 'selections', 'out', 'force'],
@@ -608,7 +612,10 @@ try {
         // A tile set by what it is, since a preset of one compiles through compilePreset: its frames are its tiles.
         const tileSet = compile === compileAutotile || input.document?.format === 'pixelforge-autotile';
         // An effect is budgeted for the frames --frames keeps and the animations --animation keeps (compilePreset).
-        const compiled = compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation?.split(','), animationPath: '--animation' }) : compile(input.document);
+        // --slices: a stack's own slices, to stack at run time, in place of its baked headings.
+        if (options.slices && input.document?.format !== 'pixelforge-stack') throw new Error('--slices writes the slices of a sprite stack source (a pixelforge-stack), to stack at run time');
+        for (const key of ['frames', 'animation', 'size']) if (options.slices && options[key] !== undefined) throw new Error(`--${key} shapes baked frames; a slice sheet is the stack's slices as they are, so omit it with --slices`);
+        const compiled = options.slices ? compileStackSlices(input.document) : compile === compilePreset || compile === COMPILERS['pixelforge-fx'] ? compilePreset(input.document, { frames: options.frames === undefined ? undefined : frameCount(options.frames), animation: options.animation?.split(','), animationPath: '--animation' }) : compile(input.document);
         // A plain recipe preset compiles to itself and has no metadata to save.
         if (options.metadata && compiled.metadata === undefined) throw new Error(`${options.preset} is a plain recipe preset, which has no metadata; omit --metadata`);
         metadata = compiled.metadata; warnings = compiled.warnings ?? []; preview = compiled.preview;

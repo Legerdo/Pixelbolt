@@ -95,8 +95,10 @@ function readTones(source, alpha) {
   const [x, y, z] = triple(source.light ?? [-1, 1, 2], 'stack.light'), length = Math.sqrt(x * x + y * y + z * z);
   if (!length) fail('stack.light', 'light direction must be nonzero');
   const turns = boolean(source.lightTurns ?? false, 'stack.lightTurns'), tables = new Map();
-  function tone(facing) {
-    const steps = Math.round((facing / length - .5) * 2);
+  // How many keys along its ramp a face moves, by how far it leans to the light, and the table that moves them.
+  const stepsOf = facing => Math.round((facing / length - .5) * 2);
+  const tone = facing => moved(stepsOf(facing));
+  function moved(steps) {
     if (!steps) return null;
     if (!tables.has(steps)) {
       const table = Uint16Array.from({ length: size }, (_, code) => code);
@@ -108,7 +110,8 @@ function readTones(source, alpha) {
   return (model, grounded = true) => {
     const round = surfaceNormals(model, grounded);
     // `turn` takes a direction in a part's own space to the stack's, as its socket has turned it.
-    return (angle, turn = null) => {
+    return Object.assign(shader, { fixed: ([nx, ny, nz], most) => moved(Math.max(-most, Math.min(most, stepsOf(nx * x + ny * y + nz * z)))) });
+    function shader(angle, turn = null) {
       const c = turns ? 1 : cosDeg(angle), s = turns ? 0 : sinDeg(angle);
       const lit = n => { const [nx, ny, nz] = turn ? turn(n) : n; return tone((c * nx - s * ny) * x + (s * nx + c * ny) * y + nz * z); };
       // The roof, then west, east, north, south and the underside, each by how far it leans to the light as the camera sees it.
@@ -117,7 +120,7 @@ function readTones(source, alpha) {
         const n = round(index, face + 1);
         return n ? lit(n) : flat[face + 1];
       };
-    };
+    }
   };
 }
 
@@ -688,7 +691,43 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     })));
     return {version:1,name:source.name,width,height,palette:source.palette,frames,animations:{}};
   }
-  return { metadata, count: plan.length, headingOf: index => plan[integer(index, 'stack.frame', 0, plan.length - 1)].heading, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, poseStudy, side: name => sideRows(model, name) };
+  // The stack's own slices as a sheet, ground first, for a game that stacks them itself at run time (runtime.js's
+  // drawStack, the Godot addon's sprite_stack.gd): one frame a slice, anchored at the pivot, and an animation, slices,
+  // that lists them in order. The pivot may be a pixel's centre or its corner, which an anchor of whole pixels cannot
+  // say, so each frame names it exactly as the point pivot-x2, at twice its coordinates. A slice has one colour a cell, so a mark painted on a side with depth 0 colours its
+  // cell. With ramps, a cell takes a tone from a light fixed to the stack, since a turning sheet has no camera: a
+  // key lighter where its top is open to the light, and by the sides it shows where it is not, a key either way at
+  // most. Parts, animations, facets and paths are the baked frames' alone, and are named in a warning.
+  function slices() {
+    const { cells, decals, tones } = model, warnings = [], at = (x, y, z) => (z * h + y) * w + x;
+    const solid = (x, y, z) => x >= 0 && x < w && y >= 0 && y < h && z >= 0 && z < levels && cells[at(x, y, z)] !== 0;
+    if (!cells.some(Boolean)) fail('stack.slices', 'the stack\'s own slices are blank, so there is nothing to stack; a stack made of parts is baked, not sliced');
+    const left = [model.parts.length && 'parts', clips.length && 'animations', model.geometry.facets.length && 'facets and lofts', organic && 'jointed paths and membranes'].filter(Boolean);
+    if (left.length) warnings.push(`${left.join(', ')} are not in the slices: a slice sheet is the stack's own slices, and a game that wants the rest plays the baked frames`);
+    const centre = [pivot[0] + .5, pivot[1] + .5];
+    const frames = Array.from({ length: levels }, (_, z) => ({ name: `slice-${z}`, duration, points: { 'pivot-x2': centre.map(part => part * 2) }, ops: [{ op: 'grid', rows: Array.from({ length: h }, (_, y) => {
+      const row = new Uint16Array(w).fill(46);
+      for (let x = 0; x < w; x++) {
+        const index = at(x, y, z);
+        let ink = cells[index];
+        if (!ink) continue;
+        for (const side of decals) ink = side.get(index) ?? ink;
+        if (tones) {
+          // Open above, it is lit as a roof; else by the sides it shows, west, east, north and south.
+          const open = [!solid(x - 1, y, z), !solid(x + 1, y, z), !solid(x, y - 1, z), !solid(x, y + 1, z)];
+          const out = !solid(x, y, z + 1) ? [0, 0, 1] : [Number(open[1]) - Number(open[0]), Number(open[3]) - Number(open[2]), 0], size = Math.sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+          const table = size ? tones.fixed(out.map(part => part / size), 1) : null;
+          if (table) ink = table[ink];
+        }
+        row[x] = ink;
+      }
+      return String.fromCharCode(...row);
+    }) }] }));
+    return { recipe: { version: 1, name: source.name, width: w, height: h, anchor: centre.map(Math.floor), palette: source.palette,
+      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames, animations: { slices: { frames: frames.map(frame => frame.name), loop: true } }, sheet: { columns: levels } },
+      warnings, metadata: { format: 'pixelforge-stack-slices', slices: levels, footprint: [w, h], pivot: centre, spacing, squash, projection } };
+  }
+  return { metadata, count: plan.length, slices, headingOf: index => plan[integer(index, 'stack.frame', 0, plan.length - 1)].heading, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, poseStudy, side: name => sideRows(model, name) };
 }
 
 // Both agent interfaces render the same labelled matrix. Pixel colours (including
@@ -706,6 +745,9 @@ export function inspectPoseSheet(project, request, options = {}) {
   return {cells:frames.map(({name,duration})=>({frame:name,duration})),poses:request.poses,headings:request.headings,
     sheet:{...sheet,columns:request.headings.length,rows:request.poses.length}};
 }
+
+// A stack's slices as a recipe of stills to stack at run time, in place of its baked headings.
+export const compileStackSlices = source => prepareStack(source).slices();
 
 export function compileStack(source, options) {
   const stack = prepareStack(source, options);

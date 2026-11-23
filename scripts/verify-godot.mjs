@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createBundle } from '../src/export.js';
-import { compileStack } from '../src/stack.js';
+import { compileStack, compileStackSlices } from '../src/stack.js';
 import { nearestHeading, headingFrame, headingAnimation, headingToward } from '../src/runtime.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { compileAutotile, compileNormals } from '../src/authoring.js';
@@ -1281,10 +1281,118 @@ export async function verifyGodotHeadings({ godot = findGodot(), keep = false, l
   }
 }
 
+// Two stacks to slice: one whose pivot is the corner where four cells meet (an even footprint on a map's grid) and one
+// whose pivot is a cell's centre, with a blank slice between solid ones and a sheet scale.
+export const GODOT_SLICE_STACKS = [
+  { format: 'pixelforge-stack', version: 1, name: 'slices-corner', palette: { a: '#402010', b: '#804020', c: '#c08040' }, ramps: ['abc'], projection: 'iso', cell: 1, headings: [0],
+    slices: [['bbbb', 'bbbb', 'bbbb', 'bbbb'], ['bbbb', 'b..b', 'b..b', 'bbbb'], ['.bb.', 'b..b', 'b..b', '.bb.']] },
+  { format: 'pixelforge-stack', version: 1, name: 'slices-centre', palette: { b: '#804020', t: '#8090a0' }, headings: [0], pivot: [1, 2],
+    slices: [['bbbbb', 'bbbbb', 'bbbbb'], ['.....', '.....', '.....'], ['..t..', '.ttt.', '..t..']] }
+];
+const SLICE_HEADINGS = [0, 30, 90, 135, 200, 315], SLICE_SQUASH = [1, 0.5, 0.65];
+
+// Runs in Godot: loads each slice sheet, gives it to the addon's sprite_stack.gd and reports what the node would draw.
+const SLICES_CHECK = `extends SceneTree
+
+const SpriteStack := preload("res://addons/pixelbolt/sprite_stack.gd")
+
+func _initialize():
+    var plan = JSON.parse_string(FileAccess.get_file_as_string("res://slices.json"))
+    var report := {}
+    for c in plan["cases"]:
+        var frames = load(c["tres"])
+        if not frames is SpriteFrames:
+            report[c["key"]] = {"error": "not a SpriteFrames"}
+            continue
+        var node := Node2D.new()
+        node.set_script(SpriteStack)
+        node.sprite_frames = frames
+        var entry := {"count": frames.get_frame_count(&"slices") if frames.has_animation(&"slices") else -1, "meta": frames.has_meta("stack_pivot")}
+        var origin: Vector2 = node.origin()
+        entry["origin"] = [origin.x, origin.y]
+        var regions := []
+        for level in maxi(0, entry["count"]):
+            var texture = frames.get_frame_texture(&"slices", level)
+            regions.append([texture.region.position.x, texture.region.position.y, texture.region.size.x, texture.region.size.y, texture.get_width(), texture.get_height()])
+        entry["regions"] = regions
+        var grounds := []
+        for squash in plan["squash"]:
+            for heading in plan["headings"]:
+                node.squash = squash
+                node.heading = heading
+                var flat: Transform2D = node.ground()
+                grounds.append([flat.x.x, flat.x.y, flat.y.x, flat.y.y])
+        entry["grounds"] = grounds
+        node.pivot = Vector2(1.5, 2.5)
+        entry["set"] = [node.origin().x, node.origin().y]
+        node.free()
+        report[c["key"]] = entry
+    var bare := Node2D.new()
+    bare.set_script(SpriteStack)
+    report["bare"] = [bare.origin().x, bare.origin().y]
+    bare.free()
+    print("PIXELBOLT ", JSON.stringify(report))
+    quit()
+`;
+
+// A sprite stack's slice sheet in a real Godot 4: its SpriteFrames lists the slices in order under "slices", each the
+// slice's own rectangle at the full slice size, and carries the point they turn about; the addon's sprite_stack.gd
+// reads that point and turns and flattens the ground as player.js's drawStack does.
+export async function verifyGodotSlices({ godot = findGodot(), keep = false, log = console.log } = {}) {
+  if (!godot) throw new Error('Godot 4 was not found: pass --godot <path> or set GODOT');
+  const version = godotRun(godot, ['--version']).output.trim().split('\n')[0];
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-godot-slices-'));
+  try {
+    await writeFile(path.join(dir, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="Pixelbolt slice sheet check"\n');
+    const cases = [], expected = {};
+    for (const [i, source] of GODOT_SLICE_STACKS.entries()) {
+      const made = compileStackSlices(source), recipe = { ...made.recipe, sheet: { ...made.recipe.sheet, ...(i === 1 && { scale: 3, trim: true, padding: 1 }) } };
+      const bundle = await createBundle(recipe), { name } = bundle.project, atlas = JSON.parse(bundle.files.get(`${name}.atlas.json`));
+      await mkdir(path.join(dir, 'slices'), { recursive: true });
+      for (const file of [`${name}.png`, `${name}.tres`]) await writeFile(path.join(dir, 'slices', file), bundle.files.get(file));
+      cases.push({ key: name, tres: `res://slices/${name}.tres` });
+      expected[name] = { atlas, metadata: made.metadata, scale: recipe.sheet.scale ?? 1 };
+    }
+    await mkdir(path.join(dir, 'addons/pixelbolt'), { recursive: true });
+    await writeFile(path.join(dir, 'addons/pixelbolt/sprite_stack.gd'), await readFile(fileURLToPath(new URL('../godot/addons/pixelbolt/sprite_stack.gd', import.meta.url))));
+    await writeFile(path.join(dir, 'slices.json'), JSON.stringify({ cases, headings: SLICE_HEADINGS, squash: SLICE_SQUASH }));
+    await writeFile(path.join(dir, 'slicescheck.gd'), SLICES_CHECK);
+    const imported = godotRun(godot, ['--path', dir, '--import']);
+    const problems = imported.output.split('\n').filter(line => /ERROR|WARNING/.test(line) && /slices|sprite_stack/.test(line));
+    assert.deepEqual(problems, [], `Godot reported problems while importing:\n${imported.output}`);
+    const report = godotReport(godotRun(godot, ['--path', dir, '--script', 'res://slicescheck.gd']));
+    const near = (a, b) => a.length === b.length && a.every((value, i) => Math.abs(value - b[i]) < 1e-5);
+    let slices = 0;
+    for (const [name, { atlas, metadata, scale }] of Object.entries(expected)) {
+      const got = report[name];
+      assert.ok(got && !got.error, `${name}: ${got?.error ?? 'missing from the report'}`);
+      const order = atlas.animations.slices.frames;
+      assert.deepEqual([got.count, got.meta], [metadata.slices, true], `${name}: the slices and their pivot`);
+      // The pivot as the stack has it, in the sheet's pixels: a corner for one stack and a pixel's centre for the other.
+      assert.ok(near(got.origin, metadata.pivot.map(part => part * scale)), `${name}: turns about ${got.origin}, not ${metadata.pivot.map(part => part * scale)}`);
+      order.forEach((frame, level) => {
+        const { frame: { x, y, w, h }, sourceSize } = atlas.frames[frame];
+        assert.deepEqual(got.regions[level], [x, y, w, h, sourceSize.w, sourceSize.h], `${name} slice ${level}: its rectangle, in a texture the size of a slice`);
+        slices++;
+      });
+      // The ground turned to the heading and then flattened: drawStack's scale(1, squash) after rotate(heading).
+      const want = SLICE_SQUASH.flatMap(squash => SLICE_HEADINGS.map(heading => { const turn = heading * Math.PI / 180; return [Math.cos(turn), squash * Math.sin(turn), -Math.sin(turn), squash * Math.cos(turn)]; }));
+      got.grounds.forEach((ground, i) => assert.ok(near(ground, want[i]), `${name}: ground ${i} is ${ground}, not ${want[i]}`));
+      assert.equal(got.grounds.length, want.length);
+      assert.deepEqual(got.set, [1.5, 2.5], `${name}: a pivot set on the node is the one used`);
+    }
+    assert.deepEqual(report.bare, [0, 0], 'a node with no slices turns about its own origin, and raises nothing');
+    log(`${version}: ${Object.keys(expected).length} slice sheets loaded: ${slices} slices in order under "slices", each its own rectangle in a texture the size of a slice, with the point they turn about (a cell corner and a pixel's centre, at sheet scales 1 and 3); the addon's sprite_stack.gd took that point and turned and flattened the ground as drawStack does at ${SLICE_HEADINGS.length * SLICE_SQUASH.length} headings and squashes.`);
+    return { version, report, dir: keep ? dir : null };
+  } finally {
+    if (!keep) await rm(dir, { recursive: true, force: true });
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2), at = args.indexOf('--godot');
   try {
-    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax, verifyGodotHeadings]) {
+    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax, verifyGodotHeadings, verifyGodotSlices]) {
       const result = await verify({ ...(at >= 0 && { godot: args[at + 1] }), keep: args.includes('--keep'), render: args.includes('--render') });
       if (result.dir) console.log(`Kept the Godot project at ${result.dir}`);
     }

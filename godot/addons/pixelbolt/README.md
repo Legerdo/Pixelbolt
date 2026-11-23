@@ -42,6 +42,10 @@ A sprite stack imports with its headings as the resource's `headings` metadata.
 velocity, &"walk"))` names the walk that faces the way a character moves, after
 `const Headings := preload("res://addons/pixelbolt/headings.gd")`.
 
+A slice sheet (`pixelbolt compile car.stack.json --slices`) imports as a SpriteFrames
+whose `slices` animation lists the slices. Attach `sprite_stack.gd` to a Node2D, give
+it that resource, and set `heading` to turn the stack to any angle as the game runs.
+
 On failure, look for `Pixelbolt: res://…:` in Output. A previous successful import
 is retained; a first failure is reported to Godot. Fix the recipe or CLI settings,
 then use **Project → Tools → Pixelbolt: Reimport all recipes**. Use this command

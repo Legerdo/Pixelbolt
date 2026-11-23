@@ -82,6 +82,10 @@ export function spriteFrames(atlas, { image = atlas.meta.image } = {}) {
   // that plays it and its place there, each animation's name at each heading, and the way each heading faces.
   const headings = atlas.meta.headings && headingsMeta(atlas, animations);
   if (headings) lines.push(`metadata/headings = ${headings}`);
+  // A slice sheet names the point its slices turn about at twice its coordinates (stack.js), since it may be a
+  // pixel's centre or its corner: here it is that point itself, get_meta("stack_pivot").
+  const twice = names.length ? atlas.frames[names[0]].points?.['pivot-x2'] : null;
+  if (twice) lines.push(`metadata/stack_pivot = Vector2(${real(twice.x / 2)}, ${real(twice.y / 2)})`);
   lines.push('');
   return { text: lines.join('\n'), approximate };
 }
