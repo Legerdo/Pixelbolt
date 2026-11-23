@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { renderProject } from '../src/core.js';
-import { prepareScene, renderScene } from '../src/scene.js';
+import { prepareScene, renderScene, scenePlanes, wholeDraws } from '../src/scene.js';
 import { isoLayout } from '../src/autotile.js';
 
 const schema = name => JSON.parse(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));
@@ -163,6 +163,58 @@ test('a placement stands on a cell of a named map, and a raised cell lifts its t
   refuse({ at: [0, 0] }, { layout: 'square', heights }, /tilemap\.heights: heights raise the cells of an iso map/);
 });
 
+test('what stands on cells of a sorted map is drawn with them: the ground never covers a wide thing, and a cliff or a post beside it covers only what is behind', () => {
+  // A slab two cells long and one deep, four pixels high, on a map of 8x4 cells: a tile is four of its cells.
+  const tiles = { version: 1, name: 'tiles', width: 8, height: 8, palette: FACES, frames: [{ name: 'block', ops: [{ op: 'box', w: 4, d: 4, h: 4, top: 't', left: 'l', right: 'r' }] }] };
+  const slab = { format: 'pixelforge-stack', version: 1, name: 'slab', palette: { e: '#ffffff' }, projection: 'iso', cell: 1, headings: [0], slices: Array(4).fill(Array(4).fill('eeeeeeee')) };
+  const post = { version: 1, name: 'post', width: 2, height: 6, palette: { k: '#202020' }, anchor: [1, 5], frames: [{ name: 'a', ops: [{ op: 'rect', w: 2, h: 6, color: 'k' }] }] };
+  const ground = (map, sort = true, rows = ['bbbb', 'bbbb', 'bbbb', 'bbbb']) => ({ name: 'ground', asset: 'tiles', at: [8, 14], ...(sort && { sort: 'ground' }), tilemap: { layout: 'iso', tile: [8, 4], rows, legend: { b: 'block' }, surface: 4, ...map } });
+  const stands = { name: 'slab', asset: 'slab', on: 'ground', cell: [1.5, 1], frame: 'heading-0' }, stood = cell => ({ name: 'post', asset: 'post', on: 'ground', cell, anchor: 'frame', sort: 'ground' });
+  const scene = instances => prepareScene({ format: 'pixelforge-scene', version: 1, name: 'iso', width: 48, height: 40, background: '#000000', assets: { tiles, slab, post }, instances });
+  const shot = instances => [...renderScene(scene(instances)).data];
+  // Whatever the map's cells hold, the slab is listed first, so only where it stands puts it after a tile.
+  const sorted = (map, ...things) => shot([stands, ...things, ground(map)]);
+  // The same with nothing sorted by the map: the ground first, then the placements in the order given.
+  const listed = (map, ...things) => shot([ground(map, false), ...things]);
+  assert.deepEqual(sorted({}), listed({}, stands), 'flat ground is under all of it');
+  const flat = renderScene(scene([stands, ground({})]), { lit: false, draws: true });
+  const parts = flat.draws.filter(draw => draw.asset === 'slab');
+  // It stands on cells [1, 1] and [2, 1], with a corner column over the cell behind each end, and is drawn in three
+  // pieces that share its columns out between them: the first corner, then [1, 1] and the other corner, which nothing
+  // is drawn between, then [2, 1].
+  assert.deepEqual(parts.map(part => part.cols), [[[0, 1]], [[1, 5], [11, 12]], [[5, 11]]]);
+  assert.deepEqual(flat.placements.filter(p => p.name === 'slab').length, 1);
+  // The planes bake each piece where it is drawn, and whatever draws a frame whole draws it once, after its last piece.
+  const { planes } = scenePlanes(scene([stands, ground({})]), flat.draws), [plane] = planes;
+  assert.equal(planes.length, 1);
+  for (let y = 0; y < plane.height; y++) for (let x = 0; x < plane.width; x++) if (plane.data[(y * plane.width + x) * 4 + 3]) assert.deepEqual([...plane.data.slice((y * plane.width + x) * 4, (y * plane.width + x) * 4 + 3)], [...flat.data.slice(((y + plane.at[1]) * 48 + x + plane.at[0]) * 4, ((y + plane.at[1]) * 48 + x + plane.at[0]) * 4 + 3)]);
+  const whole = wholeDraws(scene([stands, ground({})]), flat.draws);
+  assert.deepEqual([whole.draws.filter(draw => draw.asset === 'slab').map(draw => draw.cols), whole.covered, whole.draws.at(-1).asset], [[undefined], [], 'tiles']);
+  assert.equal(whole.draws.findIndex(draw => draw.asset === 'slab'), flat.draws.findLastIndex(draw => draw.asset === 'slab') - 2);
+  // On a terrace it stands as high as its cells and is still above them.
+  const terrace = { heights: ['....', '.11.', '....', '....'], solid: true };
+  assert.deepEqual(sorted(terrace), listed(terrace, stands));
+  // A raised cell beside its near half, at its right end or along its near side, covers the part of it behind that
+  // cell and nothing else; one behind it covers none of it.
+  const only = (heights, row) => { const data = shot([ground({ heights, solid: true }, false, ['....', '....', '....', '....'].map((empty, y) => y === row[1] ? empty.slice(0, row[0]) + 'b' + empty.slice(row[0] + 1) : empty))]); return Array.from({ length: 48 * 40 }, (_, p) => data[p * 4] + data[p * 4 + 1] + data[p * 4 + 2] > 0); };
+  for (const [cell, covers] of [[[3, 1], true], [[1, 2], true], [[2, 2], true], [[1, 0], false], [[0, 1], false]]) {
+    const heights = ['....', '....', '....', '....'].map((row, y) => y === cell[1] ? row.slice(0, cell[0]) + '2' + row.slice(cell[0] + 1) : row), map = { heights, solid: true };
+    const cliff = only(heights, cell), over = listed(map, stands), under = listed(map), drawn = sorted(map);
+    const expected = over.map((value, k) => covers && cliff[k >> 2] ? under[k] : value);
+    assert.deepEqual(drawn, expected, `a raised cell at ${cell}`);
+    if (covers) assert.notDeepEqual(drawn, over, `the cell at ${cell} covers a part of it`);
+    // Drawn whole, after its last piece, it would be over a cell that is in front of its first.
+    const view = renderScene(scene([stands, ground(map)]), { lit: false, draws: true });
+    assert.deepEqual(wholeDraws(scene([stands, ground(map)]), view.draws).covered, cell[0] === 1 && cell[1] === 2 ? ['slab'] : [], `whole, a raised cell at ${cell}`);
+  }
+  // A post in front of its far end is drawn after the piece behind it, though it stands behind the slab's middle;
+  // one behind the slab is covered by it.
+  assert.deepEqual(sorted({}, stood([0.75, 1.6])), listed({}, stands, stood([0.75, 1.6])));
+  assert.deepEqual(sorted({}, stood([2.4, 1.7])), listed({}, stands, stood([2.4, 1.7])));
+  assert.deepEqual(sorted({}, stood([1.5, 0.3])), listed({}, stood([1.5, 0.3]), stands));
+  assert.deepEqual(sorted({}, stood([2.7, 0.8])), listed({}, stood([2.7, 0.8]), stands));
+});
+
 test('the hamlet example stands every sprite stack on a cell of one terraced, sorted map', async () => {
   const { resolveReferences } = await import('../src/resolve.js');
   const { fileURLToPath } = await import('node:url');
@@ -178,6 +230,10 @@ test('the hamlet example stands every sprite stack on a cell of one terraced, so
   assert.deepEqual(tower, { name: 'tower#1', at: [16 + 8 * 16, 94 + 8 - 34], raise: 34 });
   // The raised tiles are drawn at every level under them: 64 cells and 3, 3, 3, 3, 2 + 3, 3, 3, 3, 2 + 3, 3, 3, 2, 1 + 2, 2, 2, 1 more.
   assert.equal(view.placements.find(p => p.name === 'ground').tiles, 64 + 14 + 14 + 12 + 7);
+  // The ground covers no part of anything standing on it, the two cottages two tiles long included.
+  assert.deepEqual(view.depth.overlaps.filter(pair => pair.front === 'ground'), []);
+  const loose = renderScene(prepareScene({ ...document, instances: document.instances.map(instance => (instance.tilemap ? { ...instance, sort: undefined } : instance)) }));
+  assert.deepEqual([...view.data], [...loose.data], 'as it is with the ground drawn first: no cliff here has anything behind it');
   // Every wall piece and the tower between them is one of the four quarter headings, where cells are whole pixels.
   for (const thing of things) if (thing.asset === 'wall' || thing.asset === 'tower') assert.match(thing.frame, /^heading-(0|90|180|270)$/);
 });

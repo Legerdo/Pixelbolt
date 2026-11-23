@@ -206,7 +206,8 @@ export function tiledTileset(source, { oneShots = true } = {}) {
 //   places it: half a cell up and left for corner tiles, and down by however much its frames are taller than a cell,
 //   since Tiled hangs a tile from the bottom of its cell where Pixelbolt hangs it from the top.
 // - everything else becomes tile objects in an object layer drawn in list order: placements and each copy of a repeat,
-//   each at its frame at that time, sorted tilemaps (whose cells draw among the placements), iso and scaled maps.
+//   each at its frame at that time, sorted tilemaps (whose cells draw among the placements), iso and scaled maps. An
+//   object is a whole frame: give the draws of a placement drawn in pieces through wholeDraws (scene.js) first.
 //   Objects are the drawn size, so Tiled scales a sheet exported larger back down.
 // Each layer carries its plane's parallax as Tiled's parallaxx and parallaxy, which a game reads as Pixelbolt does:
 // the layer is drawn at its position less parallax × the camera's top-left. The map keeps Tiled's parallax origin,

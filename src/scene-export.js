@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, parallaxOf, MAX_PLANE } from './scene.js';
+import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, wholeDraws, parallaxOf, MAX_PLANE } from './scene.js';
 import { framesGIF, gifBackground, asGIFShows, MAX_FRAMES_PIXELS } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
@@ -147,18 +147,22 @@ export async function createSceneBundle(source) {
       tiledSets[id].haze.push({ amount, source: `${folder}/tileset.tsx` });
     }
   }
-  // A Tiled map of the scene at its start, unlit, over those tilesets, each layer with its plane's parallax.
-  const map = tiledMap(scene, unlit.draws, { tilesets: tiledSets });
-  tileWarnings.push(...map.warnings.map(warning => `scene.tmx: ${warning}`));
+  // A Tiled map of the scene at its start, unlit, over those tilesets, each layer with its plane's parallax. A Tiled
+  // object is a whole frame, so a placement drawn in pieces is one object, where its last piece is.
+  const pieced = names => `${names.join(', ')}: drawn in pieces among the cells it stands on, and whole here, after the last of them: what covers a part of it in scene.png is behind it here`;
+  const objects = wholeDraws(scene, unlit.draws), map = tiledMap(scene, objects.draws, { tilesets: tiledSets });
+  tileWarnings.push(...map.warnings.map(warning => `scene.tmx: ${warning}`), ...(objects.covered.length ? [`scene.tmx: ${pieced(objects.covered)}`] : []));
   files.set('scene.tmx', Buffer.from(map.text));
   alignment.tiled = 'scene.tmx';
   // The same planes as images, hazed, for engines that scroll images, and a Godot scene scrolling them with Parallax2D
   // nodes. A plane is a run of draws on one plane, so it holds what one or more of the map's layers hold. A placement
   // that stands still and plays one animation (a rain overlay, a flickering torch) is no part of any plane: scene.tscn
   // plays it on an AnimatedSprite2D over its asset's sprite_frames.tres, between the planes drawn before and after it.
+  // A sprite is a whole frame too; a still placement's pieces are each in the plane they are drawn on.
   const label = i => scene.instances[i].name ?? scene.instances[i].asset, animated = animatedPlacements(scene, alignment.assets);
-  const runs = [];
-  for (const draw of unlit.draws) {
+  const runs = [], nodes = wholeDraws(scene, unlit.draws, i => animated.has(i));
+  if (nodes.covered.length) tileWarnings.push(`scene.tscn: ${pieced(nodes.covered)}`);
+  for (const draw of nodes.draws) {
     const sprite = animated.has(draw.instance) ? draw.instance : undefined, last = runs.at(-1);
     if (last && last.sprite === sprite) last.draws.push(draw);
     else runs.push({ sprite, draws: [draw] });

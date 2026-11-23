@@ -1,6 +1,8 @@
 // Bounded scene review, not a game engine. In-memory recipes only; no filesystem or network access.
 // A placement stands at pixels (`at`) or on a cell of a named tilemap (`on`, `cell`). Where it stands orders it among
-// the sorted ones; `lift`, and the height of a raised iso cell (`raise`), only draw it higher.
+// the sorted ones; `lift`, and the height of a raised iso cell (`raise`), only draw it higher. What stands on a cell of
+// an iso map is drawn with that cell, right after its tile, and a placement wider than a cell is drawn in pieces, one
+// for each cell it stands on (`pieces` in renderScene), so the ground under a building never covers it.
 import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_AREA, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
 import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
 import { fields, point, number, integer } from './authoring.js';
@@ -62,6 +64,9 @@ const alphaOver = (target, at, color) => {
 // Material passes must agree on the recipe's sheet settings; trimmed layouts may differ and are rebuilt as grids.
 const sheetSettings = sheet => JSON.stringify([sheet.columns, sheet.padding, sheet.scale, Boolean(sheet.trim)]);
 const MAX_DRAWS = 4096, MAX_WORK = 4194304, MAX_CASTS = 2048;
+// How far the bottom edge of a frame may step between neighbouring columns and still be one edge standing on the
+// ground (see `pieces` in renderScene): the near edge of a footprint turned to any of 32 headings steps less.
+const FOOT = 3;
 
 // Expands a tilemap placement into cells of one asset's frames and animations (see expandTilemap in autotile.js): each
 // cell's frame top-left in map pixels, and `bottom`, the map row below the line it stands on when the map is sorted.
@@ -564,7 +569,7 @@ export function scenePlanes(scene, draws) {
       const project = scene.assets[draw.asset].recipe, frame = project.frames[draw.frame].data, s = draw.scale, [x0, y0] = boxes[k];
       for (let y = 0; y < project.height; y++) for (let x = 0; x < project.width; x++) {
         const at = (y * project.width + x) * 4;
-        if (!frame[at + 3]) continue;
+        if (!frame[at + 3] || (draw.cols && !draw.cols.some(([from, to]) => x >= from && x < to))) continue;
         for (let c = 0; c < 4; c++) rgba[c] = frame[at + c];
         if (draw.haze) rgba.set(hazed(draw.haze, rgba));
         for (let sy = 0; sy < s; sy++) for (let sx = 0; sx < s; sx++) alphaOver(data, ((y0 - top + y * s + sy) * width + x0 - left + x * s + sx) * 4, rgba);
@@ -575,11 +580,39 @@ export function scenePlanes(scene, draws) {
   return { planes, shaded: [...shaded], oversized };
 }
 
+// renderScene's `draws` for what draws a frame whole, as a Tiled object and a Godot sprite do: each placement that
+// is drawn in pieces (among the cells of the iso map it stands on) is drawn once, whole, where its last piece is, after
+// all the ground under it. `which` picks the placements to make whole (all of them unless given). `covered` names those
+// this changes a pixel of: something drawn between two of its pieces lies over the earlier one, and is behind it here.
+export function wholeDraws(scene, draws, which = () => true) {
+  const key = draw => `${draw.instance} ${draw.x} ${draw.y}`, pieced = draw => draw.cols && which(draw.instance), last = new Map(), out = [], covered = new Set();
+  for (const [k, draw] of draws.entries()) if (pieced(draw)) last.set(key(draw), k);
+  const box = draw => { const { width, height } = scene.assets[draw.asset].recipe; return [draw.x + draw.shift[0], draw.y + draw.shift[1], width * draw.scale, height * draw.scale]; };
+  const opaque = (draw, [left, top], X, Y) => {
+    const project = scene.assets[draw.asset].recipe, x = Math.floor((X - left) / draw.scale), y = Math.floor((Y - top) / draw.scale);
+    return (!draw.cols || draw.cols.some(([from, to]) => x >= from && x < to)) && project.frames[draw.frame].data[(y * project.width + x) * 4 + 3] > 0;
+  };
+  const over = (front, piece) => {
+    const a = box(front), b = box(piece), x1 = Math.min(a[0] + a[2], b[0] + b[2]), y1 = Math.min(a[1] + a[3], b[1] + b[3]);
+    for (let y = Math.max(a[1], b[1]); y < y1; y++) for (let x = Math.max(a[0], b[0]); x < x1; x++) if (opaque(piece, b, x, y) && opaque(front, a, x, y)) return true;
+    return false;
+  };
+  for (const [k, draw] of draws.entries()) {
+    if (!pieced(draw)) { out.push(draw); continue; }
+    const end = last.get(key(draw)), name = scene.instances[draw.instance].name ?? scene.instances[draw.instance].asset;
+    if (k === end) { const { cols, ...whole } = draw; out.push(whole); continue; }
+    if (covered.has(name)) continue;
+    for (let j = k + 1; j < end; j++) if (!draws[j].shade && key(draws[j]) !== key(draw) && over(draws[j], draw)) { covered.add(name); break; }
+  }
+  return { draws: out, covered: [...covered] };
+}
+
 // `depth: true` also records which placement drew each pixel last and who covers whom, for `depth` in the result and
 // for `sceneImage(view, { mode: 'depth' })`.
 // With `draws`, the result also lists every frame drawn, in drawing order: { instance, cell? (a tilemap cell's index),
 // asset, frame (its index), x, y (its top-left on screen), scale, shift (how far the camera moved it, so x + shift[0] is
-// where it is in the scene), shade?, haze? }. A Tiled map of the scene is made from it.
+// where it is in the scene), shade?, haze?, cols? }. A Tiled map of the scene is made from it. `cols` is on a piece of
+// a placement drawn in pieces: the columns of the frame it draws, as [from, to) runs of frame pixels.
 export function renderScene(scene, { time = 0, lit = true, density = false, depth = false, draws = false } = {}) {
   if (!Number.isFinite(time) || time < 0) fail('scene.time', 'expected a nonnegative finite time in milliseconds');
   if (typeof lit !== 'boolean' || typeof density !== 'boolean' || typeof depth !== 'boolean') fail('scene.preview', 'lit, density and depth must be booleans');
@@ -618,7 +651,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
   const hazed = sceneHaze(scene);
   // Shadows (below): per light, the rank of the last-drawn caster shadowing each pixel, or nothing when none does.
   let shadowMasks = [];
-  const drawFrame = (id, index, left, top, s, label, shade = null, unlit, entry, fade = 0, rank, within = null) => {
+  const drawFrame = (id, index, left, top, s, label, shade = null, unlit, entry, fade = 0, rank, within = null, only = null) => {
     const asset = assets[id], shift = shifts[id], project = asset.recipe, frame = project.frames[index];
     const normal = asset.normal?.frames[index].data, emission = asset.emissive?.frames[index].data;
     const light = !shade && !unlit && lit && lighting && (normal || emission || lighting.scope === 'all') && (lighting.mode === 'multiply' || shift);
@@ -626,7 +659,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     for (let y = 0; y < project.height; y++) for (let x = 0; x < project.width; x++) {
       const at = (y * project.width + x) * 4;
       for (let c = 0; c < 4; c++) rgba[c] = frame.data[at + c];
-      if (!rgba[3]) continue;
+      if (!rgba[3] || (only && !only[x])) continue;
       if (light) {
         let nx = 0, ny = 0, nz = 1;
         if (normal?.[at + 3]) { nx = normal[at] / 127.5 - 1; ny = normal[at + 1] / 127.5 - 1; nz = normal[at + 2] / 127.5 - 1; }
@@ -740,6 +773,43 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
   // its cells joins the group, standing on the bottom row of its frame, so a wall or a tree taller than its tile covers
   // whoever stands behind it. Equal lines keep list order, then map order.
   // Each item's rank is where its placement, or its sorted group, starts drawing.
+  // What stands `on` a cell of an iso map is drawn with that cell: after its tile (and before the tiles of the next
+  // line), then in the order of where it stands. A placement wider than a cell stands on several, so it is drawn in
+  // pieces. The bottom edge of its frame is where it meets the ground: the lowest pixel of each column, followed out
+  // from the frame's lowest pixels for as long as it runs unbroken (a step of at most FOOT pixels between neighbouring
+  // columns). Each of those columns stands on the cell under its lowest pixel. The rest overhang, as a tree's crown
+  // does and a roof's eaves, and stand with the anchor; so does every column when the frame ends above its anchor. The
+  // columns standing on one cell are a piece, drawn with that cell. So the ground under a building never covers it,
+  // and a cliff or a barrel beside it covers only the part that stands behind it.
+  const pieces = (i, rx, ry) => {
+    const instance = scene.instances[i], state = states[i], map = scene.instances[instance.place.index], { tilemap } = map, [w, h] = tilemap.tile, s = instance.scale, ms = map.scale;
+    const project = assets[instance.asset].recipe, { data } = state.frame;
+    const left = map.at[0] - map.anchor[0] * ms, top = map.at[1] - map.anchor[1] * ms, dx = rx * instance.step[0], dy = ry * instance.step[1];
+    // The cell under a point of the ground: the line its tile is sorted by, and half a pixel after it.
+    const stand = (x, y) => {
+      const u = (x - left) / ms / (w / 2) - tilemap.rows, v = (y - top) / ms / (h / 2) - 1, c = Math.round((u + v) / 2), r = Math.round((v - u) / 2);
+      return { cell: `${c} ${r}`, ground: top + ((c + r + 1) * h / 2 - 1) * ms + .5, fine: y };
+    };
+    const whole = stand(state.position[0] + dx, state.position[1] + dy + instance.raise), found = new Map();
+    const bottoms = Array.from({ length: project.width }, (_, x) => { let y = project.height - 1; while (y >= 0 && !data[(y * project.width + x) * 4 + 3]) y--; return y; });
+    const low = Math.max(...bottoms), foot = new Uint8Array(project.width), next = [];
+    // The anchor is on the line above the row it names: a frame whose lowest row is that row, or the one above, stands there.
+    if (low >= (state.position[1] - state.lift - state.top) / s - 1) for (const [x, y] of bottoms.entries()) if (y === low) { foot[x] = 1; next.push(x); }
+    while (next.length) {
+      const x = next.pop();
+      for (const beside of [x - 1, x + 1]) if (bottoms[beside] >= 0 && !foot[beside] && Math.abs(bottoms[beside] - bottoms[x]) <= FOOT) { foot[beside] = 1; next.push(beside); }
+    }
+    for (const [x, y] of bottoms.entries()) {
+      if (y < 0) continue;
+      const at = foot[x] ? stand(state.left + dx + (x + .5) * s, state.top + dy + (y + .5) * s + state.lift + instance.raise) : whole;
+      const piece = found.get(at.cell) ?? { ...at, only: new Uint8Array(project.width) };
+      piece.only[x] = 1;
+      if (at.fine < piece.fine) piece.fine = at.fine;
+      found.set(at.cell, piece);
+    }
+    if (found.size < 2) return [{ i, rx, ry, ground: whole.ground, fine: whole.fine }];
+    return [...found.values()].map(({ ground, fine, only }) => ({ i, rx, ry, ground, fine, only, of: found.size }));
+  };
   const order = [], sorted = scene.instances.flatMap((instance, i) => instance.sort === 'ground' ? [i] : []);
   const copies = i => {
     const instance = scene.instances[i], s = instance.scale;
@@ -750,8 +820,27 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
       const top = instance.at[1] - instance.anchor[1] * s;
       return instance.tilemap.cells.map((cell, k) => ({ i, cell: k, ground: top + (cell.bottom - 1) * s }));
     }
-    const [columns, rows] = instance.repeat;
-    return Array.from({ length: columns * rows }, (_, k) => ({ i, rx: k % columns, ry: Math.floor(k / columns), ground: states[i].position[1] + (instance.raise ?? 0) + Math.floor(k / columns) * instance.step[1] }));
+    const [columns, rows] = instance.repeat, cells = instance.sort === 'ground' && instance.place && scene.instances[instance.place.index].tilemap.iso && !states[i].hidden;
+    return Array.from({ length: columns * rows }, (_, k) => ({ i, rx: k % columns, ry: Math.floor(k / columns), ground: states[i].position[1] + (instance.raise ?? 0) + Math.floor(k / columns) * instance.step[1] }))
+      .flatMap(copy => cells ? pieces(i, copy.rx, copy.ry) : [copy]);
+  };
+  // Pieces of one copy that nothing is drawn between are one piece, and all of them are the placement, whole.
+  const joined = items => {
+    const out = [];
+    for (const item of items) {
+      const last = out.at(-1);
+      if (!item.only || !last?.only || last.i !== item.i || last.rx !== item.rx || last.ry !== item.ry) { out.push(item.only ? { ...item, parts: 1 } : item); continue; }
+      for (const [x, on] of item.only.entries()) if (on) last.only[x] = 1;
+      last.parts++;
+    }
+    const seen = new Set();
+    return out.map(item => {
+      if (!item.only) return item;
+      const { parts, of, ...piece } = item, key = `${item.i} ${item.rx} ${item.ry}`, later = seen.has(key);
+      seen.add(key);
+      if (parts === of) delete piece.only;
+      return { ...piece, ...(later && { later }) };
+    });
   };
   for (const [i, instance] of scene.instances.entries()) {
     const rank = order.length;
@@ -759,7 +848,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     if (i !== sorted[0]) continue;
     // A sorted tilemap is listed among the placements where its group starts.
     order.push(...sorted.filter(j => scene.instances[j].tilemap).map(j => ({ i: j, record: true, rank })));
-    order.push(...sorted.flatMap(copies).map((item, n) => ({ n, item })).sort((a, b) => a.item.ground - b.item.ground || a.n - b.n).map(({ item }) => ({ ...item, rank })));
+    order.push(...joined(sorted.flatMap(copies).map((item, n) => ({ n, item })).sort((a, b) => a.item.ground - b.item.ground || (a.item.fine ?? 0) - (b.item.fine ?? 0) || a.n - b.n).map(({ item }) => ({ ...item, rank }))));
   }
   // Shadows. A placement or tilemap with `shadow` stops each light that reaches it, over the shape its frame casts on
   // the ground: a cutout standing on its ground line and turned to face the light, falling away from the light, longer
@@ -812,7 +901,7 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     };
     for (const item of order) {
       const { i } = item, instance = scene.instances[i];
-      if (!instance.shadow || item.record) continue;
+      if (!instance.shadow || item.record || item.later) continue;
       const project = assets[instance.asset].recipe, s = instance.scale, shift = shiftOf(i);
       let casters;
       if (instance.tilemap) {
@@ -840,10 +929,13 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     }
   }
   const drawn = draws ? [] : null;
-  const record = (i, cell, frame, x, y) => {
-    const instance = scene.instances[i];
-    drawn?.push({ instance: i, ...(cell !== null && { cell }), asset: instance.asset, frame, x, y, scale: instance.scale, shift: shiftOf(i), ...(instance.shade && { shade: instance.shade }), ...(instance.haze && { haze: instance.haze }) });
+  const record = (i, cell, frame, x, y, only) => {
+    const instance = scene.instances[i], cols = [];
+    if (only) for (const [at, on] of only.entries()) if (on) { if (cols.at(-1)?.[1] === at) cols.at(-1)[1]++; else cols.push([at, at + 1]); }
+    drawn?.push({ instance: i, ...(cell !== null && { cell }), asset: instance.asset, frame, x, y, scale: instance.scale, shift: shiftOf(i), ...(instance.shade && { shade: instance.shade }), ...(instance.haze && { haze: instance.haze }), ...(only && { cols }) });
   };
+  // A placement drawn in pieces is one placement and one depth entry, listed where its first piece is drawn.
+  const begun = new Map();
   for (const item of order) {
     const { i } = item, instance = scene.instances[i], asset = assets[instance.asset], project = asset.recipe, s = instance.scale, label = instance.name ?? `${instance.asset}#${i}`;
     if (instance.tilemap) {
@@ -877,12 +969,18 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
     const state = states[i], { rx, ry } = item;
     if (state.hidden) continue;
     const shift = shiftOf(i), left = state.left + rx * instance.step[0] - shift[0], top = state.top + ry * instance.step[1] - shift[1];
+    if (item.later) {
+      record(i, null, state.index, left, top, item.only);
+      drawFrame(instance.asset, state.index, left, top, s, label, instance.shade, instance.lit === false, begun.get(`${i} ${rx} ${ry}`), instance.haze, item.rank, null, item.only);
+      continue;
+    }
     placements.push({ name: instance.name ?? instance.asset, frame: state.frame.name, x: left, y: top, w: project.width * s, h: project.height * s, scale: s, ...(state.lift && { lift: state.lift }), ...(instance.haze && { haze: instance.haze }), ...(instance.shade && { shade: instance.shade }) });
     // A sorted copy stands at its placement point; its y is the ground line it was sorted by.
     const sorted = instance.sort === 'ground', at = [state.position[0] + rx * instance.step[0], state.position[1] + ry * instance.step[1]];
     const entry = owner && !instance.shade ? entries.push({ instance: i, label, sorted, ...(sorted && { at }), ...(sorted && state.lift && { lift: state.lift }), ...(sorted && instance.raise && { raise: instance.raise }), box: { x: left, y: top, w: project.width * s, h: project.height * s }, shift, covers: false }) - 1 : -1;
-    record(i, null, state.index, left, top);
-    drawFrame(instance.asset, state.index, left, top, s, label, instance.shade, instance.lit === false, entry, instance.haze, item.rank);
+    if (item.only) begun.set(`${i} ${rx} ${ry}`, entry);
+    record(i, null, state.index, left, top, item.only);
+    drawFrame(instance.asset, state.index, left, top, s, label, instance.shade, instance.lit === false, entry, instance.haze, item.rank, null, item.only);
   }
   if (density) for (const box of placements) {
     const color = box.scale === 1 ? [65, 201, 240, 180] : [255, 70, 100, 255];
