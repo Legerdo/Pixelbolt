@@ -1389,10 +1389,166 @@ export async function verifyGodotSlices({ godot = findGodot(), keep = false, log
   }
 }
 
+// A scene on isometric diamonds of 8 by 4: a ground of blocks as tall as wide, one of them an animated water, from a
+// sheet with padding, and pillars from another sheet whose frames are taller, standing on the same diamonds.
+const isoBlock = (name, top, left, right, duration) => ({ name, ...(duration && { duration }), ops: [{ op: 'box', w: 4, d: 4, h: 4, top, left, right }] });
+export const GODOT_ISO_SCENE = { format: 'pixelforge-scene', version: 1, name: 'godot-iso', width: 56, height: 40, background: '#203040',
+  assets: {
+    blocks: { version: 1, name: 'blocks', width: 8, height: 8, palette: { g: '#58a048', h: '#3c7838', i: '#2c5c30', s: '#a0a0b0', t: '#707088', u: '#505068', w: '#4080c0', x: '#60a0e0', v: '#305890', y: '#284878' },
+      frames: [isoBlock('grass', 'g', 'h', 'i'), isoBlock('stone', 's', 't', 'u'), isoBlock('water-0', 'w', 'v', 'y', 200), isoBlock('water-1', 'x', 'v', 'y', 200)],
+      animations: { water: { frames: ['water-0', 'water-1'] } }, sheet: { columns: 4, padding: 1 } },
+    pillars: { version: 1, name: 'pillars', width: 8, height: 12, palette: { p: '#e0d0b0', q: '#a09070', r: '#d04040' },
+      frames: [{ name: 'post', ops: [{ op: 'rect', x: 3, y: 1, w: 2, h: 10, color: 'p' }, { op: 'rect', x: 2, y: 9, w: 4, h: 2, color: 'q' }] }, { name: 'flag', ops: [{ op: 'rect', x: 3, y: 0, w: 1, h: 11, color: 'q' }, { op: 'rect', x: 4, y: 0, w: 3, h: 3, color: 'r' }] }],
+      animations: {} }
+  },
+  instances: [
+    { name: 'ground', asset: 'blocks', at: [8, 14], tilemap: { layout: 'iso', tile: [8, 4], rows: ['ggsgg', 'gwwsg', 'sgwgg', 'ggsgs'], legend: { g: 'grass', s: 'stone', w: { animation: 'water' } } } },
+    { name: 'pillars', asset: 'pillars', at: [8, 14], tilemap: { layout: 'iso', tile: [8, 4], rows: ['#...#', '.....', '..f..', '#...f'], legend: { '#': 'post', f: 'flag' } } }
+  ] };
+
+// Runs in Godot: loads the isometric TileSet, lays each tilemap's cells in a TileMapLayer and reports where Godot
+// puts each tile's texture: the cell's place in the layer, less half the tile's region and its texture origin.
+// With "render" in the plan (a window, so not headless) it draws the layers where the plan says and saves the picture.
+const ISO_CHECK = `extends SceneTree
+
+var plan: Dictionary
+var view: SubViewport
+var wait := -1
+
+func _initialize():
+    plan = JSON.parse_string(FileAccess.get_file_as_string("res://iso.json"))
+    var tiles = load(plan["tres"])
+    var report := {"tile_set": tiles is TileSet}
+    if not tiles is TileSet:
+        print("PIXELBOLT ", JSON.stringify(report))
+        quit()
+        return
+    report["shape"] = tiles.tile_shape
+    report["layout"] = tiles.tile_layout
+    report["size"] = [tiles.tile_size.x, tiles.tile_size.y]
+    var sources := []
+    for i in tiles.get_source_count():
+        var source: TileSetAtlasSource = tiles.get_source(tiles.get_source_id(i))
+        sources.append([source.resource_name, source.texture_region_size.x, source.texture_region_size.y, source.get_tiles_count()])
+    report["sources"] = sources
+    if plan.has("render"):
+        view = SubViewport.new()
+        view.size = Vector2i(plan["render"]["size"][0], plan["render"]["size"][1])
+        view.transparent_bg = true
+        view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+        root.add_child(view)
+    var placed := []
+    for cells in plan["layers"]:
+        var layer := TileMapLayer.new()
+        layer.tile_set = tiles
+        layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+        if view:
+            layer.position = Vector2(plan["render"]["at"][0], plan["render"]["at"][1])
+            view.add_child(layer)
+        else:
+            root.add_child(layer)
+        var spots := []
+        for cell in cells:
+            var coords := Vector2i(cell[0], cell[1])
+            var source_id: int = tiles.get_source_id(cell[2])
+            var atlas := Vector2i(cell[3], cell[4])
+            layer.set_cell(coords, source_id, atlas)
+            var source: TileSetAtlasSource = tiles.get_source(source_id)
+            var data: TileData = source.get_tile_data(atlas, 0)
+            var corner: Vector2 = layer.map_to_local(coords) - Vector2(source.texture_region_size) / 2.0 - Vector2(data.texture_origin)
+            var region: Rect2i = source.get_tile_texture_region(atlas, 0)
+            spots.append([corner.x, corner.y, region.position.x, region.position.y, source.get_tile_animation_frames_count(atlas)])
+        placed.append(spots)
+    report["placed"] = placed
+    if view:
+        wait = 0
+        return
+    print("PIXELBOLT ", JSON.stringify(report))
+    quit()
+
+func _process(_delta: float) -> bool:
+    if wait < 0:
+        return false
+    wait += 1
+    if wait < 6:
+        return false
+    view.get_texture().get_image().save_png("res://godot_iso.png")
+    print("PIXELBOLT ", JSON.stringify({"saved": true}))
+    quit()
+    return true
+`;
+
+// A scene's isometric TileSet in a real Godot 4: tileset_iso.tres is an isometric TileSet in Godot's Diamond Down
+// layout, of the scene's diamonds, with an atlas source for each sheet; laid in TileMapLayers at the tilemaps' cells,
+// every tile's texture lands where Pixelbolt draws that cell, all of them the same step from the scene's origin (the
+// layers' position). With render (a window opens, so not headless) Godot draws the layers there, which must be the
+// unlit scene's pixels.
+export async function verifyGodotIso({ godot = findGodot(), keep = false, log = console.log, render = false } = {}) {
+  if (!godot) throw new Error('Godot 4 was not found: pass --godot <path> or set GODOT');
+  const version = godotRun(godot, ['--version']).output.trim().split('\n')[0];
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-godot-iso-'));
+  try {
+    await writeFile(path.join(dir, 'project.godot'), 'config_version=5\n\n[application]\n\nconfig/name="Pixelbolt isometric tile set check"\n');
+    const bundle = await createSceneBundle(GODOT_ISO_SCENE), alignment = JSON.parse(bundle.files.get('alignment.json'));
+    assert.deepEqual(alignment.isoTileset, { file: 'tileset_iso.tres', tile: [8, 4], assets: ['blocks', 'pillars'] });
+    assert.deepEqual(bundle.warnings.filter(warning => warning.startsWith('tileset_iso')), []);
+    for (const [file, bytes] of bundle.files) if (file === 'tileset_iso.tres' || /^assets\/\d+\/color\.png$/.test(file)) {
+      await mkdir(path.dirname(path.join(dir, 'iso', file)), { recursive: true });
+      await writeFile(path.join(dir, 'iso', file), bytes);
+    }
+    // Each tilemap's cells: column, row, the source its asset is, and the frame's place on that asset's sheet.
+    const scene = prepareScene(GODOT_ISO_SCENE), view = renderScene(scene, { lit: false, draws: true }), drawn = [];
+    const layers = scene.instances.map((instance, i) => {
+      const map = instance.tilemap, project = scene.assets[instance.asset].recipe, [w, h] = map.tile, { padding, columns } = project.sheet;
+      return view.draws.filter(draw => draw.instance === i).map(draw => {
+        const cell = map.cells[draw.cell], across = cell.x / (w / 2) - (map.rows - 1), down = (cell.y - h + project.height) / (h / 2);
+        drawn.push([draw.x, draw.y, padding + (draw.frame % columns) * (project.width + padding * 2), padding + Math.floor(draw.frame / columns) * (project.height + padding * 2)]);
+        return [(down + across) / 2, (down - across) / 2, alignment.isoTileset.assets.indexOf(instance.asset), draw.frame % columns, Math.floor(draw.frame / columns)];
+      });
+    });
+    const plan = { tres: 'res://iso/tileset_iso.tres', layers };
+    await writeFile(path.join(dir, 'iso.json'), JSON.stringify(plan));
+    await writeFile(path.join(dir, 'isocheck.gd'), ISO_CHECK);
+    const imported = godotRun(godot, ['--path', dir, '--import']);
+    const problems = imported.output.split('\n').filter(line => /ERROR|WARNING/.test(line) && /iso\//.test(line));
+    assert.deepEqual(problems, [], `Godot reported problems while importing:\n${imported.output}`);
+    const report = godotReport(godotRun(godot, ['--path', dir, '--script', 'res://isocheck.gd']));
+    // TileSet.TILE_SHAPE_ISOMETRIC is 1 and TILE_LAYOUT_DIAMOND_DOWN 5; a region is the whole frame.
+    assert.deepEqual([report.tile_set, report.shape, report.layout, report.size], [true, 1, 5, [8, 4]], 'an isometric TileSet in the Diamond Down layout, of the scene\'s diamonds');
+    assert.deepEqual(report.sources, [['blocks', 8, 8, 3], ['pillars', 8, 12, 2]], 'a source for each sheet: its frames as tiles, the water one animated tile');
+    const spots = report.placed.flat(), steps = new Set(spots.map(([x, y], k) => `${drawn[k][0] - x},${drawn[k][1] - y}`));
+    assert.equal(spots.length, drawn.length);
+    assert.equal(steps.size, 1, `Godot puts the tiles' textures at different steps from where Pixelbolt draws the cells: ${[...steps].slice(0, 6).join(' | ')}`);
+    spots.forEach(([, , x, y], k) => assert.deepEqual([x, y], drawn[k].slice(2), `cell ${k}: the frame's rectangle on its sheet`));
+    const animated = spots.filter(spot => spot[4] > 1).length, at = [...steps][0].split(',').map(Number);
+    assert.equal(animated, view.draws.filter(draw => scene.assets[draw.asset].recipe.frames[draw.frame].name === 'water-0').length, 'the water cells are the animated tile');
+    assert.ok(at.every(Number.isInteger), `the layers stand at whole pixels: ${at}`);
+    let drew = '';
+    if (render) {
+      await writeFile(path.join(dir, 'iso.json'), JSON.stringify({ ...plan, render: { size: [scene.width, scene.height], at } }));
+      godotReport(godotRun(godot, ['--path', dir, '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy', '--resolution', '256x256', '--script', 'res://isocheck.gd'], { headless: false }));
+      const image = decodePNG(await readFile(path.join(dir, 'godot_iso.png')));
+      assert.deepEqual([image.width, image.height], [scene.width, scene.height]);
+      const [br, bg, bb] = scene.background, wrong = [];
+      for (let p = 0; p < scene.width * scene.height; p++) {
+        const want = [...view.data.subarray(p * 4, p * 4 + 3)], blank = want[0] === br && want[1] === bg && want[2] === bb, alpha = image.data[p * 4 + 3];
+        const got = alpha ? [...image.data.subarray(p * 4, p * 4 + 3)] : null;
+        if (blank ? got !== null : got === null || alpha !== 255 || got.some((value, k) => value !== want[k])) wrong.push(`${p % scene.width},${Math.floor(p / scene.width)}: Godot ${got ?? 'nothing'}, Pixelbolt ${blank ? 'nothing' : want}`);
+      }
+      assert.deepEqual(wrong.slice(0, 12), [], `${wrong.length} pixels of Godot's drawing of the TileMapLayers differ from the unlit scene`);
+      drew = ` Drawn in a window with the layers at [${at}], Godot's picture is the unlit scene in all ${scene.width * scene.height} pixels.`;
+    }
+    log(`${version}: tileset_iso.tres is an isometric TileSet (Diamond Down) of 8×4 diamonds with ${report.sources.length} sheets; laid in TileMapLayers at the scene's ${spots.length} cells, every tile's texture is where Pixelbolt draws that cell, [${at}] from the layers' origin, ${animated} of them the animated water.${drew}`);
+    return { version, report, dir: keep ? dir : null };
+  } finally {
+    if (!keep) await rm(dir, { recursive: true, force: true });
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2), at = args.indexOf('--godot');
   try {
-    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax, verifyGodotHeadings, verifyGodotSlices]) {
+    for (const verify of [verifyGodot, verifyGodotTiles, verifyGodotLit, verifyGodotParallax, verifyGodotHeadings, verifyGodotSlices, verifyGodotIso]) {
       const result = await verify({ ...(at >= 0 && { godot: args[at + 1] }), keep: args.includes('--keep'), render: args.includes('--render') });
       if (result.dir) console.log(`Kept the Godot project at ${result.dir}`);
     }

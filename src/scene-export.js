@@ -96,7 +96,7 @@ export async function createSceneBundle(source) {
   files.set('scene.png', encodePNG(view.data, view.width, view.height));
   const unlit = renderScene(scene, { lit: false, draws: true });
   files.set('unlit.png', encodePNG(unlit.data, unlit.width, unlit.height));
-  const tiles = [], tileWarnings = [], tiledSets = {}, hazed = sceneHaze(scene), alignment = { version: 1, coordinates: 'atlas pixels; normal RGB encodes XYZ in [0,255], +X right, +Y down, +Z toward viewer (normalYUp flips green to +Y up, as Godot and Unity read normal maps); never color-quantize normal passes', assets: Object.create(null) };
+  const tiles = [], isoSheets = new Map(), tileWarnings = [], tiledSets = {}, hazed = sceneHaze(scene), alignment = { version: 1, coordinates: 'atlas pixels; normal RGB encodes XYZ in [0,255], +X right, +Y down, +Z toward viewer (normalYUp flips green to +Y up, as Godot and Unity read normal maps); never color-quantize normal passes', assets: Object.create(null) };
   for (const [id, asset] of Object.entries(scene.assets)) {
     // Asset keys may contain punctuation; use a stable numeric export directory.
     const directory = `assets/${Object.keys(alignment.assets).length}`;
@@ -128,6 +128,7 @@ export async function createSceneBundle(source) {
     // And a Tiled tileset of its own beside its colour pass, since a Tiled tileset cuts one image: a tile set's with its
     // terrains, any other asset's with its frames as tiles (its looping animations animated), for scene.tmx.
     const { sheet } = asset.recipe, frames = { atlas: namesAnimations(spec) ? atlas.metadata : { ...atlas.metadata, animations: {} }, tiles: [], layered: [], plain: asset.recipe.frames.map(frame => frame.name), colors: {}, name: id, margin: sheet.padding * sheet.scale, separation: sheet.padding * 2 * sheet.scale };
+    isoSheets.set(id, { ...(set ?? frames), name: id, image: entry.canvasTexture ?? `${directory}/color.png` });
     const tiled = tiledTileset({ ...(set ?? frames), image: 'color.png' }, { oneShots: Boolean(set) });
     tileWarnings.push(...tiled.warnings.map(warning => `${directory}/tileset.tsx: ${warning}`));
     files.set(`${directory}/tileset.tsx`, Buffer.from(tiled.text));
@@ -205,6 +206,18 @@ export async function createSceneBundle(source) {
       alignment.tileset = { file: 'tileset.tres', assets: tiles.map(item => item.id) };
     }
   }
+  // An isometric TileSet for the scene's iso tilemaps: every asset one of them draws from, at 1×, on the diamonds of
+  // the first, so a TileMapLayer with it paints the ground the scene draws.
+  const diamonds = scene.instances.filter(instance => instance.tilemap?.iso && instance.scale === 1 && scene.assets[instance.asset].recipe.sheet.scale === 1 && !scene.assets[instance.asset].recipe.sheet.trim);
+  if (diamonds.length) {
+    const [tw, th] = diamonds[0].tilemap.tile, ids = [...new Set(diamonds.filter(instance => instance.tilemap.tile[0] === tw && instance.tilemap.tile[1] === th).map(instance => instance.asset))];
+    const result = tileSets(ids.map(id => isoSheets.get(id)), { iso: [tw, th] });
+    tileWarnings.push(...result.warnings.map(warning => `tileset_iso.tres: ${warning}`));
+    if (result.text !== null) {
+      files.set('tileset_iso.tres', Buffer.from(result.text));
+      alignment.isoTileset = { file: 'tileset_iso.tres', tile: [tw, th], assets: ids };
+    }
+  }
   files.set('alignment.json', Buffer.from(JSON.stringify(alignment, null, 2) + '\n'));
   files.set('review.json', Buffer.from(JSON.stringify({ placements: view.placements, warnings: [...view.warnings, ...tileWarnings] }, null, 2) + '\n'));
   // The page that replays the scene, with what it runs on in player/: the folder's top level is what a game takes
@@ -241,11 +254,11 @@ function animatedPlacements(scene, assets) {
 }
 
 // The files a scene export writes only sometimes, by the names it gives them.
-const SCENE_FILES = /^(?:tileset\.tres|planes\/\d+\.png|assets\/\d+\/(?:haze-[^/]+\/)?(?:[\w-]+\.png|atlas\.json|sprite_frames\.tres|canvas_texture\.tres|tileset\.tsx))$/;
+const SCENE_FILES = /^(?:tileset(?:_iso)?\.tres|planes\/\d+\.png|assets\/\d+\/(?:haze-[^/]+\/)?(?:[\w-]+\.png|atlas\.json|sprite_frames\.tres|canvas_texture\.tres|tileset\.tsx))$/;
 // The files an earlier scene export's alignment.json says it wrote, of those it writes only sometimes.
 function sceneFiles(alignment) {
   if (alignment?.version !== 1 || typeof alignment.coordinates !== 'string' || !alignment.coordinates.startsWith('atlas pixels')) return [];
-  const files = [alignment.tileset?.file, ...(Array.isArray(alignment.planes) ? alignment.planes.map(plane => plane?.image) : [])];
+  const files = [alignment.tileset?.file, alignment.isoTileset?.file, ...(Array.isArray(alignment.planes) ? alignment.planes.map(plane => plane?.image) : [])];
   for (const entry of Object.values(alignment.assets ?? {})) {
     if (!entry || typeof entry !== 'object') continue;
     files.push(entry.metadata, entry.godot, entry.tiled, entry.canvasTexture, ...Object.values(entry.passes ?? {}));

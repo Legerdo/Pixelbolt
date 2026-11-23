@@ -308,7 +308,7 @@ const [mapFile, outFile] = tiled.scriptArguments;
 let result;
 try {
   const map = tiled.mapFormat('tmx').read(mapFile);
-  result = { size: [map.width, map.height, map.tileWidth, map.tileHeight], tilesets: map.tilesets.map(ts => [ts.name, ts.tileCount]),
+  result = { size: [map.width, map.height, map.tileWidth, map.tileHeight], isometric: map.orientation === TileMap.Isometric, tilesets: map.tilesets.map(ts => [ts.name, ts.tileCount]),
     layers: map.layers.map(layer => {
       if (layer.isTileLayer) { let tiles = 0; for (let y = 0; y < layer.height; y++) for (let x = 0; x < layer.width; x++) if (layer.tileAt(x, y)) tiles++; return ['tiles', layer.name, layer.offset.x, layer.offset.y, tiles]; }
       return ['objects', layer.name, layer.offset.x, layer.offset.y, layer.objects.filter(o => o.tile).length];
@@ -319,32 +319,10 @@ out.write(JSON.stringify(result));
 out.commit();
 `;
 
-// Exports the scene, has Tiled read scene.tmx, and renders it with tmxrasterizer, which must draw Pixelbolt's unlit
-// view at time 0: every pixel exact, but for a step of one where a partly transparent pixel blends (Qt blends in
-// premultiplied 8-bit colour). tmxrasterizer widens the map's rectangle by each tile layer's offset and leaves the
-// map's background colour out, so the check lays its render on that colour at the map's origin.
-export async function verifyTiledScene({ tiled = findTiled(), keep = false, log = console.log } = {}) {
-  if (!tiled) throw new Error('Tiled was not found: pass --tiled <path> or set TILED');
-  const rasterizer = [path.join(path.dirname(tiled), process.platform === 'win32' ? 'tmxrasterizer.exe' : 'tmxrasterizer')].find(existsSync) ?? 'tmxrasterizer';
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-tiled-scene-'));
-  try {
-    const source = await tiledScene(), bundle = await createSceneBundle(source);
-    for (const [file, bytes] of bundle.files) if (/\.(tmx|tsx|png)$/.test(file)) { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), bytes); }
-    await writeFile(path.join(dir, 'mapcheck.js'), TILED_MAP_CHECK);
-    const evaluated = run(tiled, ['--evaluate', path.join(dir, 'mapcheck.js'), path.join(dir, 'scene.tmx'), path.join(dir, 'map.json')]);
-    assert.ok(existsSync(path.join(dir, 'map.json')), `Tiled wrote no report (exit ${evaluated.status}):\n${evaluated.output}`);
-    const read = JSON.parse(await readFile(path.join(dir, 'map.json'), 'utf8'));
-    assert.ok(!read.error, `Tiled failed to read scene.tmx: ${read.error}`);
-    const scene = prepareScene(source), view = renderScene(scene, { lit: false, draws: true });
-    assert.deepEqual(read.tilesets, Object.entries(scene.assets).map(([id, asset]) => [id, asset.recipe.sheet.columns * Math.ceil(asset.recipe.frames.length / asset.recipe.sheet.columns)]), 'scene.tmx: tilesets');
-    // The square, unsorted maps at 1× of 1× sheets are tile layers: the corner maps half a cell up and left, the posts
-    // (8 pixels tall on 4-pixel cells, at y 34) a cell lower, since Tiled hangs a tile from its cell's bottom, and up
-    // the 2 pixels left over from whole cells. The rest are tile objects in drawing order.
-    const cells = name => view.draws.filter(draw => draw.cell !== undefined && scene.instances[draw.instance].name === name).length;
-    const objects = names => view.draws.filter(draw => names.includes(scene.instances[draw.instance].name)).length;
-    assert.deepEqual(read.layers, [['tiles', 'sea', -2, -2, cells('sea')], ['tiles', 'moss', -2, -2, cells('moss')], ['tiles', 'turf', 0, 0, cells('turf')], ['objects', 'fence', 0, 0, objects(['fence'])],
-      ['tiles', 'posts', 0, -2, cells('posts')], ['objects', 'grove, walker, spirit, wisps', 0, 0, objects(['grove', 'walker', 'spirit', 'wisps'])]], 'scene.tmx: layers');
-    assert.deepEqual(bundle.warnings.filter(warning => warning.startsWith('scene.tmx')), [], 'scene.tmx warnings');
+// tmxrasterizer's render of dir/scene.tmx against the unlit view, pixel by pixel over the scene: exact, within one step
+// where a partly transparent pixel blends, or wrong (each named). The render is laid on the map's background colour at
+// the map's origin, which tile layers with negative offsets move right and down.
+async function rasterAgainst({ dir, rasterizer, scene, view }) {
     // Where some frame's partly transparent pixel lands, Qt's blend may differ by one.
     const blended = new Uint8Array(scene.width * scene.height);
     for (const draw of view.draws) {
@@ -373,8 +351,100 @@ export async function verifyTiledScene({ tiled = findTiled(), keep = false, log 
       else if (off === 1 && blended[y * scene.width + x]) near++;
       else wrong.push(`${x},${y}: Tiled ${got.join(' ')}, Pixelbolt ${[...want.subarray(0, 3)].join(' ')}`);
     }
+    return { exact, near, wrong };
+}
+
+// Exports the scene, has Tiled read scene.tmx, and renders it with tmxrasterizer, which must draw Pixelbolt's unlit
+// view at time 0: every pixel exact, but for a step of one where a partly transparent pixel blends (Qt blends in
+// premultiplied 8-bit colour). tmxrasterizer widens the map's rectangle by each tile layer's offset and leaves the
+// map's background colour out, so the check lays its render on that colour at the map's origin.
+export async function verifyTiledScene({ tiled = findTiled(), keep = false, log = console.log } = {}) {
+  if (!tiled) throw new Error('Tiled was not found: pass --tiled <path> or set TILED');
+  const rasterizer = [path.join(path.dirname(tiled), process.platform === 'win32' ? 'tmxrasterizer.exe' : 'tmxrasterizer')].find(existsSync) ?? 'tmxrasterizer';
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-tiled-scene-'));
+  try {
+    const source = await tiledScene(), bundle = await createSceneBundle(source);
+    for (const [file, bytes] of bundle.files) if (/\.(tmx|tsx|png)$/.test(file)) { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), bytes); }
+    await writeFile(path.join(dir, 'mapcheck.js'), TILED_MAP_CHECK);
+    const evaluated = run(tiled, ['--evaluate', path.join(dir, 'mapcheck.js'), path.join(dir, 'scene.tmx'), path.join(dir, 'map.json')]);
+    assert.ok(existsSync(path.join(dir, 'map.json')), `Tiled wrote no report (exit ${evaluated.status}):\n${evaluated.output}`);
+    const read = JSON.parse(await readFile(path.join(dir, 'map.json'), 'utf8'));
+    assert.ok(!read.error, `Tiled failed to read scene.tmx: ${read.error}`);
+    const scene = prepareScene(source), view = renderScene(scene, { lit: false, draws: true });
+    assert.deepEqual(read.tilesets, Object.entries(scene.assets).map(([id, asset]) => [id, asset.recipe.sheet.columns * Math.ceil(asset.recipe.frames.length / asset.recipe.sheet.columns)]), 'scene.tmx: tilesets');
+    // The square, unsorted maps at 1× of 1× sheets are tile layers: the corner maps half a cell up and left, the posts
+    // (8 pixels tall on 4-pixel cells, at y 34) a cell lower, since Tiled hangs a tile from its cell's bottom, and up
+    // the 2 pixels left over from whole cells. The rest are tile objects in drawing order.
+    const cells = name => view.draws.filter(draw => draw.cell !== undefined && scene.instances[draw.instance].name === name).length;
+    const objects = names => view.draws.filter(draw => names.includes(scene.instances[draw.instance].name)).length;
+    assert.deepEqual(read.layers, [['tiles', 'sea', -2, -2, cells('sea')], ['tiles', 'moss', -2, -2, cells('moss')], ['tiles', 'turf', 0, 0, cells('turf')], ['objects', 'fence', 0, 0, objects(['fence'])],
+      ['tiles', 'posts', 0, -2, cells('posts')], ['objects', 'grove, walker, spirit, wisps', 0, 0, objects(['grove', 'walker', 'spirit', 'wisps'])]], 'scene.tmx: layers');
+    assert.deepEqual(bundle.warnings.filter(warning => warning.startsWith('scene.tmx')), [], 'scene.tmx warnings');
+    const { exact, near, wrong } = await rasterAgainst({ dir, rasterizer, scene, view });
     assert.deepEqual(wrong.slice(0, 12), [], `scene.tmx: ${wrong.length} pixels of tmxrasterizer's render differ from the unlit scene`);
     log(`Tiled scene map: Tiled read scene.tmx with ${read.layers.filter(layer => layer[0] === 'tiles').length} tile layers and ${read.layers.filter(layer => layer[0] === 'objects').reduce((sum, layer) => sum + layer[4], 0)} tile objects over ${read.tilesets.length} tilesets; tmxrasterizer drew the unlit scene exactly in ${exact} of ${scene.width * scene.height} pixels and within one step in the other ${near}, where partly transparent pixels blend.`);
+    return { dir: keep ? dir : null };
+  } finally {
+    if (!keep) await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// ---- Isometric scene maps -------------------------------------------------------------------------------------------
+// A scene on isometric diamonds: a flat ground and a flat rug of fewer rows (tile layers of a true isometric map, the
+// rug's offset making up its rows), a terrace with raised cells and a ground-sorted grove (tile objects), and
+// placements of even and odd sizes, enlarged and repeated, which an isometric map stands on the middle of their
+// bottom edge. The ground is as large as the scene, so tmxrasterizer's render covers all of it.
+const isoBlock = (name, top, left, right) => ({ name, ops: [{ op: 'box', w: 4, d: 4, h: 4, top, left, right }] });
+const isoTiles = { version: 1, name: 'iso', width: 8, height: 8, palette: { g: '#58a048', h: '#3c7838', i: '#2c5c30', s: '#a0a0b0', t: '#707088', u: '#505068', w: '#4080c0', x: '#60a0e0', v: '#305890', y: '#284878' },
+  frames: [isoBlock('grass', 'g', 'h', 'i'), isoBlock('stone', 's', 't', 'u'), { ...isoBlock('water-0', 'w', 'v', 'y'), duration: 200 }, { ...isoBlock('water-1', 'x', 'v', 'y'), duration: 200 }],
+  animations: { water: { frames: ['water-0', 'water-1'] } }, sheet: { columns: 4 } };
+const isoFlag = { version: 1, name: 'flag', width: 5, height: 7, palette: { p: '#f0e0c0', r: '#d04040' }, anchor: [2, 6],
+  frames: [{ name: 'up', ops: [{ op: 'rect', x: 2, y: 0, w: 1, h: 7, color: 'p' }, { op: 'rect', x: 3, y: 0, w: 2, h: 3, color: 'r' }] }] };
+export async function tiledIsoScene() {
+  const spirit = JSON.parse(await readFile(new URL('../examples/forest-spirit.json', import.meta.url), 'utf8'));
+  const ground = Array.from({ length: 12 }, (_, y) => Array.from({ length: 12 }, (_, x) => ((x * 3 + y * 5) % 7 === 0 ? 'w' : (x + y * 2) % 5 === 0 ? 's' : 'g')).join(''));
+  const legend = { g: 'grass', s: 'stone', w: { animation: 'water' } };
+  return { format: 'pixelforge-scene', version: 1, name: 'tiled-iso-check', width: 96, height: 72, background: '#203040', assets: { iso: isoTiles, posts, flag: isoFlag, spirit },
+    instances: [
+      { name: 'ground', asset: 'iso', at: [0, 20], tilemap: { layout: 'iso', tile: [8, 4], rows: ground, legend } },
+      { name: 'rug', asset: 'iso', at: [37, 31], tilemap: { layout: 'iso', tile: [8, 4], rows: ['sss', 's.s'], legend } },
+      { name: 'terrace', asset: 'iso', at: [20, 26], tilemap: { layout: 'iso', tile: [8, 4], rows: ['gg', 'gs'], legend, heights: ['21', '1.'], solid: true } },
+      { name: 'grove', asset: 'posts', at: [50, 40], sort: 'ground', tilemap: { layout: 'iso', tile: [8, 4], rows: ['#.#', '.#.'], legend: { '#': 'post' } } },
+      { name: 'flag', asset: 'flag', at: [61, 47], anchor: 'frame', sort: 'ground' },
+      { name: 'walker', asset: 'spirit', at: [30, 62], anchor: [12, 23], sort: 'ground', animation: 'bob' },
+      { name: 'flags', asset: 'flag', at: [9, 41], repeat: [3, 2], step: [7, 5], scale: 2 }
+    ] };
+}
+
+// Exports the isometric scene, has Tiled read scene.tmx as an isometric map and renders it with tmxrasterizer, which
+// must draw Pixelbolt's unlit view at time 0 as the square scene's check does.
+export async function verifyTiledIso({ tiled = findTiled(), keep = false, log = console.log } = {}) {
+  if (!tiled) throw new Error('Tiled was not found: pass --tiled <path> or set TILED');
+  const rasterizer = [path.join(path.dirname(tiled), process.platform === 'win32' ? 'tmxrasterizer.exe' : 'tmxrasterizer')].find(existsSync) ?? 'tmxrasterizer';
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-tiled-iso-'));
+  try {
+    const source = await tiledIsoScene(), bundle = await createSceneBundle(source);
+    for (const [file, bytes] of bundle.files) if (/\.(tmx|tsx|png)$/.test(file)) { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), bytes); }
+    await writeFile(path.join(dir, 'mapcheck.js'), TILED_MAP_CHECK);
+    const evaluated = run(tiled, ['--evaluate', path.join(dir, 'mapcheck.js'), path.join(dir, 'scene.tmx'), path.join(dir, 'map.json')]);
+    assert.ok(existsSync(path.join(dir, 'map.json')), `Tiled wrote no report (exit ${evaluated.status}):\n${evaluated.output}`);
+    const read = JSON.parse(await readFile(path.join(dir, 'map.json'), 'utf8'));
+    assert.ok(!read.error, `Tiled failed to read scene.tmx: ${read.error}`);
+    const scene = prepareScene(source), view = renderScene(scene, { lit: false, draws: true });
+    // An isometric map of the ground's 12 by 12 diamonds. The ground and the rug are tile layers at their own columns
+    // and rows; the rug has 2 rows to the map's 12, so its layer starts five tiles (40 pixels) further left than it
+    // stands. The terrace (raised), the grove (sorted, of tiles narrower than a diamond) and the placements are objects,
+    // in a layer offset as the ground is, so Tiled's grid lies on the ground's diamonds there too.
+    assert.deepEqual([read.isometric, read.size], [true, [12, 12, 8, 4]], 'scene.tmx: an isometric map of the ground\'s diamonds');
+    const cells = name => view.draws.filter(draw => draw.cell !== undefined && scene.instances[draw.instance].name === name).length;
+    const objects = names => view.draws.filter(draw => names.includes(scene.instances[draw.instance].name)).length;
+    assert.deepEqual(read.layers, [['tiles', 'ground', 0, 20, cells('ground')], ['tiles', 'rug', 37 - 40, 31, cells('rug')],
+      ['objects', 'terrace, grove, flag, walker, …', 0, 20, objects(['terrace', 'grove', 'flag', 'walker', 'flags'])]], 'scene.tmx: layers');
+    assert.deepEqual([cells('ground'), cells('rug')], [144, 5]);
+    assert.deepEqual(bundle.warnings.filter(warning => warning.startsWith('scene.tmx')), [], 'scene.tmx warnings');
+    const { exact, near, wrong } = await rasterAgainst({ dir, rasterizer, scene, view });
+    assert.deepEqual(wrong.slice(0, 12), [], `scene.tmx: ${wrong.length} pixels of tmxrasterizer's render of the isometric map differ from the unlit scene`);
+    log(`Tiled isometric map: Tiled read scene.tmx as an isometric map of 12 by 12 diamonds with ${read.layers.filter(layer => layer[0] === 'tiles').length} tile layers (${cells('ground') + cells('rug')} tiles) and ${read.layers.filter(layer => layer[0] === 'objects').reduce((sum, layer) => sum + layer[4], 0)} tile objects standing on their bottom edges; tmxrasterizer drew the unlit scene exactly in ${exact} of ${scene.width * scene.height} pixels and within one step in the other ${near}, where partly transparent pixels blend.`);
     return { dir: keep ? dir : null };
   } finally {
     if (!keep) await rm(dir, { recursive: true, force: true });
@@ -474,7 +544,7 @@ export async function verifyTiledParallax({ tiled = findTiled(), keep = false, l
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2), at = args.indexOf('--tiled');
   try {
-    for (const verify of [verifyTiled, verifyTiledScene, verifyTiledParallax]) {
+    for (const verify of [verifyTiled, verifyTiledScene, verifyTiledIso, verifyTiledParallax]) {
       const result = await verify({ ...(at >= 0 && { tiled: args[at + 1] }), keep: args.includes('--keep') });
       if (result.dir) console.log(`Kept the Tiled files at ${result.dir}`);
     }

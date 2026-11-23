@@ -4,11 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { renderProject, buildAtlas, frameTag } from '../src/core.js';
 import { createBundle } from '../src/export.js';
 import { createSceneBundle } from '../src/scene-export.js';
-import { spriteFrames, godotTiming, GODOT_MAX_FPS, tileSet, retexture, canvasTexture, normalsYUp, resourceIds } from '../src/godot.js';
+import { spriteFrames, godotTiming, GODOT_MAX_FPS, tileSet, tileSets, retexture, canvasTexture, normalsYUp, resourceIds } from '../src/godot.js';
 import { compileAutotile } from '../src/authoring.js';
 import { autotileFrames } from '../src/autotile.js';
 import { decodePNG } from '../src/import.js';
-import { GODOT_FIXTURE, GODOT_TILE_SOURCES, GODOT_LIT_SCENE, replaySprite } from '../scripts/verify-godot.mjs';
+import { GODOT_FIXTURE, GODOT_TILE_SOURCES, GODOT_LIT_SCENE, GODOT_ISO_SCENE, replaySprite } from '../scripts/verify-godot.mjs';
 
 const spirit = JSON.parse(await readFile(new URL('../examples/forest-spirit.json', import.meta.url), 'utf8'));
 const tiny = { version: 1, name: 'tiny', width: 2, height: 1, frames: [{ name: 'a', duration: 80, ops: [{ op: 'pixel', color: '#f00' }] }, { name: 'b', duration: 120, ops: [{ op: 'pixel', x: 1, color: '#00f8' }] }], animations: { once: { frames: ['a', 'b'], loop: false } }, sheet: { columns: 1, padding: 1 } };
@@ -392,4 +392,27 @@ test('retexture renames only the sheet a resource names', () => {
   const moved = retexture(text, '../art/a "b".png');
   assert.match(moved, /\[ext_resource type="Texture2D" path="\.\.\/art\/a \\"b\\"\.png" id="1_sheet"\]/);
   assert.equal(moved.replace('path="../art/a \\"b\\".png"', 'path="set.png"'), text);
+});
+
+test('a scene with iso tilemaps exports an isometric Godot TileSet of its diamonds, each frame stood on its diamond', async () => {
+  const { files, warnings } = await createSceneBundle(GODOT_ISO_SCENE), text = files.get('tileset_iso.tres').toString(), alignment = JSON.parse(files.get('alignment.json'));
+  assert.deepEqual(alignment.isoTileset, { file: 'tileset_iso.tres', tile: [8, 4], assets: ['blocks', 'pillars'] });
+  assert.deepEqual(warnings.filter(warning => warning.startsWith('tileset_iso')), []);
+  // Isometric (shape 1) in the Diamond Down layout (5), its tile size the diamond.
+  assert.match(text, /\n\[resource\]\ntile_shape = 1\ntile_layout = 5\ntile_size = Vector2i\(8, 4\)\nsources\/0 = SubResource\("TileSetAtlasSource_tiles"\)\nsources\/1 = SubResource\("TileSetAtlasSource_tiles2"\)\n$/);
+  // The blocks' sheet has padding: a region is the whole 8 by 8 frame, and its origin is half of what stands above
+  // the diamond, so the frame's bottom is the diamond's. The looping water is one animated tile.
+  assert.match(text, /resource_name = "blocks"\ntexture = ExtResource\("1_sheet"\)\nmargins = Vector2i\(1, 1\)\nseparation = Vector2i\(2, 2\)\ntexture_region_size = Vector2i\(8, 8\)\n0:0\/0 = 0\n0:0\/0\/texture_origin = Vector2i\(0, 2\)\n1:0\/0 = 0\n1:0\/0\/texture_origin = Vector2i\(0, 2\)\n2:0\/animation_frame_0\/duration = 0\.2\n2:0\/animation_frame_1\/duration = 0\.2\n2:0\/0 = 0\n2:0\/0\/texture_origin = Vector2i\(0, 2\)\n\n/);
+  assert.match(text, /resource_name = "pillars"\ntexture = ExtResource\("2_sheet"\)\ntexture_region_size = Vector2i\(8, 12\)\n0:0\/0 = 0\n0:0\/0\/texture_origin = Vector2i\(0, 4\)\n1:0\/0 = 0\n1:0\/0\/texture_origin = Vector2i\(0, 4\)\n\n/);
+  // A square scene has none, and a forced export over an earlier one would remove it as its own.
+  const square = await createSceneBundle({ ...GODOT_ISO_SCENE, instances: GODOT_ISO_SCENE.instances.map(instance => ({ ...instance, tilemap: { ...instance.tilemap, layout: 'square' } })) });
+  assert.equal(square.files.has('tileset_iso.tres'), false);
+  assert.ok((await createSceneBundle(GODOT_ISO_SCENE)).owns.listed(alignment).includes('tileset_iso.tres'));
+  // Frames that cannot be centred on the diamond by whole pixels are left out, by name; terrains are, with a warning.
+  const odd = { ...GODOT_ISO_SCENE, assets: { ...GODOT_ISO_SCENE.assets, pillars: { ...GODOT_ISO_SCENE.assets.pillars, height: 13 } } };
+  assert.deepEqual((await createSceneBundle(odd)).warnings.filter(warning => warning.startsWith('tileset_iso')), ['tileset_iso.tres: pillars: left out: its 8×13 frames cannot be centred on a 8×4 diamond by whole pixels']);
+  const atlas = buildAtlas(renderProject(GODOT_ISO_SCENE.assets.blocks)).metadata;
+  const made = tileSets([{ atlas, tiles: [{ frame: 'grass', mask: 0, mode: 'blob' }], plain: ['stone'], name: 'blocks', margin: 1, separation: 2 }], { iso: [8, 4] });
+  assert.deepEqual(made.warnings, ['blocks: its terrains are left out: a terrain\'s peering bits are a square grid\'s, so paint an isometric map tile by tile']);
+  assert.doesNotMatch(made.text, /terrain/);
 });

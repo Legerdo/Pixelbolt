@@ -11,7 +11,7 @@ import { createSceneBundle } from '../src/scene-export.js';
 import { tiledTileset } from '../src/tiled.js';
 import { tileSets } from '../src/godot.js';
 import { GODOT_TILE_SOURCES, godotTileRecipe } from '../scripts/verify-godot.mjs';
-import { tiledScene } from '../scripts/verify-tiled.mjs';
+import { tiledScene, tiledIsoScene } from '../scripts/verify-tiled.mjs';
 import { prepareScene, renderScene } from '../src/scene.js';
 import { expandTilemap } from '../src/autotile.js';
 
@@ -227,6 +227,33 @@ test('a scene export maps the scene at its start into Tiled: tile layers where t
   const spirit = files.get('assets/5/tileset.tsx').toString();
   assert.match(spirit, /<tileset version="1\.10" name="spirit" tilewidth="24" tileheight="24" spacing="2" margin="1" tilecount="6" columns="6">\n <image source="color\.png" width="156" height="26"\/>\n <tile id="0">\n  <animation>\n   <frame tileid="0" duration="240"\/>/);
   assert.doesNotMatch(spirit, /<wangsets>/);
+});
+
+test('a scene on isometric diamonds is an isometric Tiled map: flat tilemaps as tile layers at their own cells, the rest as objects standing on their bottom edges', async () => {
+  const source = await tiledIsoScene(), { files, warnings } = await createSceneBundle(source), tmx = files.get('scene.tmx').toString();
+  assert.deepEqual(warnings.filter(warning => warning.startsWith('scene.tmx')), []);
+  assert.match(tmx, /<map version="1\.10" orientation="isometric" renderorder="right-down" width="12" height="12" tilewidth="8" tileheight="4" /);
+  // The ground at its place; the rug, 2 rows deep in a map of 12, five tiles (40 pixels) further left than it stands.
+  assert.deepEqual([...tmx.matchAll(/<layer id="\d+" name="(\w+)" width="12" height="12"( offsetx="(-?\d+)" offsety="(-?\d+)")?>/g)].map(match => [match[1], Number(match[3] ?? 0), Number(match[4] ?? 0)]), [['ground', 0, 20], ['rug', -3, 31]]);
+  // The rug's cells are its own columns and rows: three in its first row, the two ends of its second.
+  const rug = tmx.slice(tmx.indexOf('name="rug"')).match(/<data encoding="csv">\n([\s\S]*?)\n<\/data>/)[1].split(',\n').map(row => row.split(',').map(Number));
+  assert.deepEqual([rug[0].slice(0, 4), rug[1].slice(0, 4), rug[2].slice(0, 4)], [[2, 2, 2, 0], [2, 0, 2, 0], [0, 0, 0, 0]]);
+  // Objects are in one layer offset as the ground is, each placed from there along the diamonds' edges, in tile heights.
+  assert.match(tmx, /<objectgroup draworder="index" id="3" name="terrace, grove, flag, walker, …" offsetx="0" offsety="20">/);
+  const scene = prepareScene(source), view = renderScene(scene, { lit: false, draws: true });
+  const flag = view.draws.find(draw => scene.instances[draw.instance].name === 'flag'), [x, y] = [flag.x + flag.shift[0], flag.y + flag.shift[1]];
+  // A 5 by 7 frame: its bottom edge's middle, from the top corner of the ground's first diamond (48 pixels across, 20 down).
+  const across = (x + 2.5 - 48) / 4, down = (y + 7 - 20) / 2, placed = tmx.match(/<object id="\d+" name="flag" gid="\d+" x="(-?[\d.]+)" y="(-?[\d.]+)" width="5" height="7"\/>/);
+  assert.deepEqual([Number(placed[1]), Number(placed[2])], [(down + across) / 2 * 4, (down - across) / 2 * 4]);
+  assert.equal([...tmx.matchAll(/<object /g)].length, view.draws.filter(draw => !['ground', 'rug'].includes(scene.instances[draw.instance].name)).length);
+  // With no tilemap a tile layer can hold, an isometric ground still makes the map isometric, of its diamonds: the hamlet.
+  const { resolveReferences } = await import('../src/resolve.js');
+  const hamlet = JSON.parse(await readFile(new URL('../examples/iso-hamlet.scene.json', import.meta.url), 'utf8'));
+  const { document } = await resolveReferences(hamlet, { baseDir: fileURLToPath(new URL('../examples/', import.meta.url)) });
+  const map = (await createSceneBundle(document)).files.get('scene.tmx').toString();
+  assert.match(map, /orientation="isometric" renderorder="right-down" width="8" height="8" tilewidth="32" tileheight="16" /);
+  assert.equal(map.includes('<layer '), false);
+  assert.match(map, /<objectgroup draworder="index" id="1" name="[^"]+" offsetx="16" offsety="94">/);
 });
 
 test('a shade placement has nothing in a Tiled map to become, and the export says so; a hazed one draws from a hazed tileset', async () => {

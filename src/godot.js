@@ -214,7 +214,13 @@ const channel = value => String(Number((value / 255).toFixed(6)));
 // plain tiles, and its tile.collision polygons on physics layer 0, one-way with tile.oneWay. An atlas animation that
 // loops over frames of one terrain and mask, or plain frames, laid side by side in a row of the sheet becomes an
 // animated tile. Returns { text, warnings }; text is null when a terrain mixes blob, cardinal or corner masks.
-export function tileSets(sources) {
+//
+// With `iso`, a diamond's [width, height], the TileSet is isometric, laid out as Pixelbolt lays an iso map (Godot's
+// Diamond Down: a column steps down and right, a row down and left): its tile_size is the diamond, each tile's region
+// the whole frame, and a texture origin stands the frame on its diamond as the scene does, bottoms together. Its
+// tiles are plain: a terrain's peering bits are a square grid's, so terrains are left out, with a warning.
+export function tileSets(sources, { iso = null } = {}) {
+  if (iso) return isoTileSet(sources, iso);
   const warnings = [], size = source => { const { w, h } = source.atlas.frames[source.tiles[0]?.frame ?? source.layered?.[0]?.frame ?? source.plain[0]].frame; return [w, h]; };
   const [w, h] = size(sources[0]);
   const kept = sources.filter(source => {
@@ -334,6 +340,58 @@ export function tileSets(sources) {
     lines.push(`${set}/mode = ${TERRAIN_MODES.corner}`);
     layered.names.forEach((name, t) => lines.push(`${set}/terrain_${t}/name = ${quote(name)}`, `${set}/terrain_${t}/color = Color(${layered.colors[t].map(channel).join(', ')}, 1)`));
   }
+  lines.push(...ids.map((id, i) => `sources/${i} = SubResource("${id}")`), '');
+  return { text: lines.join('\n'), warnings };
+}
+// An isometric TileSet over the sheets of `sources` (see tileSets): every frame a plain tile.
+function isoTileSet(sources, [tw, th]) {
+  const warnings = [], lines = ['[gd_resource type="TileSet" format=3]', ''], kept = [];
+  for (const source of sources) {
+    const { w, h } = Object.values(source.atlas.frames)[0].frame;
+    // A texture origin is whole pixels: the frame is as far past the diamond on one side as the other, and stands
+    // on its bottom corner.
+    if ((w - tw) % 2 || (h - th) % 2) { warnings.push(`${source.name}: left out: its ${w}×${h} frames cannot be centred on a ${tw}×${th} diamond by whole pixels`); continue; }
+    if (source.tiles?.length || source.layered?.length) warnings.push(`${source.name}: its terrains are left out: a terrain's peering bits are a square grid's, so paint an isometric map tile by tile`);
+    kept.push({ source, w, h });
+  }
+  if (!kept.length) return { text: null, warnings };
+  lines.splice(2, 0, ...kept.map(({ source }, i) => `[ext_resource type="Texture2D" path=${quote(source.image ?? source.atlas.meta.image)} id="${i + 1}_sheet"]`), '');
+  const ids = kept.map((_, i) => `TileSetAtlasSource_tiles${i ? i + 1 : ''}`);
+  let solid = false;
+  kept.forEach(({ source, w, h }, i) => {
+    const { atlas, margin = 0, separation = 0 } = source, origin = [0, (h - th) / 2];
+    const coords = frame => { const { x, y } = atlas.frames[frame].frame; return [(x - margin) / (w + separation), (y - margin) / (h + separation)]; };
+    // Animated tiles as in a square set: a loop over frames side by side in one row.
+    const { claims, covered } = tileAnimations(atlas.animations, () => ''), animated = new Map(), still = [];
+    for (const { key, animation } of claims) {
+      const cells = animation.frames.map(coords), [col, row] = cells[0];
+      if (animation.loop && cells.every(([c, r], k) => c === col + k && r === row)) animated.set(animation.frames[0], animation.frames.map(frame => atlas.frames[frame].duration));
+      else still.push(key);
+    }
+    if (still.length) warnings.push(`${kept.length > 1 ? `${source.name}: ` : ''}animation${still.length === 1 ? '' : 's'} ${still.slice(0, 8).join(', ')}${still.length > 8 ? ', …' : ''} became still tiles: Godot animates a tile through frames side by side in one row of the sheet, looping`);
+    lines.push(`[sub_resource type="TileSetAtlasSource" id="${ids[i]}"]`, `resource_name = ${quote(source.name)}`, `texture = ExtResource("${i + 1}_sheet")`);
+    if (margin) lines.push(`margins = Vector2i(${margin}, ${margin})`);
+    if (separation) lines.push(`separation = Vector2i(${separation}, ${separation})`);
+    lines.push(`texture_region_size = Vector2i(${w}, ${h})`);
+    const heaviest = Math.max(1, ...Object.values(atlas.frames).map(frame => frame.tile?.weight ?? 1));
+    for (const frame of Object.keys(atlas.frames).filter(name => !covered.has(name))) {
+      const cell = coords(frame).join(':'), facts = atlas.frames[frame].tile ?? {}, at = `${cell}/0`;
+      animated.get(frame)?.forEach((ms, k) => lines.push(`${cell}/animation_frame_${k}/duration = ${real(ms / 1000)}`));
+      lines.push(`${at} = 0`);
+      if (origin[1]) lines.push(`${at}/texture_origin = Vector2i(${origin[0]}, ${origin[1]})`);
+      const probability = (facts.weight ?? 1) / heaviest;
+      if (probability !== 1) lines.push(`${at}/probability = ${Number(probability.toFixed(6))}`);
+      // Godot places a tile's polygons around the tile's centre, the middle of its diamond.
+      (facts.collision ?? []).forEach((polygon, k) => {
+        solid = true;
+        lines.push(`${at}/physics_layer_0/polygon_${k}/points = PackedVector2Array(${polygon.flatMap(({ x, y }) => [x - w / 2 - origin[0], y - h / 2 - origin[1]]).join(', ')})`);
+        if (facts.oneWay) lines.push(`${at}/physics_layer_0/polygon_${k}/one_way = true`);
+      });
+    }
+    lines.push('');
+  });
+  lines.push('[resource]', 'tile_shape = 1', 'tile_layout = 5', `tile_size = Vector2i(${tw}, ${th})`);
+  if (solid) lines.push('physics_layer_0/collision_layer = 1');
   lines.push(...ids.map((id, i) => `sources/${i} = SubResource("${id}")`), '');
   return { text: lines.join('\n'), warnings };
 }
