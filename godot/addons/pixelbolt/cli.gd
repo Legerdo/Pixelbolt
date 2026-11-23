@@ -1,5 +1,6 @@
-# Finds the user's CLI on every import and drains both pipes with a bounded wait.
-# 4.3 pipes block, so each has its own reader thread; newer pipes are nonblocking.
+# Finds the user's CLI on every import, drains both pipes and ends it at the import's time limit.
+# 4.3 pipes block, so each has its own reader thread; newer pipes are nonblocking. On 4.3 a process the CLI left
+# running that still holds a pipe delays the import until it exits.
 @tool
 extends RefCounted
 
@@ -70,14 +71,15 @@ static func resolve_cli() -> Dictionary:
 		return {"exe": node, "args": PackedStringArray([script]), "version": version}
 	return {"exe": script, "args": prefix, "version": version}
 
+# A 4.3 pipe blocks until it has data, so an empty read is the end of the stream. Its error flag can't say so: on Unix
+# it stays OK at the end and is set by a full read, and on Windows any short read sets it.
 static func _read_pipe(pipe: FileAccess) -> PackedByteArray:
 	var bytes := PackedByteArray()
-	while pipe.get_error() == OK:
-		var chunk := pipe.get_buffer(65536)
+	var chunk := pipe.get_buffer(65536)
+	while not chunk.is_empty():
 		if bytes.size() < OUTPUT_LIMIT:
 			bytes.append_array(chunk.slice(0, OUTPUT_LIMIT - bytes.size()))
-		if chunk.is_empty():
-			OS.delay_msec(5)
+		chunk = pipe.get_buffer(65536)
 	return bytes
 
 static func kill_tree(pid: int) -> void:
