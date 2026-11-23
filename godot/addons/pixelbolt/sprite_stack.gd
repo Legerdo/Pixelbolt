@@ -6,7 +6,7 @@
 #   $Car.heading = rad_to_deg(velocity.angle())
 #
 # The node's position is the stack's pivot on the ground. Each slice is drawn `rise` pixels above the one below, once
-# for each of those pixels so the sides are solid, so a tall stack at a large rise costs that many draws. Set the
+# for each of those pixels and once more at its top so the sides are solid, so a tall stack at a large rise costs that many draws. Set the
 # node's Texture → Filter to Nearest (or the project's default) to keep the pixels square.
 @tool
 extends Node2D
@@ -57,16 +57,30 @@ func origin() -> Vector2:
 func ground() -> Transform2D:
 	return Transform2D(Vector2(1, 0), Vector2(0, squash), Vector2.ZERO) * Transform2D(deg_to_rad(heading), Vector2.ZERO)
 
+# A pixel's centre can fall exactly on the line between two slice pixels (a pivot at a pixel's centre, a squashed
+# slice). A baked frame settles each one: across, it takes the slice pixel further along the slice's own axis, and down,
+# the one above, with nothing under a side's last line. So the slices are moved a part of a pixel, less than any centre
+# is from a line it is not on: back along the slice's axis, and down, except the copy that stands on the level below,
+# which is moved up. Lines repeat every 1/d of a pixel, d the least count of slice pixels that is whole pixels. As
+# `drawStack` in player.js.
+func nudge() -> Vector2:
+	var d := 1
+	while d < 8 and absf(squash * d - roundf(squash * d)) > 1e-9:
+		d += 1
+	# At the quarter turns nearest 90 and 180 degrees the slice's axis across the screen runs right to left.
+	var along := -1.0 if posmod(roundi(heading / 90.0), 4) in [1, 2] else 1.0
+	return Vector2(-along / 4.0, 1.0 / (4.0 * d))
+
 func _draw() -> void:
 	if sprite_frames == null or not sprite_frames.has_animation(SLICES):
 		return
 	var at := origin()
 	var flat := ground()
-	# Half a pixel on where the pivot is a pixel's centre, so an unturned slice's pixels fall on whole pixels.
-	var half := Vector2(fposmod(at.x, 1.0), fposmod(at.y, 1.0))
+	var moved := nudge()
 	for level in sprite_frames.get_frame_count(SLICES):
 		var texture := sprite_frames.get_frame_texture(SLICES, level)
-		for step in rise:
-			draw_set_transform_matrix(Transform2D(flat.x, flat.y, half + Vector2(0, -(level * rise + step))))
+		# A slice is `rise` pixels thick, from its own level up to the next slice's: a copy at each, both ends counted.
+		for step in rise + 1:
+			draw_set_transform_matrix(Transform2D(flat.x, flat.y, Vector2(moved.x, (moved.y if step else -moved.y) - (level * rise + step))))
 			draw_texture(texture, -at)
 	draw_set_transform_matrix(Transform2D.IDENTITY)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { renderProject, buildAtlas } from '../src/core.js';
 import { createBundle } from '../src/export.js';
-import { keepFrames } from '../src/resize.js';
+import { keepFrames, keepAnimations } from '../src/resize.js';
 import { compileStack } from '../src/stack.js';
 import { spriteFrames } from '../src/godot.js';
 import { nearestHeading, headingFrame, headingAnimation, headingToward } from '../src/runtime.js';
@@ -106,4 +106,25 @@ test('a compiled sprite stack lists its headings, its animations at each and the
   assert.match(hand, /"frames": \{\n0: \[&"walk-south", 0\],\n90: \[&"walk-west", 0\]\n\},\n"animations": \{\n"walk": \{\n0: &"walk-south",\n90: &"walk-west"\n\}\n\}/);
   const plain = { ...drawn }; delete plain.headings;
   assert.doesNotMatch(spriteFrames(buildAtlas(renderProject(plain)).metadata).text, /metadata/);
+});
+
+test('a compile that keeps some animations keeps the headings of what is left', async () => {
+  const { recipe } = compileStack(JSON.parse(await readFile(new URL('../examples/iso-villager.stack.json', import.meta.url), 'utf8')));
+  // One walk: no heading frame is left, and walk has the one heading that still plays.
+  const walk = keepAnimations(recipe, ['walk-s']).recipe;
+  assert.deepEqual([walk.headings.frames, walk.headings.animations, Object.keys(walk.headings.toward).length], [undefined, { walk: { 315: 'walk-s' } }, 8]);
+  assert.equal(renderProject(walk).frames.length, 8);
+  // The turn alone: its frames, and no animation by heading.
+  const turn = keepAnimations(recipe, ['turn']).recipe;
+  assert.deepEqual([Object.keys(turn.headings.frames).length, turn.headings.animations], [8, undefined]);
+  assert.equal(renderProject(turn).frames.length, 8);
+  // Both, and what a game then looks up.
+  const both = buildAtlas(renderProject(keepAnimations(recipe, ['turn', 'idle-n', 'idle-e']).recipe)).metadata;
+  assert.deepEqual([headingFrame(both, 100), headingAnimation(both, 'idle', 140), headingAnimation(both, 'idle', 200)], ['heading-90', 'idle-n', 'idle-e']);
+  // A recipe whose headings name nothing that is left has none, and a recipe without headings is as it was.
+  const made = { version: 1, name: 'faces', width: 2, height: 2, palette: { k: '#000000' }, frames: ['a', 'b'].map(name => ({ name, ops: [{ op: 'pixel', x: 0, y: 0, color: 'k' }] })),
+    animations: { one: { frames: ['a'] }, two: { frames: ['b'] } }, headings: { frames: { 0: 'a' }, toward: { 0: [0, 1] } } };
+  assert.equal(Object.hasOwn(keepAnimations(made, ['two']).recipe, 'headings'), false);
+  const { headings, ...plain } = made;
+  assert.equal(Object.hasOwn(keepAnimations(plain, ['two']).recipe, 'headings'), false);
 });

@@ -112,11 +112,31 @@ export function drawFrame(context, sheet, name, x, y, { scale = 1, flipX = false
   context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, 0, 0, frame.w * scale, frame.h * scale);
   context.restore();
 }
+
+/**
+ * How far drawStack moves a stack's slices from the pivot's pixel, { x, y } in parts of a canvas pixel. A canvas
+ * pixel's centre can fall exactly on the line between two slice pixels (an odd scale with the pivot at a pixel's
+ * centre, a flattened slice), and which of the two is drawn there varies from canvas to canvas. A baked frame settles
+ * each one: across the canvas it takes the slice pixel further along the slice's own axis, and down the canvas the one
+ * above, with nothing under a side's last line. So the slices are moved less than any centre is from a line it is not
+ * on: back along the slice's axis, and down, except the copy that stands on the level below, which is moved up by
+ * as much. Lines repeat every 1/d of a pixel, d the least count of slice pixels that is whole canvas pixels (2 for an
+ * isometric squash at an odd scale). The Godot addon's sprite_stack.gd moves its slices the same way.
+ */
+export function stackNudge(heading, scale = 1, squash = 1) {
+  const lines = size => { let d = 1; while (d < 8 && Math.abs(size * d - Math.round(size * d)) > 1e-9) d++; return d; };
+  // At the quarter turns nearest 90 and 180 degrees the slice's axis across the canvas runs right to left.
+  const along = [1, -1, -1, 1][((Math.round(heading / 90) % 4) + 4) % 4];
+  return { x: -along / (4 * lines(scale)), y: 1 / (4 * lines(scale * squash)) };
+}
+
 /**
  * Draws a sprite stack from an atlas of its slices (pixelbolt compile --slices), ground first, as a game that stacks
  * at run time does: each slice turned to `heading` about the stack's pivot and drawn `rise` canvas pixels above the
- * one below, once for each of those pixels so the sides are solid. (x, y) is the pivot on the ground, snapped so that
- * an unturned slice's pixels fall on whole pixels of the canvas (a pivot at a pixel's centre sits half a pixel on). heading is in degrees and turns as the baked frames do. squash flattens the ground as a camera looking
+ * one below, once for each of those pixels and once more at its top so the sides are solid. (x, y) is the pivot on the
+ * ground, rounded to a whole pixel, which is where a baked frame's anchor has it: at headings 0, 90, 180 and 270 the
+ * stack is that heading's baked frame when scale and squash are the stack's own. heading is in degrees and turns as
+ * the baked frames do. squash flattens the ground as a camera looking
  * down at a slant does: 1 looks straight down, and a baked view is the stack's own squash (0.5 for an isometric one,
  * whose heading h is this heading h + 45). scale enlarges the slices and, unless rise says otherwise, the step
  * between them. Any heading draws, at the cost of a drawImage for each slice and pixel of rise.
@@ -129,18 +149,18 @@ export function drawStack(context, sheet, x, y, { heading = 0, scale = 1, rise =
   const slices = sheet.atlas.animations && Object.hasOwn(sheet.atlas.animations, animation) ? sheet.atlas.animations[animation].frames : null;
   if (!slices) throw new Error(`This atlas has no slices to stack: no animation ${animation}`);
   const turn = heading * Math.PI / 180, left = Math.round(x), ground = Math.round(y);
+  const nudge = stackNudge(heading, scale, squash);
   context.imageSmoothingEnabled = false;
   slices.forEach((name, level) => {
     const entry = sheet.atlas.frames[name], { frame } = entry, offset = entry.spriteSourceSize ?? { x: 0, y: 0 };
     // The pivot exactly, where the sheet names it at twice its coordinates; else the anchor pixel's centre.
     const twice = entry.points?.['pivot-x2'], anchor = anchorPixels(entry), sheetScale = Number(sheet.atlas.meta?.scale) || 1;
     const origin = twice ? { x: twice.x / 2, y: twice.y / 2 } : { x: anchor.x + sheetScale / 2, y: anchor.y + sheetScale / 2 };
-    // Half a pixel on where the pivot is a pixel's centre: at a whole pixel every sample of an unturned slice would
-    // fall on the line between two of its pixels, and which of them is drawn there varies from canvas to canvas.
-    const half = { x: (origin.x * scale) % 1, y: (origin.y * scale) % 1 };
-    for (let step = 0; step < rise; step++) {
+    // A slice is `rise` pixels thick, from its own level up to the next slice's: a copy at each, both ends counted,
+    // as a baked frame draws its sides and then its top.
+    for (let step = 0; step <= rise; step++) {
       context.save();
-      context.translate(left + half.x, ground + half.y - level * rise - step);
+      context.translate(left + nudge.x, ground + (step ? nudge.y : -nudge.y) - level * rise - step);
       context.scale(1, squash);
       context.rotate(turn);
       context.drawImage(sheet.image, frame.x, frame.y, frame.w, frame.h, (offset.x - origin.x) * scale, (offset.y - origin.y) * scale, frame.w * scale, frame.h * scale);

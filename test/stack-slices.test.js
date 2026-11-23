@@ -80,46 +80,53 @@ test('with ramps a slice takes a light fixed to the stack: open tops a key light
   assert.deepEqual(compileStackSlices({ ...source, ramps: undefined }).recipe.frames[0].ops[0].rows, fill(4, 4, 'b'));
 });
 
-test('drawStack stacks the slices at any heading: each a rise above the last, turned about the pivot and flattened', () => {
-  const source = { ...stack, slices: [['bbbbb', 'bcccb', 'bbbbb'], ['.....', '.ttt.', '.....'], ['.....', '..k..', '.....']] };
-  const { recipe } = compileStackSlices(source), sheet = sheetOf(recipe), colour = { b: [128, 64, 32], c: [192, 128, 64], t: [128, 144, 160], k: [16, 32, 48] };
-  const slices = recipe.frames.map(frame => frame.ops[0].rows);
-  const shown = (context, x, y) => { const at = (y * context.width + x) * 4; return context.data[at + 3] ? [...context.data.slice(at, at + 3)] : null; };
-  // Straight down, unturned: the pivot (the middle cell's centre, 2.5, 1.5) is at (10.5, 12.5), so the slices' pixels
-  // are the canvas's, and slice z is z pixels up.
-  const plain = softCanvas(20, 16);
-  drawStack(plain, sheet, 10, 12);
-  assert.equal(plain.draws, 3);
-  for (let y = 0; y < 16; y++) for (let x = 0; x < 20; x++) {
-    let want = null;
-    for (let z = 0; z < 3; z++) { const key = slices[z][y + z - 11]?.[x - 8]; if (key && key !== '.') want = colour[key]; }
-    assert.deepEqual(shown(plain, x, y), want, `pixel ${x},${y}`);
+test('drawStack stacks the slices at any heading: at a quarter turn the picture is the baked frame, pixel for pixel', () => {
+  const shown = (context, x, y) => { const at = (y * context.width + x) * 4; return context.data[at + 3] ? [...context.data.slice(at, at + 4)].join(' ') : null; };
+  // What a stack bakes at a heading, and what its slices stack to there with the pivot at (20, 30): the pixels that differ.
+  const differ = (source, heading, options = {}) => {
+    const baked = compileStack({ ...source, headings: [heading] }).recipe, [ax, ay] = baked.anchor, frame = renderProject(baked).frames[0];
+    const canvas = softCanvas(48, 44), turn = source.projection === 'iso' ? heading + 45 : heading;
+    drawStack(canvas, sheetOf(compileStackSlices(source).recipe), 20, 30, { heading: turn, scale: source.resolution ?? 4, squash: source.projection === 'iso' ? 0.5 : source.squash ?? 0.5, ...options });
+    let count = 0;
+    for (let y = 0; y < 44; y++) for (let x = 0; x < 48; x++) {
+      const bx = x - 20 + ax, by = y - 30 + ay, at = (by * baked.width + bx) * 4, inside = bx >= 0 && by >= 0 && bx < baked.width && by < baked.height;
+      const want = inside && frame.data[at + 3] ? [...frame.data.slice(at, at + 4)].join(' ') : null;
+      if (want !== shown(canvas, x, y)) count++;
+    }
+    return count;
+  };
+  // A pivot at a cell's centre across and at a corner down, one at a centre both ways, and a ragged footprint: with
+  // an odd resolution or a flattened ground, canvas pixel centres fall on the lines between slice pixels, and each is
+  // settled as the baked frame settles it.
+  const shapes = [
+    [['bbbbb', 'bcccb', 'bbbba', 'bbbbb'], ['.....', '.ttt.', '.tk..', '.....'], ['.....', '..k..', '.....', '.....']],
+    [['bbbbb', 'bcccb', 'bbbba'], ['.....', '.ttt.', '.....'], ['.....', '..k..', '.....']],
+    [['.bbb..', 'bcccba', 'bcc.ba', '.bbbaa', '..a...'], ['......', '.tt...', '.tk...', '......', '......'], ['......', '.k....', '......', '......', '......']],
+  ];
+  for (const slices of shapes) for (const resolution of [1, 2, 3, 4, 5]) for (const view of [{ squash: 1 }, { squash: 0.5 }, { projection: 'iso' }]) {
+    // A cell thinner than a pixel can't be stacked from whole copies.
+    if (resolution === 1 && view.squash !== 1) continue;
+    const source = { ...stack, slices, resolution, ...view };
+    for (const heading of view.projection === 'iso' ? [45, 135, 225, 315] : [0, 90, 180, 270]) assert.equal(differ(source, heading), 0, `${JSON.stringify(view)} at ${resolution}×, heading ${heading}`);
   }
-  // Turned a quarter, a slice's rows run across: what was at (dx, dy) from the pivot is at (-dy, dx).
-  const quarter = softCanvas(20, 16);
-  drawStack(quarter, sheet, 10, 12, { heading: 90 });
-  for (let y = 0; y < 16; y++) for (let x = 0; x < 20; x++) {
-    let want = null;
-    for (let z = 0; z < 3; z++) { const dx = x + .5 - 10.5, dy = y + z + .5 - 12.5, key = slices[z][Math.floor(1.5 - dx)]?.[Math.floor(2.5 + dy)]; if (key && key !== '.') want = colour[key]; }
-    assert.deepEqual(shown(quarter, x, y), want, `turned, pixel ${x},${y}`);
-  }
-  // Enlarged, each slice is drawn once for every pixel it rises, so the sides are solid: nine draws, and no gap in the
-  // column above the pivot from the ground to the top slice.
-  const big = softCanvas(40, 30);
-  drawStack(big, sheet, 20, 24, { scale: 3 });
-  assert.equal(big.draws, 9);
-  for (let y = 24 - 3 * 3 + 2; y <= 24; y++) assert.ok(shown(big, 20, y), `row ${y} above the pivot is filled`);
-  // Above the pivot: the top slice's cell, the middle slice's, and the front row of the bottom slice, raised over its middle as a side.
-  assert.deepEqual([shown(big, 20, 24 - 6), shown(big, 20, 24 - 3), shown(big, 20, 24)], [colour.k, colour.t, colour.b]);
-  // Flattened, the ground is half as deep and the rise is unchanged.
-  const flat = softCanvas(40, 30), tall = softCanvas(40, 30);
-  drawStack(flat, sheet, 20, 24, { scale: 4, squash: 0.5, rise: 4 });
-  drawStack(tall, sheet, 20, 24, { scale: 4, rise: 4 });
-  const rowsOf = context => { let top = 30, bottom = -1; for (let y = 0; y < 30; y++) for (let x = 0; x < 40; x++) if (shown(context, x, y)) { top = Math.min(top, y); bottom = Math.max(bottom, y); } return [top, bottom]; };
-  assert.deepEqual([rowsOf(tall), rowsOf(flat)], [[11, 29], [12, 26]]);
+  const source = { ...stack, slices: shapes[1], resolution: 3, squash: 1 }, { recipe } = compileStackSlices(source), sheet = sheetOf(recipe);
+  // Each slice is drawn once for every pixel it rises and once more at its top, so the sides are solid.
+  const big = softCanvas(48, 44);
+  drawStack(big, sheet, 20, 30, { scale: 3 });
+  assert.equal(big.draws, 3 * 4);
+  // Between quarter turns it is a turned picture of the same stack: as many pixels, within a tenth.
+  const count = context => { let n = 0; for (let i = 3; i < context.data.length; i += 4) if (context.data[i]) n++; return n; };
+  const turned = softCanvas(48, 44);
+  drawStack(turned, sheet, 20, 30, { scale: 3, heading: 30 });
+  assert.ok(Math.abs(count(turned) - count(big)) < count(big) / 10, `${count(turned)} pixels turned, ${count(big)} unturned`);
+  // A rise other than the scale stretches the stack: the ground stays, and the top slice's one cell is two pixels
+  // higher for each of the three slices under its roof.
+  const tall = softCanvas(48, 44), rowsOf = context => { let top = 44, bottom = -1; for (let y = 0; y < 44; y++) for (let x = 0; x < 48; x++) if (shown(context, x, y)) { top = Math.min(top, y); bottom = Math.max(bottom, y); } return [top, bottom]; };
+  drawStack(tall, sheet, 20, 30, { scale: 3, rise: 5 });
+  assert.deepEqual([rowsOf(big), rowsOf(tall)], [[20, 33], [14, 33]]);
   // A trimmed, scaled sheet stacks to the same picture: the pivot is read in the sheet's own pixels.
-  const trimmed = softCanvas(40, 30), scaled = sheetOf({ ...recipe, sheet: { scale: 3, trim: true, padding: 1 } });
-  drawStack(trimmed, scaled, 20, 24, { rise: 3 });
+  const trimmed = softCanvas(48, 44), scaled = sheetOf({ ...recipe, sheet: { scale: 3, trim: true, padding: 1 } });
+  drawStack(trimmed, scaled, 20, 30, { rise: 3 });
   assert.deepEqual([...trimmed.data], [...big.data]);
   // What it refuses.
   assert.throws(() => drawStack(softCanvas(4, 4), sheetOf(compileStack(source).recipe), 0, 0), /no slices to stack: no animation slices/);
@@ -163,4 +170,15 @@ test('compile --slices and pixel_compile slices write the sheet, for a stack onl
   assert.deepEqual([refused.result.isError, refused.info.path], [true, 'slices']);
   assert.match(refused.info.error, /slices are a sprite stack's/);
   assert.match((await call('pixel_compile', { source: crate, slices: true, frames: 4 })).info.error, /frames shapes baked frames/);
+  // A stack with a socket compiles to two revisions: the recipe's draws, and the source's, sent where a recipe goes,
+  // is told what to send.
+  const chest = JSON.parse(await readFile(new URL('../examples/iso-chest.stack.json', import.meta.url), 'utf8')), lid = await call('pixel_compile', { source: chest });
+  assert.equal((await call('pixel_validate', { revision: lid.info.revision })).info.ok, true);
+  for (const args of [{ revision: lid.info.sourceRevision }, { project: crate }]) {
+    const sent = await call('pixel_validate', args);
+    assert.equal(sent.result.isError, true);
+    assert.match(sent.info.error, /this is a pixelforge-stack source, not a recipe: pixel_compile it, then send the revision that returns/);
+  }
+  // A socket's rotation still reads the source's revision.
+  assert.equal((await call('pixel_inspect', { revision: lid.info.sourceRevision, rotate: { socket: 'hinge', heading: 0, degrees: [0, 90] } })).info.ok, true);
 });

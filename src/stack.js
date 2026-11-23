@@ -352,12 +352,21 @@ function rasterPart(part, view, angle, pose, fragments, alpha, budget) {
   const [c, s] = groundAxes(view, angle), n = view.grid ? .5 : 1, tall = (levels - 1) * spacing + 1;
   const socket = part.socket ? pose.get(part.socket) : null, [ox, oy, oz] = socket?.origin ?? [0, 0, 0];
   const into = v => (socket ? spun(socket.axis, socket.c, -socket.s, v) : v);
-  const [dx, dy, dz] = into([-s / squash * n, -c / squash * n, -1]);
-  const tones = part.tones?.(angle, socket && (v => spun(socket.axis, socket.c, socket.s, v)));
+  const out = v => (socket ? spun(socket.axis, socket.c, socket.s, v) : v);
+  const vx = -s / squash * n, vy = -c / squash * n, [dx, dy, dz] = into([vx, vy, -1]);
+  const tones = part.tones?.(angle, socket && out);
   const stepX = Math.sign(dx), stepY = Math.sign(dy), stepZ = Math.sign(dz);
+  // A ray that runs exactly along a line between two cells is given the cell the stack's own raster gives it: the one
+  // further along the stack's axis, or the one the ray is coming to. A turned part's own axes may run the other way,
+  // so the side is chosen in the stack's space and taken into the part's.
+  const [nx, ny, nz] = into([vx < 0 ? -1e-7 : 1e-7, vy < 0 ? -1e-7 : 1e-7, 0]);
   const deltaX = dx ? 1 / Math.abs(dx) : Infinity, deltaY = dy ? 1 / Math.abs(dy) : Infinity, deltaZ = dz ? 1 / Math.abs(dz) : Infinity;
   // The face a ray comes in by when it steps along each axis; the underside (4) when it rises into a cell.
-  const faceX = stepX > 0 ? 0 : 1, faceY = stepY > 0 ? 2 : 3, faceZ = stepZ > 0 ? 4 : -1;
+  const faceX = stepX > 0 ? 0 : 1, faceY = stepY > 0 ? 2 : 3, faceZ = stepZ > 0 ? 4 : -1, faces = [faceX, faceY, faceZ];
+  // Where a ray meets two faces at once, an edge, the stack gives its roof, then on the way in the face across its x
+  // and, from cell to cell, the one across its y. A turned part's faces are ranked by where they face in the stack.
+  const ranks = [stepX, stepY, stepZ].map((step, axis) => { const [ux, uy, uz] = out([0, 1, 2].map(each => (each === axis ? -step : 0))); return [uz * 4 + Math.abs(ux) * 2 + Math.abs(uy), uz * 4 + Math.abs(uy) * 2 + Math.abs(ux)]; });
+  const entering = ranks.map(rank => rank[0]), [low, mid, high] = [0, 1, 2].sort((a, b) => ranks[a][1] - ranks[b][1] || a - b);
   let x0 = width, x1 = -1, y0 = height, y1 = -1;
   for (const xyz of corners(part, spacing)) {
     const [u, v] = projectPoint(placed({ xyz, socket: part.socket }, pose), view, c, s);
@@ -373,17 +382,21 @@ function rasterPart(part, view, angle, pose, fragments, alpha, budget) {
       // Where the ray meets the ground's level, in the part's space.
       const ground = into([pivot[0] + .5 + sx * c * n + sy * s * n - ox, pivot[1] + .5 - sx * s * n + sy * c * n - oy, -oz]);
       const lx = ground[0] - part.at[0], ly = ground[1] - part.at[1], lz = ground[2] - part.at[2];
-      let enter = -Infinity, leave = Infinity, face = -1;
-      if (dx) { const a = -lx / dx, b = (w - lx) / dx; enter = Math.min(a, b); leave = Math.max(a, b); face = faceX; }
-      else if (lx < 0 || lx >= w) continue;
-      if (dy) { const a = -ly / dy, b = (h - ly) / dy, near = Math.min(a, b); if (near > enter) { enter = near; face = faceY; } leave = Math.min(leave, Math.max(a, b)); }
-      else if (ly < 0 || ly >= h) continue;
-      // Like the stack's roof, the face across the part's own height wins a tie at an edge.
-      if (dz) { const a = -lz / dz, b = (tall - lz) / dz, near = Math.min(a, b); if (near >= enter) { enter = near; face = faceZ; } leave = Math.min(leave, Math.max(a, b)); }
-      else if (lz < 0 || lz >= tall) continue;
+      let enter = -Infinity, leave = Infinity, face = -1, rank = -Infinity;
+      const span = (l, d, size, axis) => {
+        const a = -l / d, b = (size - l) / d, near = Math.min(a, b);
+        if (near > enter || (near === enter && entering[axis] >= rank)) { enter = near; face = faces[axis]; rank = entering[axis]; }
+        leave = Math.min(leave, Math.max(a, b));
+      };
+      if (dx) span(lx, dx, w, 0);
+      else if (lx + nx < 0 || lx + nx >= w) continue;
+      if (dy) span(ly, dy, h, 1);
+      else if (ly + ny < 0 || ly + ny >= h) continue;
+      if (dz) span(lz, dz, tall, 2);
+      else if (lz + nz < 0 || lz + nz >= tall) continue;
       if (!(enter < leave)) continue;
       const probe = Math.min(enter + 1e-9, (enter + leave) / 2);
-      let x = Math.max(0, Math.min(w - 1, Math.floor(lx + dx * probe))), y = Math.max(0, Math.min(h - 1, Math.floor(ly + dy * probe))), z = Math.max(0, Math.min(tall - 1, Math.floor(lz + dz * probe)));
+      let x = Math.max(0, Math.min(w - 1, Math.floor(lx + (dx ? dx * probe : nx)))), y = Math.max(0, Math.min(h - 1, Math.floor(ly + (dy ? dy * probe : ny)))), z = Math.max(0, Math.min(tall - 1, Math.floor(lz + (dz ? dz * probe : nz))));
       let tx = dx ? (x + (stepX > 0 ? 1 : 0) - lx) / dx : Infinity, ty = dy ? (y + (stepY > 0 ? 1 : 0) - ly) / dy : Infinity, tz = dz ? (z + (stepZ > 0 ? 1 : 0) - lz) / dz : Infinity;
       let entry = enter, glass = false;
       while (x >= 0 && x < w && y >= 0 && y < h && z >= 0 && z < tall) {
@@ -400,9 +413,11 @@ function rasterPart(part, view, angle, pose, fragments, alpha, budget) {
         const next = Math.min(tx, ty, tz);
         if (next >= leave) break;
         entry = next;
-        if (tx <= next + 1e-10) { x += stepX; tx += deltaX; face = faceX; }
-        if (ty <= next + 1e-10) { y += stepY; ty += deltaY; face = faceY; }
-        if (tz <= next + 1e-10) { z += stepZ; tz += deltaZ; face = faceZ; }
+        const crossed = [tx <= next + 1e-10, ty <= next + 1e-10, tz <= next + 1e-10];
+        if (crossed[0]) { x += stepX; tx += deltaX; }
+        if (crossed[1]) { y += stepY; ty += deltaY; }
+        if (crossed[2]) { z += stepZ; tz += deltaZ; }
+        face = faces[crossed[high] ? high : crossed[mid] ? mid : low];
       }
     }
     if (visits > budget.left) fail('stack.parts', 'stack exceeds 96 million ray steps; use fewer headings or frames, or a lower resolution');
@@ -482,6 +497,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   // Every frame in order: the headings, then each animation at each of its headings.
   const plan = headings.map((heading, i) => ({ name: `heading-${heading}`, duration, heading, angle: angles[i] }));
   for (const clip of clips) for (const heading of clip.headings) for (let frame = 0; frame < clip.count; frame++) {
+    if (`${clip.name}-${facing(heading)}-${frame}`.length > 64) fail(`stack.animations.${clip.name}`, `its frame ${clip.name}-${facing(heading)}-${frame} has a name longer than 64 characters; shorten the animation's name${directions.has(heading) ? ' or the direction\'s' : ''}`);
     plan.push({ name: `${clip.name}-${facing(heading)}-${frame}`, duration: clip.durations[frame], heading, angle: cameraAngle(heading), timed: { sockets: clip.sockets, poses: clip.poses, frame } });
   }
   if (plan.length > 256) fail('stack.animations', `${headings.length} headings and ${plan.length - headings.length} frames of animations are ${plan.length} frames; a recipe holds 256, so give an animation fewer headings (its own headings) or frames`);

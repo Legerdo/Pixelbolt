@@ -256,6 +256,17 @@ test('a scene on isometric diamonds is an isometric Tiled map: flat tilemaps as 
   assert.match(map, /<objectgroup draworder="index" id="1" name="[^"]+" offsetx="16" offsety="94">/);
 });
 
+test('an isometric Tiled map is of the ground\'s diamonds when the ground is terraced and a flat map follows it', async () => {
+  const source = await tiledIsoScene(), [ground, rug] = source.instances;
+  const heights = ground.tilemap.rows.map((row, y) => (y ? '.' : '1').padEnd(row.length, '.'));
+  const { files } = await createSceneBundle({ ...source, instances: [{ ...ground, tilemap: { ...ground.tilemap, heights, solid: true } }, rug] }), tmx = files.get('scene.tmx').toString();
+  // The terraced ground is objects, and still gives the map its 12 by 12 cells and every layer its place; the rug,
+  // 2 rows deep, is a tile layer five tiles further left than it stands. The map was the rug's 3 by 2 cells.
+  assert.match(tmx, /<map version="1\.10" orientation="isometric" renderorder="right-down" width="12" height="12" tilewidth="8" tileheight="4" /);
+  assert.match(tmx, /<objectgroup draworder="index" id="1" name="ground" offsetx="0" offsety="20">/);
+  assert.match(tmx, /<layer id="2" name="rug" width="12" height="12" offsetx="-3" offsety="31">/);
+});
+
 test('a shade placement has nothing in a Tiled map to become, and the export says so; a hazed one draws from a hazed tileset', async () => {
   const block = { version: 1, name: 'block', width: 4, height: 4, palette: { a: '#204020', b: '#408040', c: '#80c080' }, ramps: [['a', 'b', 'c']], frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 4, h: 4, color: 'b' }] }] };
   const { files, warnings } = await createSceneBundle({ format: 'pixelforge-scene', version: 1, name: 'shaded', width: 12, height: 12, haze: { color: '#8090a0' }, assets: { block },

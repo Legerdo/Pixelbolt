@@ -264,15 +264,23 @@ export function keepFrames(recipe, count, path = 'frames') {
   // Frames kept only to draw others from are no longer played, so the animation that played every frame is spelled out.
   const explicit = recipe.animations !== undefined || frames.length > next.default.frames.length;
   const made = { ...recipe, frames, ...(explicit && { animations: next }) };
-  // A heading whose frame was removed no longer has one: the lookup keeps the headings that do.
-  if (isObject(recipe.headings?.frames)) {
-    const left = new Set(frames.map(frame => frame.name)), standing = Object.fromEntries(Object.entries(recipe.headings.frames).filter(([, frame]) => left.has(frame)));
-    const { frames: all, ...rest } = recipe.headings;
-    if (Object.keys(standing).length) made.headings = { ...recipe.headings, frames: standing };
-    else if (rest.animations) made.headings = rest;
-    else delete made.headings;
+  return { recipe: keepHeadings(made, recipe.headings), kept, notes };
+}
+
+// `recipe` with the `headings` lookup of what it still has: a heading whose frame was removed no longer has one, nor
+// does a name whose animation was, and a lookup left with neither goes.
+function keepHeadings(recipe, headings) {
+  if (!isObject(headings)) return recipe;
+  const frames = new Set(recipe.frames.map(frame => frame.name)), animations = recipe.animations ?? {};
+  const left = (map, has) => Object.fromEntries(Object.entries(map).filter(([, name]) => has(name))), some = map => Object.keys(map).length > 0;
+  const made = { ...headings };
+  if (isObject(headings.frames)) { made.frames = left(headings.frames, name => frames.has(name)); if (!some(made.frames)) delete made.frames; }
+  if (isObject(headings.animations)) {
+    made.animations = Object.fromEntries(Object.entries(headings.animations).map(([name, by]) => [name, isObject(by) ? left(by, animation => Object.hasOwn(animations, animation)) : by]).filter(([, by]) => !isObject(by) || some(by)));
+    if (!some(made.animations)) delete made.animations;
   }
-  return { recipe: made, kept, notes };
+  const { headings: old, ...rest } = recipe;
+  return made.frames || made.animations ? { ...recipe, headings: made } : rest;
 }
 
 // What keepFrames reads of each frame: its duration (project.frames[i].duration) and whether it draws. An effect
@@ -304,5 +312,6 @@ export function keepAnimations(recipe, names, path = 'animation') {
   const index = new Map(recipe.frames.map((frame, i) => [frame.name, i])), stays = new Set(wanted.flatMap(name => recipe.animations[name].frames.map(frame => index.get(frame))));
   const sources = frame => [frame.from, ...[...(frame.ops ?? []), ...(frame.layers ?? []).flatMap(layer => layer.ops ?? [])].filter(op => op.op === 'copy').map(op => op.from)].filter(name => index.has(name)).map(name => index.get(name));
   for (let i = recipe.frames.length - 1; i >= 0; i--) if (stays.has(i)) for (const source of sources(recipe.frames[i])) stays.add(source);
-  return { recipe: { ...recipe, frames: pinTrackTimes(recipe).filter((_, i) => stays.has(i)), animations: Object.fromEntries(wanted.map(name => [name, recipe.animations[name]])) }, dropped: has.filter(name => !wanted.includes(name)) };
+  const made = { ...recipe, frames: pinTrackTimes(recipe).filter((_, i) => stays.has(i)), animations: Object.fromEntries(wanted.map(name => [name, recipe.animations[name]])) };
+  return { recipe: keepHeadings(made, recipe.headings), dropped: has.filter(name => !wanted.includes(name)) };
 }

@@ -163,6 +163,27 @@ test('a placement stands on a cell of a named map, and a raised cell lifts its t
   refuse({ at: [0, 0] }, { layout: 'square', heights }, /tilemap\.heights: heights raise the cells of an iso map/);
 });
 
+test('a placement on a cell moves with its map and is sorted with a sorted iso map', () => {
+  const tiles = { version: 1, name: 'tiles', width: 8, height: 8, palette: FACES, frames: [{ name: 'block', ops: [{ op: 'box', w: 4, d: 4, h: 4, top: 't', left: 'l', right: 'r' }] }] };
+  const flag = { version: 1, name: 'flag', width: 2, height: 4, palette: { e: '#ffffff' }, anchor: [1, 3], frames: [{ name: 'a', ops: [{ op: 'rect', w: 2, h: 4, color: 'e' }] }] };
+  const source = (placement = {}, map = {}) => ({ format: 'pixelforge-scene', version: 1, name: 'iso', width: 40, height: 32, background: '#000000', duration: 1000, assets: { tiles, flag },
+    camera: [{ time: 0, at: [0, 0] }, { time: 1000, at: [20, 0] }],
+    instances: [
+      { name: 'ground', asset: 'tiles', at: [4, 16], parallax: 0.5, tilemap: { layout: 'iso', tile: [8, 4], rows: ['bbb', 'bbb', 'bbb'], legend: { b: 'block' } }, ...map },
+      { name: 'flag', asset: 'flag', anchor: 'frame', on: 'ground', cell: [1, 1], ...placement }] });
+  // The camera moves 20 pixels and the map, at half parallax, 10: the flag stays on its cell.
+  const scene = prepareScene(source()), where = time => renderScene(scene, { time, depth: true }).placements.find(p => p.name === 'flag').x;
+  assert.deepEqual(scene.instances[1].parallax, [0.5, 0.5]);
+  assert.equal(where(0) - where(1000), 10);
+  assert.throws(() => prepareScene(source({ parallax: 1 })), error => error.path === 'scene.instances[1].parallax' && /moves with its map; give the map the parallax/.test(error.message));
+  // On a sorted iso map a drawn sprite is sorted as a stack is, so a block in front covers it; an unsorted map, drawn
+  // whole where it is listed, leaves it as it was.
+  assert.deepEqual([prepareScene(source({}, { sort: 'ground' })).instances[1].sort, scene.instances[1].sort], ['ground', undefined]);
+  // A square map has no heights to give.
+  const square = { name: 'ground', asset: 'tiles', at: [4, 16], tilemap: { tile: [8, 8], rows: ['bb'], legend: { b: 'block' } } };
+  assert.throws(() => prepareScene({ ...source(), instances: [square, { name: 'flag', asset: 'flag', on: 'ground', cell: [0, 0], level: 1 }] }), /ground is a square map, which has no heights; lift this placement by pixels/);
+});
+
 test('what stands on cells of a sorted map is drawn with them: the ground never covers a wide thing, and a cliff or a post beside it covers only what is behind', () => {
   // A slab two cells long and one deep, four pixels high, on a map of 8x4 cells: a tile is four of its cells.
   const tiles = { version: 1, name: 'tiles', width: 8, height: 8, palette: FACES, frames: [{ name: 'block', ops: [{ op: 'box', w: 4, d: 4, h: 4, top: 't', left: 'l', right: 'r' }] }] };

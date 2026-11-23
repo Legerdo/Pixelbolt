@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createBundle } from '../src/export.js';
 import { compileStack, compileStackSlices } from '../src/stack.js';
-import { nearestHeading, headingFrame, headingAnimation, headingToward } from '../src/runtime.js';
+import { nearestHeading, headingFrame, headingAnimation, headingToward, stackNudge } from '../src/runtime.js';
 import { createSceneBundle } from '../src/scene-export.js';
 import { compileAutotile, compileNormals } from '../src/authoring.js';
 import { neighbourMask, expandTilemap } from '../src/autotile.js';
@@ -1316,13 +1316,17 @@ func _initialize():
             regions.append([texture.region.position.x, texture.region.position.y, texture.region.size.x, texture.region.size.y, texture.get_width(), texture.get_height()])
         entry["regions"] = regions
         var grounds := []
+        var nudges := []
         for squash in plan["squash"]:
             for heading in plan["headings"]:
                 node.squash = squash
                 node.heading = heading
                 var flat: Transform2D = node.ground()
                 grounds.append([flat.x.x, flat.x.y, flat.y.x, flat.y.y])
+                var moved: Vector2 = node.nudge()
+                nudges.append([moved.x, moved.y])
         entry["grounds"] = grounds
+        entry["nudges"] = nudges
         node.pivot = Vector2(1.5, 2.5)
         entry["set"] = [node.origin().x, node.origin().y]
         node.free()
@@ -1379,6 +1383,10 @@ export async function verifyGodotSlices({ godot = findGodot(), keep = false, log
       const want = SLICE_SQUASH.flatMap(squash => SLICE_HEADINGS.map(heading => { const turn = heading * Math.PI / 180; return [Math.cos(turn), squash * Math.sin(turn), -Math.sin(turn), squash * Math.cos(turn)]; }));
       got.grounds.forEach((ground, i) => assert.ok(near(ground, want[i]), `${name}: ground ${i} is ${ground}, not ${want[i]}`));
       assert.equal(got.grounds.length, want.length);
+      // And the part of a pixel the slices are moved so that each pixel on a line is settled as a baked frame settles it.
+      const moved = SLICE_SQUASH.flatMap(squash => SLICE_HEADINGS.map(heading => { const { x, y } = stackNudge(heading, 1, squash); return [x, y]; }));
+      got.nudges.forEach((nudge, i) => assert.ok(near(nudge, moved[i]), `${name}: nudge ${i} is ${nudge}, not ${moved[i]}`));
+      assert.equal(got.nudges.length, moved.length);
       assert.deepEqual(got.set, [1.5, 2.5], `${name}: a pivot set on the node is the one used`);
     }
     assert.deepEqual(report.bare, [0, 0], 'a node with no slices turns about its own origin, and raises nothing');

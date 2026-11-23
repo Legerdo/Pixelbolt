@@ -24,8 +24,8 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
 
   pixelbolt init [file.json]               Create an editable example
   pixelbolt help [topic] [section]         One reference, as MCP pixel_help gives it: quickstart, guide, workflow,
-                                           craft, schema, example, presets, preset <name>, poses, scenes, autotile, fx,
-                                           fluid, wave, crystal, powder, bodies or normals. guide, workflow and craft list
+                                           craft, schema, example, presets, preset <name>, stack, poses, scenes, autotile,
+                                           fx, fluid, wave, crystal, powder, bodies or normals. guide, workflow and craft list
                                            their sections; name one to print it (help craft "Characters"), or give a
                                            word to print the paragraphs that mention it (help guide text). A schema
                                            prints its outline; a path prints one part (help bodies effects.bodies)

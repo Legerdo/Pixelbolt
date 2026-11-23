@@ -127,11 +127,17 @@ export function createToolRunner({ directory, root, version }) {
   };
   const relativeToRoot = files => files.map(file => path.relative(root, file).split(path.sep).join('/'));
   // Inline file references are resolved inside the root; revisions store the resolved recipe, so they stay immutable.
-  const recipeFrom = async (project, revision) => {
+  const recipeFrom = async (project, revision, source = false) => {
     if ((project === undefined) === (revision === undefined)) throw new PixelError('arguments', 'send either project or revision');
-    if (project === undefined) { const recipe = await read(revision); return { recipe, resolved: [], sources: await sourcesOf(revision) }; }
+    // A source where a recipe goes (a sourceRevision sent as the revision, say) is told what to send, not which of its
+    // fields a recipe lacks. `source`: the call reads a source too (a stack's socket rotation or pose sheet).
+    const drawn = recipe => {
+      if (!source && typeof recipe?.format === 'string' && Object.hasOwn(COMPILERS, recipe.format)) throw new PixelError(project === undefined ? 'revision' : 'project.format', `this is a ${recipe.format} source, not a recipe: pixel_compile it, then send the revision that returns`);
+      return recipe;
+    };
+    if (project === undefined) { const recipe = drawn(await read(revision)); return { recipe, resolved: [], sources: await sourcesOf(revision) }; }
     const { document, files } = await resolveReferences(project, { baseDir: root, root }), resolved = relativeToRoot(files);
-    return { recipe: document, resolved, sources: resolved };
+    return { recipe: drawn(document), resolved, sources: resolved };
   };
   const newFolder = async name => { await mkdir(path.resolve(directory), { recursive: true }); return mkdtemp(path.join(path.resolve(directory), `${name}-`)); };
   // saveAs: copies of chosen export files at the paths the user named, inside the server root. Everything is checked
@@ -401,7 +407,7 @@ export function createToolRunner({ directory, root, version }) {
           if (rotate !== undefined || poseSheet !== undefined) recipe = input.document;
           else if (input.document?.format === 'pixelforge-stack') throw new PixelError('rotate', 'send rotate to inspect a socket, poseSheet for named poses, or use pixel_compile for the authored turntable');
           else ({ recipe, metadata, warnings: poseWarnings = [] } = compilePoses(input.document));
-        } else ({ recipe, resolved, sources } = await recipeFrom(spec, revision));
+        } else ({ recipe, resolved, sources } = await recipeFrom(spec, revision, rotate !== undefined || poseSheet !== undefined));
         if (poseSheet !== undefined) {
           if (spec !== undefined || recipe?.format !== 'pixelforge-stack') throw new PixelError('poseSheet','send a sprite stack as source, or its sourceRevision as revision');
           stackSource = recipe;

@@ -248,7 +248,10 @@ export function tiledMap(scene, draws, { tilesets }) {
     return map && instance.sort !== 'ground' && instance.scale === 1 && project(instance.asset).sheet.scale === 1 && (!map.iso || (!map.levels && project(instance.asset).width === map.tile[0]));
   };
   const mapDraws = draws.filter(draw => draw.cell !== undefined);
-  const firstMap = mapDraws.find(draw => fits(draw.instance)) ?? mapDraws.find(draw => { const instance = scene.instances[draw.instance]; return instance.tilemap.iso && instance.scale === 1 && project(instance.asset).sheet.scale === 1; });
+  // The map is on the grid of the first tilemap a tile layer can hold; of the first tilemap drawn, when that is an
+  // isometric ground a layer can't hold (a terraced one), so the map is of the ground's diamonds either way.
+  const diamonds = draw => { const instance = scene.instances[draw.instance]; return instance.tilemap.iso && instance.scale === 1 && project(instance.asset).sheet.scale === 1; };
+  const firstMap = (mapDraws.length && !fits(mapDraws[0].instance) && diamonds(mapDraws[0]) ? mapDraws[0] : null) ?? mapDraws.find(draw => fits(draw.instance)) ?? mapDraws.find(diamonds);
   const lead = firstMap ? scene.instances[firstMap.instance] : null, grid = lead ? lead.tilemap.tile : [16, 16], iso = Boolean(lead?.tilemap.iso);
   const placed = new Map();
   // The rows of an isometric map (the deepest of its first map and its tile layers), and where the first map stands

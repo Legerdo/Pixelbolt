@@ -776,3 +776,27 @@ test('a scene plays a stack\'s animation at a heading, on a cell of an iso map',
   assert.deepEqual(at(0), at(400), 'the loop comes round');
   assert.throws(() => prepareScene({ ...scene.source, instances: [scene.source.instances[0], { ...scene.source.instances[1], animation: 'rise' }] }), /unknown animation/);
 });
+
+test('a part turned by its socket is drawn where the same cells of the stack are, at every resolution', () => {
+  const palette = { a: '#402010', b: '#804020' }, floor = Array.from({ length: 6 }, () => 'aaaaaa');
+  const block = angle => ({ format: 'pixelforge-stack', version: 1, name: 'turned', palette, slices: [floor], headings: [0, 90, 180, 270],
+    sockets: { hub: { at: [3, 3, 1], axis: 'z', keys: [{ heading: 0, angle }, { heading: 360, angle }] } }, parts: { block: { socket: 'hub', at: [-1, -1, 0], slices: [['bb', 'bb'], ['bb', 'bb']] } } });
+  // A 2x2x2 block centred on its socket is the same block however far the socket has turned it. At an odd resolution
+  // pixel centres fall on the lines between cells, and a turned part once took the other side of each.
+  for (const view of [{ resolution: 1 }, { resolution: 3 }, { resolution: 4 }, { resolution: 5 }, { resolution: 3, projection: 'iso' }, { resolution: 1, squash: 1 }]) {
+    const still = renderProject(compileStack({ ...block(0), ...view }).recipe);
+    for (const angle of [90, 180, 270]) {
+      const turned = renderProject(compileStack({ ...block(angle), ...view }).recipe);
+      still.frames.forEach((frame, i) => assert.deepEqual([...turned.frames[i].data], [...frame.data], `${JSON.stringify(view)}, turned ${angle}, ${frame.name}`));
+    }
+  }
+});
+
+test('an animation whose frames would have names too long for a recipe is refused where it is written', () => {
+  const source = { format: 'pixelforge-stack', version: 1, name: 'long', palette: { a: '#402010' }, slices: [['aa', 'aa']], headings: [0, 90],
+    sockets: { hub: { at: [1, 1, 1], axis: 'z' } }, parts: { cap: { socket: 'hub', at: [0, 0, 0], slices: [['a']] } } };
+  const keys = { frames: 2, sockets: { hub: [{ frame: 0, angle: 0 }, { frame: 2, angle: 90 }] } };
+  assert.throws(() => compileStack({ ...source, animations: { ['w'.repeat(62)]: keys } }), error => error.path === `stack.animations.${'w'.repeat(62)}` && /name longer than 64 characters; shorten the animation's name$/.test(error.message));
+  assert.throws(() => compileStack({ ...source, directions: { ['n'.repeat(30)]: 0 }, animations: { ['w'.repeat(40)]: keys } }), /shorten the animation's name or the direction's/);
+  assert.equal(compileStack({ ...source, animations: { ['w'.repeat(59)]: keys } }).recipe.frames.length, 6);
+});

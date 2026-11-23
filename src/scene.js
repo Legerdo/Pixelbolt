@@ -300,6 +300,7 @@ export function prepareScene(source) {
     if (instance.parallax !== undefined) {
       if (!camera) fail(`${path}.parallax`, 'parallax moves a placement with scene.camera; set a camera first');
       if (instance.attach !== undefined) fail(`${path}.parallax`, 'an attached placement moves with its target');
+      if (instance.on !== undefined) fail(`${path}.parallax`, 'a placement on a cell moves with its map; give the map the parallax');
       parallax = Array.isArray(instance.parallax) && instance.parallax.length === 2 ? instance.parallax.map((v, axis) => number(v, `${path}.parallax[${axis}]`, 0, 4)) : [number(instance.parallax, `${path}.parallax`, 0, 4), instance.parallax];
     }
     // How far into the haze a placement stands: 0 is none, 1 is the haze colour itself. Kept to six decimals, as the
@@ -408,12 +409,15 @@ export function prepareScene(source) {
   });
   // A placement on a cell stands at the cell's ground point: the centre of an iso cell's diamond, or the middle of a
   // square cell's bottom edge. On a raised cell it is drawn `raise` pixels higher and keeps its place in the order.
+  // It moves with its map as the camera does, and on a sorted iso map it is sorted too, so it is drawn with its cell.
   for (const [i, instance] of instances.entries()) {
     if (!instance.place) continue;
     const map = instances[instance.place.index], { tilemap } = map, [w, h] = tilemap.tile, [c, r] = instance.place.cell;
+    instance.parallax = [...map.parallax];
+    if (tilemap.iso && map.sort === 'ground') instance.sort = 'ground';
     const x = tilemap.iso ? (c - r + tilemap.rows) * w / 2 : (c + .5) * w, y = tilemap.iso ? (c + r + 1) * h / 2 : (r + 1) * h;
     const level = instance.place.level ?? tilemap.levels?.[Math.round(r)]?.[Math.round(c)] ?? 0;
-    if (level && !tilemap.levels) fail(`scene.instances[${i}].level`, `${instance.on} has no heights; give the map heights, or lift this placement by pixels`);
+    if (level && !tilemap.levels) fail(`scene.instances[${i}].level`, tilemap.iso ? `${instance.on} has no heights; give the map heights, or lift this placement by pixels` : `${instance.on} is a square map, which has no heights; lift this placement by pixels`);
     instance.raise = (level * (tilemap.rise ?? 0) + (tilemap.surface ?? 0)) * map.scale;
     instance.at = [map.at[0] + (Math.round(x) - map.anchor[0]) * map.scale, map.at[1] + (Math.round(y) - map.anchor[1]) * map.scale - instance.raise];
   }
