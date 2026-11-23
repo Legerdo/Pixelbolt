@@ -4,8 +4,8 @@
 // the painted voxel hull and keep their model-space lighting as the camera turns.
 import { fail, isObject, portableName } from './core.js';
 import { fields, integer, number } from './authoring.js';
-import { cosDeg, sinDeg } from './craft.js';
-import { triple } from './stack-facets.js';
+import { cosDeg, sinDeg, EASINGS } from './craft.js';
+import { triple, between } from './stack-facets.js';
 
 const add = (a, b) => a.map((v, i) => v + b[i]);
 const sub = (a, b) => a.map((v, i) => v - b[i]);
@@ -208,21 +208,25 @@ export function stackPaths(source, sockets, fixedCount) {
     }
     poses.set(name, angles);
   }
-  let last = -1;
-  const keys = list(source.poseKeys ?? [], 'stack.poseKeys', 0, 64).map((key, i) => {
-    const p = 'stack.poseKeys[' + i + ']';
-    fields(key, ['heading', 'pose'], p);
-    last = integer(key.heading, p + '.heading', last + 1, 360);
-    if (!poses.has(key.pose)) fail(p + '.pose', 'unknown pose');
-    return { heading: last, angles: poses.get(key.pose) };
-  });
-  function anglesAt(heading) {
+  // Named poses at headings in degrees, or at frames of an animation (which may ease the move to a key).
+  function poseKeys(value, path, by, end) {
+    let last = -1;
+    return list(value, path, 0, 64).map((key, i) => {
+      const p = path + '[' + i + ']';
+      fields(key, by === 'frame' ? ['frame', 'pose', 'ease'] : ['heading', 'pose'], p);
+      last = integer(key[by], p + '.' + by, last + 1, end);
+      if (!poses.has(key.pose)) fail(p + '.pose', 'unknown pose');
+      if (key.ease !== undefined && !EASINGS.includes(key.ease)) fail(p + '.ease', 'expected ' + EASINGS.join(', '));
+      return { when: last, angles: poses.get(key.pose), ...(key.ease !== undefined && key.ease !== 'linear' && { ease: key.ease }) };
+    });
+  }
+  const turning = poseKeys(source.poseKeys ?? [], 'stack.poseKeys', 'heading', 360);
+  // The joint angles at a heading, or at a frame of an animation that keys poses (`timed`: its keys and the frame).
+  function anglesAt(heading, timed = null) {
+    const keys = timed?.poses ?? turning;
     if (!keys.length) return new Map();
-    const end = keys.findIndex(k => k.heading >= heading);
-    if (end <= 0) return keys[end < 0 ? keys.length - 1 : 0].angles;
-    const a = keys[end - 1],
-      b = keys[end],
-      t = (heading - a.heading) / (b.heading - a.heading);
+    const [a, b, t] = between(keys, timed?.poses ? timed.frame : heading);
+    if (a === b) return a.angles;
     const values = new Map();
     for (const key of new Set([...a.angles.keys(), ...b.angles.keys()])) {
       const start = a.angles.get(key) ?? 0;
@@ -366,5 +370,5 @@ export function stackPaths(source, sockets, fixedCount) {
     }
     return { posed, facets };
   }
-  return { paths, poses, anglesAt, mesh };
+  return { paths, poses, poseKeys, anglesAt, mesh };
 }

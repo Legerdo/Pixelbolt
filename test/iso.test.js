@@ -234,6 +234,12 @@ test('the hamlet example stands every sprite stack on a cell of one terraced, so
   assert.deepEqual(view.depth.overlaps.filter(pair => pair.front === 'ground'), []);
   const loose = renderScene(prepareScene({ ...document, instances: document.instances.map(instance => (instance.tilemap ? { ...instance, sort: undefined } : instance)) }));
   assert.deepEqual([...view.data], [...loose.data], 'as it is with the ground drawn first: no cliff here has anything behind it');
+  // The mill's sails, the cannon and the villagers play animations of their stacks at a heading, and the ground is
+  // under every frame of them as it is under the first.
+  assert.deepEqual(things.filter(thing => thing.animation).map(thing => `${thing.asset} ${thing.animation}`), ['windmill spin-0', 'cannon scan-0', 'villager idle-sw', 'villager idle-se']);
+  const later = renderScene(scene, { time: 360 }), looseLater = renderScene(prepareScene({ ...document, instances: document.instances.map(instance => (instance.tilemap ? { ...instance, sort: undefined } : instance)) }), { time: 360 });
+  assert.notDeepEqual([...later.data], [...view.data]);
+  assert.deepEqual([...later.data], [...looseLater.data]);
   // Every wall piece and the tower between them is one of the four quarter headings, where cells are whole pixels.
   for (const thing of things) if (thing.asset === 'wall' || thing.asset === 'tower') assert.match(thing.frame, /^heading-(0|90|180|270)$/);
 });

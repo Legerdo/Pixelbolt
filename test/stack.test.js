@@ -598,3 +598,181 @@ test('scene placements share the pivot, occlude as whole sprites, and retain the
   assert.deepEqual(JSON.parse(files.get('scene.json')), scene);
   assert.ok(files.has('scene.tmx') && files.has('scene.tscn') && files.has('assets/0/color.png'));
 });
+
+// ---- Parts and animations ------------------------------------------------------------------------------------------
+// Each frame's pixels by their place from the anchor, so two stacks on different canvases compare.
+function fromAnchor(source) {
+  const { recipe } = compileStack(source), project = renderProject(recipe), [ax, ay] = recipe.anchor;
+  return new Map(project.frames.map(frame => {
+    const pixels = new Map();
+    for (let y = 0; y < recipe.height; y++) for (let x = 0; x < recipe.width; x++) {
+      const at = (y * recipe.width + x) * 4;
+      if (frame.data[at + 3]) pixels.set(`${x - ax},${y - ay}`, frame.data.slice(at, at + 4).join(' '));
+    }
+    return [frame.name, pixels];
+  }));
+}
+const filled = (w, h, key) => Array.from({ length: h }, () => key.repeat(w));
+const views = [{ projection: 'iso', cell: 1 }, { projection: 'iso', cell: 2 }, { projection: 'iso', resolution: 3 }, { resolution: 4 }];
+const moving = { format: 'pixelforge-stack', version: 1, name: 'moving', palette: { a: '#402010', b: '#804020', c: '#c08040', s: '#405060', t: '#8090a0', u: '#c0d0e0' } };
+
+test('a part draws the pixels its cells draw in the stack, where its socket puts it and as its socket turns it', () => {
+  const headings = [0, 30, 90, 135, 180, 270, 300], base = [filled(6, 6, 'b'), filled(6, 6, 'b')], top = ['......', '..tt..', '..tt..', '..tt..', '......', '......'];
+  const block = [filled(2, 3, 't'), filled(2, 3, 't')];
+  for (const view of views) {
+    const common = { ...moving, headings, ...view }, mid = view.cell ? 3 : 3.5, label = JSON.stringify(view);
+    // A block on a base: as cells of the stack, as a part placed there, and as a part on a socket.
+    const whole = fromAnchor({ ...common, slices: [...base, top, top] });
+    const placed = fromAnchor({ ...common, slices: base, parts: { block: { at: [2, 1, 2], slices: block } } });
+    const seated = fromAnchor({ ...common, slices: base, sockets: { seat: { at: [3, 2.5, 2] } }, parts: { block: { socket: 'seat', at: [-1, -1.5, 0], slices: block } } });
+    for (const heading of headings) {
+      assert.deepEqual(placed.get(`heading-${heading}`), whole.get(`heading-${heading}`), `${label} placed, heading ${heading}`);
+      assert.deepEqual(seated.get(`heading-${heading}`), whole.get(`heading-${heading}`), `${label} on a socket, heading ${heading}`);
+    }
+    // Turned about the pivot by its socket, a part is the picture of the heading as far on: under ramps too, since the
+    // light stays with the camera.
+    const blank = [filled(6, 6, '.')], bar = [filled(2, 5, 't'), filled(2, 5, 'b')];
+    const turned = fromAnchor({ ...common, ramps: ['abc', 'stu'], headings: [0, 30, 90, 120, 180, 270], slices: blank, sockets: { hub: { at: [mid, mid, 0] } },
+      parts: { bar: { socket: 'hub', at: [-1, -3, 0], slices: bar } },
+      animations: { quarter: { frames: 1, sockets: { hub: [{ frame: 0, angle: 90 }] } }, some: { frames: 1, sockets: { hub: [{ frame: 0, angle: 30 }] } } } });
+    for (const heading of [0, 90, 180]) assert.deepEqual(turned.get(`quarter-${heading}-0`), turned.get(`heading-${(heading + 90) % 360}`), `${label} a quarter on from ${heading}`);
+    for (const heading of [0, 90]) assert.deepEqual(turned.get(`some-${heading}-0`), turned.get(`heading-${heading + 30}`), `${label} thirty degrees on from ${heading}`);
+    // A bar lying on the ground, stood on its end by a quarter turn about x, is a post of the same cells.
+    const stood = fromAnchor({ ...common, slices: blank, sockets: { foot: { at: [3, 1, 0], axis: 'x' } }, parts: { bar: { socket: 'foot', at: [-1, 0, 0], slices: [filled(2, 4, 't')] } },
+      animations: { up: { frames: 1, sockets: { foot: [{ frame: 0, angle: 90 }] } } } });
+    const post = fromAnchor({ ...common, slices: blank, parts: { bar: { at: [2, 0, 0], slices: Array(4).fill(filled(2, 1, 't')) } } });
+    for (const heading of headings) assert.deepEqual(stood.get(`up-${heading}-0`), post.get(`heading-${heading}`), `${label} stood up, heading ${heading}`);
+  }
+  // A part behind the stack is covered by it and one in front covers it; side paint and ramps work on a part as on the stack.
+  const wall = { ...moving, projection: 'iso', cell: 1, headings: [0, 180], slices: Array(6).fill(['......', '......', 'bbbbbb', 'bbbbbb', '......', '......']) };
+  const lone = fromAnchor({ ...wall, slices: [filled(6, 6, '.')], parts: { box: { at: [2, 4, 0], slices: Array(3).fill(filled(2, 2, 't')) } } });
+  const both = fromAnchor({ ...wall, parts: { box: { at: [2, 4, 0], slices: Array(3).fill(filled(2, 2, 't')) } } }), alone = fromAnchor(wall);
+  const seen = (frame, colour) => [...both.get(frame).values()].filter(value => value === colour).length, grey = '128 144 160 255';
+  assert.equal(seen('heading-0', grey), lone.get('heading-0').size, 'in front of the wall the whole part shows');
+  assert.ok(seen('heading-180', grey) < lone.get('heading-180').size && seen('heading-180', grey) < seen('heading-0', grey), 'behind it the wall covers a part of it');
+  for (const [at, value] of alone.get('heading-0')) if (!lone.get('heading-0').has(at)) assert.equal(both.get('heading-0').get(at), value);
+  const painted = compileStack({ ...moving, ramps: ['abc', 'stu'], headings: [0], slices: [filled(4, 4, '.')], parts: { box: { at: [0, 0, 0], slices: Array(3).fill(filled(4, 4, 't')), paint: [{ face: 'south', at: [1, 1], rows: ['bb'] }] } } }).recipe;
+  const inks = tonesOf(painted.frames[0].ops.flatMap(op => op.rows));
+  assert.ok(inks.has('u') && inks.has('t') && [...inks].some(key => 'abc'.includes(key)), `a lit roof, a side as drawn and the painted mark: ${[...inks]}`);
+});
+
+test('an animation keys sockets by frame and is baked for every heading it is given, after the headings', () => {
+  const source = { ...moving, projection: 'iso', cell: 2, headings: [0, 90, 180, 270], duration: 70, slices: [filled(6, 6, 'b')],
+    sockets: { lift: { at: [3, 3, 1] }, spin: { at: [3, 3, 4], keys: [{ heading: 0, angle: 0 }, { heading: 360, angle: 360 }] } },
+    parts: { cab: { socket: 'lift', at: [-1, -1, 0], slices: [filled(2, 2, 't')] }, vane: { socket: 'spin', at: [-2, -.5, 0], slices: [filled(4, 1, 'c')] } },
+    animations: {
+      rise: { frames: 4, sockets: { lift: [{ frame: 0 }, { frame: 4, offset: [0, 0, 4] }] } },
+      drop: { frames: 3, loop: false, durations: [50, 60, 200], headings: [90], sockets: { lift: [{ frame: 0, offset: [0, 0, 4] }, { frame: 1, offset: [0, 0, 4], ease: 'hold' }, { frame: 2, ease: 'hold' }] } } },
+    directions: { east: 90 } };
+  const plain = { ...source }; delete plain.animations; delete plain.directions;
+  const { recipe, metadata } = compileStack(source), still = compileStack(plain).recipe, model = prepareStack(source);
+  // The headings keep their names, order and pixels; the animations' frames follow, heading by heading.
+  assert.deepEqual(recipe.frames.map(frame => frame.name), ['heading-0', 'heading-90', 'heading-180', 'heading-270',
+    ...[0, 'east', 180, 270].flatMap(at => [0, 1, 2, 3].map(frame => `rise-${at}-${frame}`)), 'drop-east-0', 'drop-east-1', 'drop-east-2']);
+  assert.deepEqual([recipe.width, recipe.anchor[0], recipe.height - recipe.anchor[1]], [still.width, still.anchor[0], still.height - still.anchor[1]], 'one canvas for every frame, grown only upward, by the lift');
+  assert.ok(recipe.height > still.height);
+  assert.deepEqual(recipe.animations, { turn: { frames: ['heading-0', 'heading-90', 'heading-180', 'heading-270'], loop: true },
+    'rise-0': { frames: ['rise-0-0', 'rise-0-1', 'rise-0-2', 'rise-0-3'], loop: true }, 'rise-east': { frames: [0, 1, 2, 3].map(frame => `rise-east-${frame}`), loop: true },
+    'rise-180': { frames: [0, 1, 2, 3].map(frame => `rise-180-${frame}`), loop: true }, 'rise-270': { frames: [0, 1, 2, 3].map(frame => `rise-270-${frame}`), loop: true },
+    'drop-east': { frames: ['drop-east-0', 'drop-east-1', 'drop-east-2'], loop: false } });
+  assert.deepEqual(metadata.animations, { rise: { frames: 4, loop: true, headings: [0, 90, 180, 270] }, drop: { frames: 3, loop: false, headings: [90] } });
+  assert.deepEqual([metadata.directions, model.count, compileStack(plain).metadata.animations], [{ east: 90 }, 23, undefined]);
+  assert.deepEqual(recipe.frames.slice(20).map(frame => frame.duration), [50, 60, 200]);
+  assert.deepEqual(recipe.frames.slice(0, 20).map(frame => frame.duration), Array(20).fill(70));
+  // Frames are drawn when asked for, one at a time, and the whole recipe is the same frames.
+  assert.deepEqual(model.frame(21), recipe.frames[21]);
+  assert.deepEqual(model.recipe(21).frames, [recipe.frames[21]]);
+  // A keyed socket moves by its keys: a slice up a frame, which is `cell` pixels; a key at the frame count is where
+  // the loop comes round to, and is never drawn. The socket the animation leaves alone keeps its turn by heading.
+  const points = name => recipe.frames.find(frame => frame.name === name).points;
+  assert.deepEqual([0, 1, 2, 3].map(frame => points(`rise-0-${frame}`).lift[1] - points('heading-0').lift[1]), [0, -2, -4, -6]);
+  assert.deepEqual([0, 1, 2].map(frame => points(`drop-east-${frame}`).lift[1] - points('heading-90').lift[1]), [-8, -8, 0]);
+  const shots = fromAnchor(source), rest = fromAnchor(plain);
+  for (const heading of [0, 90, 180, 270]) {
+    assert.deepEqual(shots.get(`heading-${heading}`), rest.get(`heading-${heading}`));
+    assert.deepEqual(shots.get(`rise-${heading === 90 ? 'east' : heading}-0`), rest.get(`heading-${heading}`), 'the first frame is the rest pose');
+  }
+  assert.notDeepEqual(shots.get('rise-0-1'), shots.get('rise-0-0'));
+  const unturned = fromAnchor({ ...source, sockets: { ...source.sockets, spin: { at: [3, 3, 4] } } });
+  assert.notDeepEqual(shots.get('rise-east-1'), unturned.get('rise-east-1'), 'in the animation the vane keeps the turn its own keys give it at that heading');
+  // Easing bends the time between two keys, and a rotation study turns a part's socket.
+  const eased = structuredClone(source); eased.animations.rise.sockets.lift[1].ease = 'in';
+  const slow = compileStack(eased).recipe.frames.find(frame => frame.name === 'rise-0-1').points.lift[1];
+  assert.ok(slow > points('rise-0-1').lift[1] && slow <= points('rise-0-0').lift[1], 'eased in, it has risen less after a frame');
+  assert.deepEqual(model.rotationSockets, ['lift', 'spin']);
+  const sweep = renderProject(model.rotationStudy(0, 'spin').recipe([0, 90]));
+  assert.notDeepEqual([...sweep.frames[0].data], [...sweep.frames[1].data]);
+  // What a source may not say.
+  const refused = (change, pattern) => assert.throws(() => compileStack({ ...source, ...change }), pattern);
+  refused({ parts: { cab: { ...source.parts.cab, socket: 'missing' } } }, /stack\.parts\.cab\.socket: unknown socket; the stack's sockets are lift, spin/);
+  refused({ parts: { cab: { socket: 'lift', slices: [['tt', 't']] } } }, /stack\.parts\.cab\.slices\[0\]/);
+  refused({ parts: { 'no good': source.parts.cab } }, /stack\.parts\.no good/);
+  refused({ animations: { turn: source.animations.rise } }, /turn is the animation of the headings/);
+  refused({ animations: { rise: { frames: 4 } } }, /keys a socket \(sockets\) or a pose \(poses\) by frame/);
+  refused({ animations: { rise: { frames: 4, sockets: { hoist: [] } } } }, /stack\.animations\.rise\.sockets\.hoist: unknown socket/);
+  refused({ animations: { rise: { frames: 4, sockets: { lift: [{ frame: 5 }] } } } }, /sockets\.lift\[0\]\.frame: expected an integer from 0 to 4/);
+  refused({ animations: { rise: { frames: 4, sockets: { lift: [{ frame: 2 }, { frame: 2 }] } } } }, /sockets\.lift\[1\]\.frame: expected an integer from 3 to 4/);
+  refused({ animations: { rise: { frames: 4, sockets: { lift: [{ frame: 0, ease: 'slow' }] } } } }, /ease: expected linear, hold/);
+  refused({ animations: { rise: { frames: 4, sockets: { lift: [{ frame: 0, heading: 0 }] } } } }, /heading/);
+  refused({ animations: { rise: { frames: 2, duration: 80, durations: [80, 80], sockets: { lift: [] } } } }, /not both/);
+  refused({ animations: { rise: { frames: 2, durations: [80], sockets: { lift: [] } } } }, /expected 2 durations, one for each frame/);
+  refused({ animations: { rise: { frames: 2, headings: [0, 0], sockets: { lift: [] } } } }, /animations\.rise\.headings: expected 1–256 distinct angles/);
+  refused({ animations: { rise: { frames: 2, poses: [{ frame: 0, pose: 'open' }] } } }, /poses bend jointed paths, and this stack has none/);
+  refused({ animations: { rise: { frames: 64, sockets: { lift: [] } } } }, /4 headings and 256 frames of animations are 260 frames; a recipe holds 256/);
+  refused({ directions: { east: 90, right: 90 } }, /stack\.directions\.right: heading 90 is already named east/);
+  refused({ directions: { 'b-1': 0 }, headings: [0, 1], animations: { a: { frames: 1, headings: [0], sockets: { lift: [] } }, 'a-b': { frames: 1, headings: [1], sockets: { lift: [] } } } }, /two animations make the name a-b-1/);
+  refused({ sockets: { ...source.sockets, lift: { at: [3, 3, 1], keys: [{ heading: 0, ease: 'in' }] } } }, /keys\[0\]\.ease/);
+});
+
+test('an animation keys the poses of jointed paths by frame', () => {
+  const finger = { colors: 'k', nodes: [{ name: 'base', at: [1, 1, 0], radius: 1 }, { name: 'tip', at: [1, 1, 4], radius: .5 }] };
+  const source = { ...block, headings: [0, 90], paths: { finger }, poses: { open: {}, hook: { finger: { base: 80 } } },
+    animations: { curl: { frames: 3, headings: [0], poses: [{ frame: 0, pose: 'open' }, { frame: 2, pose: 'hook' }] } } };
+  const { recipe } = compileStack(source), frames = fromAnchor(source);
+  assert.deepEqual(recipe.frames.map(frame => frame.name), ['heading-0', 'heading-90', 'curl-0-0', 'curl-0-1', 'curl-0-2']);
+  assert.deepEqual(frames.get('curl-0-0'), frames.get('heading-0'), 'with no keys by heading the stack rests in its open pose');
+  assert.notDeepEqual(frames.get('curl-0-1'), frames.get('curl-0-0'));
+  assert.notDeepEqual(frames.get('curl-0-2'), frames.get('curl-0-1'));
+  // Keyed by heading as well, the frames of the animation follow its own keys and the headings keep theirs.
+  const drawn = fromAnchor({ ...source, poseKeys: [{ heading: 0, pose: 'hook' }] });
+  assert.deepEqual(drawn.get('heading-0'), frames.get('curl-0-2'));
+  assert.deepEqual(drawn.get('curl-0-0'), frames.get('curl-0-0'));
+  assert.throws(() => compileStack({ ...source, animations: { curl: { frames: 3, poses: [{ frame: 0, pose: 'fist' }] } } }), /animations\.curl\.poses\[0\]\.pose: unknown pose/);
+});
+
+golden.test('the moving starters play each animation at every heading from the pose they rest in', async () => {
+  const expected = { 'iso-windmill': { spin: [8, true] }, 'iso-chest': { open: [6, false] }, 'iso-villager': { walk: [8, true], idle: [2, true] }, 'iso-cannon': { scan: [8, true], fire: [5, false] } };
+  for (const [name, clips] of Object.entries(expected)) {
+    const source = JSON.parse(await readFile(new URL(`../examples/${name}.stack.json`, import.meta.url), 'utf8'));
+    assert.deepEqual([source.projection, source.cell, source.headings], ['iso', 1, [0, 45, 90, 135, 180, 225, 270, 315]], name);
+    const { recipe, metadata } = compileStack(source), pixels = createHash('sha256'), { frames } = renderProject(recipe), named = new Map(frames.map(frame => [frame.name, frame]));
+    assert.deepEqual(Object.fromEntries(Object.entries(metadata.animations).map(([clip, { frames: count, loop }]) => [clip, [count, loop]])), clips, name);
+    assert.equal(frames.length, 8 + 8 * Object.values(clips).reduce((sum, [count]) => sum + count, 0), name);
+    for (const frame of frames) pixels.update(frame.data);
+    const facing = heading => Object.entries(source.directions ?? {}).find(([, at]) => at === heading)?.[0] ?? heading;
+    for (const clip of Object.keys(clips)) for (const heading of source.headings) {
+      const playing = recipe.animations[`${clip}-${facing(heading)}`];
+      assert.deepEqual([playing.frames.length, playing.loop], clips[clip], `${name} ${clip} at ${heading}`);
+      // Every animation starts from the rest pose, so a game cuts from standing to any of them without a jump.
+      assert.deepEqual([...named.get(playing.frames[0]).data], [...named.get(`heading-${heading}`).data], `${name} ${clip} at ${heading} starts at rest`);
+      const shown = new Set(playing.frames.map(frame => createHash('sha256').update(named.get(frame).data).digest('hex')));
+      assert.ok(shown.size >= Math.min(3, playing.frames.length), `${name} ${clip} at ${heading} moves: ${shown.size} different frames`);
+    }
+    golden.equal(name, pixels.digest('hex'), { recipe });
+  }
+});
+
+test('a scene plays a stack\'s animation at a heading, on a cell of an iso map', () => {
+  const tiles = { version: 1, name: 'tiles', width: 32, height: 32, palette: { t: '#4a8f3c', l: '#2f6b2a', r: '#255522' }, frames: [{ name: 'block', ops: [{ op: 'box', w: 16, d: 16, h: 8, top: 't', left: 'l', right: 'r' }] }] };
+  const lift = { ...moving, name: 'lift', projection: 'iso', cell: 1, headings: [0, 90], slices: [filled(8, 8, 'b')], sockets: { lift: { at: [4, 4, 1] } },
+    parts: { cab: { socket: 'lift', at: [-2, -2, 0], slices: [filled(4, 4, 't'), filled(4, 4, 't')] } },
+    animations: { rise: { frames: 4, duration: 100, sockets: { lift: [{ frame: 0 }, { frame: 4, offset: [0, 0, 8] }] } } } };
+  const scene = prepareScene({ format: 'pixelforge-scene', version: 1, name: 'yard', width: 96, height: 80, duration: 400, assets: { tiles, lift },
+    instances: [{ name: 'ground', asset: 'tiles', at: [48, 24], sort: 'ground', tilemap: { layout: 'iso', tile: [32, 16], rows: ['bb', 'bb'], legend: { b: 'block' }, surface: 8 } },
+      { name: 'lift', asset: 'lift', on: 'ground', cell: [1, 0], animation: 'rise-90' }] });
+  const at = time => [...renderScene(scene, { time }).data];
+  assert.notDeepEqual(at(0), at(100));
+  assert.notDeepEqual(at(100), at(300));
+  assert.deepEqual(at(0), at(400), 'the loop comes round');
+  assert.throws(() => prepareScene({ ...scene.source, instances: [scene.source.instances[0], { ...scene.source.instances[1], animation: 'rise' }] }), /unknown animation/);
+});

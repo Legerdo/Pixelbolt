@@ -250,6 +250,25 @@ const stackPath = {...object({nodes:{...array(pathNode,32),minItems:2},colors:st
 const veinPoint = {...array(num(0,1),3),minItems:3,description:'Along, across, half-width. Both edges stay within the panel.'};
 const membrane = object({ribs:{...array(socketRef,2),minItems:2,uniqueItems:true},colors:stackBands,sag:num(-64,64),scallop:num(-64,64),
   veins:array(object({color:{type:'string',minLength:1,maxLength:1},points:{...array(veinPoint,16),minItems:2}},['color','points']),8)},['ribs','colors']);
+const stackSlices = {...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'};
+const stackPaint = array({oneOf:[
+  object({face:stackFace, at:stackPoint, rows:sliceRows, depth:stackDepth}, ['face','rows']),
+  object({face:stackFace, at:stackPoint, decal:{type:'string',pattern:id.pattern}, flipX:{type:'boolean'}, flipY:{type:'boolean'}, depth:stackDepth}, ['face','decal']),
+  object({face:stackFace, at:stackPoint, erase:{...sliceRows, items:{...sliceRows.items, pattern:'^[x. ]+$'}}}, ['face','erase'])
+]},1024);
+const stackEase = {enum:EASINGS,description:'How the move to this key from the one before is eased; linear when left out.'};
+const stackHeadings = {...array(int(0,359),256),minItems:1,uniqueItems:true};
+const stackPart = object({
+  slices:stackSlices, paint:stackPaint, socket:{...socketRef,description:'The socket the part rides: it moves by the socket\'s offset and turns about its axis.'},
+  at:{...stackXYZ,description:'The part\'s lowest corner from its socket\'s origin, in slice cells and slices; from the stack\'s own corner with no socket. Default [0, 0, 0].'}
+},['slices']);
+const stackAnimation = object({
+  frames:int(1,256,'Frames at each heading.'), duration:int(1,60000,'Milliseconds a frame; the stack\'s duration when left out.'),
+  durations:{...array(int(1,60000),256),minItems:1,description:'Milliseconds for each frame, in place of duration.'}, loop:{type:'boolean',description:'Default true.'},
+  headings:{...stackHeadings,description:'The headings it is baked for; the stack\'s headings when left out.'},
+  sockets:{...namedStackEntries(array(object({frame:int(0,256),offset:stackXYZ,angle:num(-3600,3600),ease:stackEase},['frame']),64),64),description:'Keys by frame for named sockets, in increasing order; a key at the frame count is the pose a loop comes round to. A socket not named here keeps its keys by heading.'},
+  poses:{...array(object({frame:int(0,256),pose:socketRef,ease:stackEase},['frame','pose']),64),description:'Named poses of the jointed paths by frame.'}
+},['frames']);
 const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...object({
   format:{const:'pixelforge-stack'}, version:{const:1}, name:id,
   palette:{type:'object', propertyNames:{anyOf:[{const:'$ref'},{pattern:'^[^ .\\u0000]$'}]}, properties:{$ref:{type:'string'}}, additionalProperties:{type:'string',pattern:hex}},
@@ -267,19 +286,18 @@ const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...obje
   poses:namedStackEntries(namedStackEntries(namedStackEntries(num(-360,360),32),64),64),
   poseKeys:array(object({heading:int(0,360),pose:socketRef},['heading','pose']),64),
   facets:array(object({color:{type:'string',minLength:1,maxLength:1},socket:socketRef,twoSided:{type:'boolean'},points:{...array({oneOf:[stackXYZ,object({at:stackXYZ,socket:socketRef},['at'])]},16),minItems:3}},['color','points']),2048),
-  slices:{...array(sliceRows,64), minItems:1, description:'Equal-size top-down grids, lowest first. Dot or space is air.'},
+  slices:stackSlices,
   decals:{type:'object', maxProperties:256, propertyNames:{type:'string',pattern:id.pattern}, additionalProperties:sliceRows},
-  paint:array({oneOf:[
-    object({face:stackFace, at:stackPoint, rows:sliceRows, depth:stackDepth}, ['face','rows']),
-    object({face:stackFace, at:stackPoint, decal:{type:'string',pattern:id.pattern}, flipX:{type:'boolean'}, flipY:{type:'boolean'}, depth:stackDepth}, ['face','decal']),
-    object({face:stackFace, at:stackPoint, erase:{...sliceRows, items:{...sliceRows.items, pattern:'^[x. ]+$'}}}, ['face','erase'])
-  ]},1024),
+  paint:stackPaint,
+  parts:{...namedStackEntries(stackPart,32),description:'Solids of their own that ride sockets: each its slices, painted on its sides and shaded by the ramps like the stack.'},
+  animations:{...namedStackEntries(stackAnimation,32),description:'Sockets and poses keyed by frame, baked for every heading: each plays at a heading as <name>-<heading>, or <name>-<direction> where directions names that heading, with frames <that>-0, <that>-1 and so on after the heading frames.'},
+  directions:{...namedStackEntries(int(0,359),64),description:'Names for headings, used in the names of animations and their frames: {"south": 180}.'},
   ramps:{...array({type:'string',minLength:2,maxLength:32},64),minItems:1,description:'Strings of palette keys from dark to light, a key in one ramp. With ramps, a face toward the light draws a step lighter and one turned from it a step darker.'},
   light:{...stackXYZ,description:'Toward the light as the camera sees it: x right, y toward the viewer, z up. Default [-1, 1, 2]. Needs ramps.'},
   lightTurns:{type:'boolean',description:'The light turns with the model (x east, y south, z up) instead of staying with the camera.'},
   pivot:stackPoint, projection:{enum:['oblique','iso']}, squash:num(.25,1), resolution:int(1,8,'Output pixels per slice cell; default 4.'),
   cell:int(1,8,'With projection iso, instead of resolution: puts the stack on a map\'s 2:1 grid. A slice cell steps this many pixels across and half as many down, and a slice rises as many: at 1, 16 cells cover a 32x16 tile and a cube is the standard block. Whole pixels at headings 0, 90, 180 and 270.'),
-  spacing:int(1,8), headings:{...array(int(0,359),256),minItems:1,uniqueItems:true}, duration:int(1,60000)
+  spacing:int(1,8), headings:stackHeadings, duration:int(1,60000)
 },['format','version','name','palette','slices']),
   if:{required:['projection'],properties:{projection:{const:'iso'}}},then:{not:{required:['squash']}} };
 const assetRef = { oneOf: [ref('recipe'), { type: 'string', description: 'Recipe file, resolved by the CLI relative to the scene or inside the MCP root.' }, object({ revision: { type: 'string', pattern: '^[a-f0-9]{12}$' } }, ['revision'])] };

@@ -173,7 +173,7 @@ function render() {
   shownScale = displayScale;
   canvas.style.width = `${width * displayScale}px`; canvas.style.height = `${height * displayScale}px`;
   canvas.classList.toggle('smooth', displayScale < 1 && !stackOpen);
-  if (stackOpen) stackTools.heading(position, !isSheet && !isMotion ? context : null);
+  if (stackOpen) stackTools.heading(selected, !isSheet && !isMotion ? context : null);
   const board = $('artboard');
   board.classList.toggle('pannable', board.scrollWidth > board.clientWidth || board.scrollHeight > board.clientHeight);
   $('canvas-wrap').style.setProperty('--pixel-size', `${displayScale}px`);
@@ -288,7 +288,7 @@ function resumeStackBake() {
     job.scheduled = false;
     if (pendingStack !== job || stackTools.busy) return;
     try {
-      const count = job.model.metadata.headings.length;
+      const count = job.model.count;
       do { job.model.frame(job.index++); }
       while (job.index < count && deadline && deadline.timeRemaining() > 8);
       if (job.index === count) compile(); else resumeStackBake();

@@ -2,7 +2,7 @@
 // half-open edge rule, then depth-sort glass and solid hits together with the voxel traversal.
 import { fail, isObject, portableName } from './core.js';
 import { fields, number, integer, boolean } from './authoring.js';
-import { cosDeg, sinDeg } from './craft.js';
+import { cosDeg, sinDeg, ease, EASINGS } from './craft.js';
 
 export function triple(value, path) {
   if (!Array.isArray(value) || value.length !== 3) fail(path, 'expected [x,y,z]');
@@ -17,25 +17,9 @@ export function stackGeometry(source) {
     const path = 'stack.sockets.' + name;
     portableName(name, path);
     fields(socket, ['at', 'axis', 'keys'], path);
-    const axis = socket.axis ?? 'z',
-      keys = socket.keys ?? [];
+    const axis = socket.axis ?? 'z';
     if (!['x', 'y', 'z'].includes(axis)) fail(path + '.axis', 'expected x, y or z');
-    if (!Array.isArray(keys) || keys.length > 64) fail(path + '.keys', 'expected up to 64 keys');
-    let last = -1;
-    sockets.set(name, {
-      at: triple(socket.at, path + '.at'),
-      axis,
-      keys: keys.map((key, i) => {
-        const p = path + '.keys[' + i + ']';
-        fields(key, ['heading', 'offset', 'angle'], p);
-        last = integer(key.heading, p + '.heading', last + 1, 360);
-        return {
-          heading: last,
-          offset: triple(key.offset ?? [0, 0, 0], p + '.offset'),
-          angle: number(key.angle ?? 0, p + '.angle', -3600, 3600)
-        };
-      })
-    });
+    sockets.set(name, { at: triple(socket.at, path + '.at'), axis, keys: socketKeys(socket.keys ?? [], path + '.keys', 'heading', 360) });
   }
   const faces = source.facets ?? [];
   if (!Array.isArray(faces) || faces.length > 2048) fail('stack.facets', 'expected up to 2,048 faces');
@@ -126,18 +110,48 @@ function appendLofts(source, facets, readSocket) {
   }
 }
 
-export function socketPose(sockets, heading) {
+// A socket's keys: each at a heading in degrees, or at a frame of an animation, in increasing order. A key of an
+// animation may say how the move to it from the key before is eased (craft's easings; linear when left out).
+export function socketKeys(keys, path, by, last) {
+  if (!Array.isArray(keys) || keys.length > 64) fail(path, 'expected up to 64 keys');
+  let before = -1;
+  return keys.map((key, i) => {
+    const p = path + '[' + i + ']';
+    fields(key, by === 'frame' ? ['frame', 'offset', 'angle', 'ease'] : ['heading', 'offset', 'angle'], p);
+    before = integer(key[by], p + '.' + by, before + 1, last);
+    if (key.ease !== undefined && !EASINGS.includes(key.ease)) fail(p + '.ease', 'expected ' + EASINGS.join(', '));
+    return {
+      when: before,
+      offset: triple(key.offset ?? [0, 0, 0], p + '.offset'),
+      angle: number(key.angle ?? 0, p + '.angle', -3600, 3600),
+      ...(key.ease !== undefined && key.ease !== 'linear' && { ease: key.ease })
+    };
+  });
+}
+
+// Where a moment falls among keys in increasing order: the keys either side of it and how far it is from the first
+// to the second, eased as the second asks. The first and last keys hold outside the keyed range.
+export function between(keys, when) {
+  const next = keys.findIndex(k => k.when >= when);
+  const end = next < 0 ? keys.length - 1 : next;
+  const start = next < 0 ? end : Math.max(0, end - 1);
+  const a = keys[start],
+    b = keys[end];
+  const t = start === end ? 0 : (when - a.when) / (b.when - a.when);
+  return [a, b, b.ease ? ease(b.ease, t) : t];
+}
+
+// Every socket's place and turn at a heading. In a frame of an animation (`timed`: its sockets' keys and the frame),
+// a socket the animation keys follows those keys instead of its own keys by heading.
+export function socketPose(sockets, heading, timed = null) {
   const posed = new Map();
-  for (const [name, { at, axis, keys }] of sockets) {
+  for (const [name, { at, axis, keys: turning }] of sockets) {
+    const own = timed?.sockets.get(name),
+      keys = own ?? turning;
     let origin = at,
       angle = 0;
     if (keys.length) {
-      const next = keys.findIndex(k => k.heading >= heading);
-      const end = next < 0 ? keys.length - 1 : next;
-      const start = next < 0 ? end : Math.max(0, end - 1);
-      const a = keys[start],
-        b = keys[end];
-      const t = start === end ? 0 : (heading - a.heading) / (b.heading - a.heading);
+      const [a, b, t] = between(keys, own ? timed.frame : heading);
       origin = at.map((v, i) => v + a.offset[i] + (b.offset[i] - a.offset[i]) * t);
       angle = a.angle + (b.angle - a.angle) * t;
     }
@@ -146,15 +160,17 @@ export function socketPose(sockets, heading) {
   return posed;
 }
 
+// A direction or an offset turned about an axis by the angle whose cosine and sine are c and s.
+export function spun(axis, c, s, [x, y, z]) {
+  if (axis === 'x') return [x, y * c - z * s, y * s + z * c];
+  if (axis === 'y') return [x * c + z * s, y, z * c - x * s];
+  return [x * c - y * s, x * s + y * c, z];
+}
+
 export function placed({ xyz, socket }, pose) {
   if (!socket) return xyz;
-  const { origin, axis, c, s } = pose.get(socket),
-    [x, y, z] = xyz;
-  let rotated;
-  if (axis === 'x') rotated = [x, y * c - z * s, y * s + z * c];
-  else if (axis === 'y') rotated = [x * c + z * s, y, z * c - x * s];
-  else rotated = [x * c - y * s, x * s + y * c, z];
-  return rotated.map((n, i) => n + origin[i]);
+  const { origin, axis, c, s } = pose.get(socket);
+  return spun(axis, c, s, xyz).map((n, i) => n + origin[i]);
 }
 
 export function projectPoint([x, y, z], view, c, s) {

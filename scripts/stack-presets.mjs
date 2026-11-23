@@ -181,3 +181,131 @@ const save = (name, source) => writeFile(new URL(`../examples/${name}.stack.json
   });
   await save('iso-wall',{palette:stone,ramps:['stuvx'],slices});
 }
+
+// The moving starters: the same kind of thing with parts that ride sockets, and animations that key those sockets by
+// frame. Each is baked for eight headings, so a game has every animation from every side.
+const eight = Array.from({length:8},(_,i)=>i*45);
+const move = (name, source) => writeFile(new URL(`../examples/${name}.stack.json`,import.meta.url),
+  JSON.stringify({format:'pixelforge-stack',version:1,name,projection:'iso',cell:1,...source},null,2)+'\n');
+
+// A windmill: a tapering stone tower under a shingled cap, with four sails on a shaft that turn about it.
+{
+  const n=16, body=24, top=body+6, cloth={ p:'#8f8468', q:'#c9bd9a', r:'#efe6c8' }, roof={ 1:'#5a2430', 2:'#8a2f36', 3:'#bb4a3c', 4:'#e07a4e' };
+  const slices=build(n,n,top+1,(x,y,z)=>{
+    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v;
+    if (z<body) {
+      if (r>226-z*5) return '.';                // the tower narrows as it rises
+      if (z<2) return 't';
+      return (x*3+y*5+z*7)%13===0?'t':'u';
+    }
+    const rise=z-body, d=13-2*rise;             // the cap: a cone of shingles with eaves past the wall
+    return r<=d*d+1 ? (rise%2?'2':'3') : '.';
+  });
+  // The sails are one slab in the plane the shaft turns it in: four arms, each a spar with a lattice of cloth behind it.
+  const span=27, mid=13;
+  const arm=(a,b)=>{                            // a along the arm from the hub, b across it
+    if (a<=1&&Math.abs(b)<=1) return 'b';       // the hub
+    if (b===0&&a<=mid) return 'b';              // the spar
+    if (a>=4&&a<=mid&&b>=1&&b<=4) return (a%3===1||b===4||a===mid)?'c':'q';   // cloth between battens
+    return '.';
+  };
+  const sails=Array.from({length:span},(_,z)=>[Array.from({length:span},(_,x)=>{
+    const u=x-mid, w=z-mid;
+    for (const [a,b] of [[u,w],[w,-u],[-u,-w],[-w,u]]) { const ink=a>=0?arm(a,b):'.'; if (ink!=='.') return ink; }
+    return '.';
+  }).join('')]);
+  const door=['bbbb','bccb','bccb','bccb','bccb','bccb'], pane=['bbb','byb','byb','bbb'];
+  await move('iso-windmill',{ palette:{...wood,...stone,...cloth,...roof,y:'#4a7896'}, ramps:['abcdef','stuvx','pqr','1234'],
+    slices, headings:eight, duration:120, decals:{door,pane},
+    paint:[{face:'east',at:[6,body-6],decal:'door',depth:1},{face:'west',at:[6,body-14],decal:'pane'},{face:'north',at:[6,body-15],decal:'pane'},{face:'east',at:[7,body-18],decal:'pane'}],
+    sockets:{ shaft:{ at:[8,15.5,20], axis:'y' } },
+    parts:{ sails:{ socket:'shaft', at:[-span/2,-.5,-span/2], slices:sails } },
+    animations:{ spin:{ frames:8, duration:120, sockets:{ shaft:[{frame:0,angle:0},{frame:8,angle:90}] } } } });
+}
+
+// A chest: iron-bound planks with a lid on a hinge along its back, and coins under it.
+{
+  const w=12, h=8, walls=6, gold={ G:'#a8641e', H:'#e0a030', I:'#ffd76a', J:'#fff3b0' };
+  const edge=(v,n)=>v===0||v===n-1;
+  const slices=build(w,h,walls,(x,y,z)=>{
+    const shell=edge(x,w)||edge(y,h)||z===0;
+    if (!shell) return z<walls-2 ? ((x*5+y*3+z)%4===0?'I':'H') : z===walls-2&&(x*3+y*7)%5<2?'I':'.';   // a heap of coins
+    if ((x===2||x===w-3)&&(edge(y,h)||z===0)) return 'k';       // two iron straps
+    if (Number(edge(x,w))+Number(edge(y,h))+Number(z===0)>=2) return 'k';
+    return (z%3===2)?'b':'c';
+  });
+  const lid=build(w,h,3,(x,y,z)=>{
+    const inside=!edge(x,w)&&!edge(y,h)&&z<2;
+    if (inside) return '.';
+    if (x===2||x===w-3) return 'k';
+    if (z===2&&(edge(x,w)||edge(y,h))) return '.';              // rounded shoulders
+    if (Number(edge(x,w))+Number(edge(y,h))>=2) return 'k';
+    return (y%3===1)?'b':'c';
+  });
+  const lock=['kk','kl'];
+  await move('iso-chest',{ palette:{...wood,...iron,...gold}, ramps:['abcdef','ijkl','GHIJ'],
+    slices, headings:eight, duration:120, decals:{lock},
+    sockets:{ hinge:{ at:[0,0,walls], axis:'x' } },
+    parts:{ lid:{ socket:'hinge', at:[0,0,0], slices:lid, paint:[{face:'south',at:[5,1],decal:'lock'}] } },
+    animations:{ open:{ frames:6, loop:false, durations:[90,70,70,70,90,300],
+      sockets:{ hinge:[{frame:0,angle:0},{frame:4,angle:112,ease:'out'},{frame:5,angle:104}] } } } });
+}
+
+// A villager: a body that dips as he steps, and legs and arms that swing from the hips and shoulders.
+{
+  const skin={ m:'#8a4b3a', n:'#c9795a', o:'#f0b088', p:'#ffd9b8' }, tunic={ 1:'#1d3557', 2:'#2f5f9a', 3:'#5a92d0', 4:'#a8cdf0' }, hair={ g:'#38241c', h:'#4a2e22', H:'#6b4630' };
+  // The body: a tunic four wide and three deep under a head six across, facing +y.
+  const body=build(6,5,10,(x,y,z)=>{
+    if (z<5) return x>=1&&x<=4&&y>=1&&y<=3 ? (z===0?'1':z===1?'d':'2') : '.';   // tunic, with a hem and a belt
+    if (z===9) return 'h';                                                       // hair on top,
+    if (y===0||(z>=8&&y<=2&&(x===0||x===5))||(z===8&&y===4)) return 'h';         // behind, at the temples and as a fringe
+    return 'o';
+  });
+  const leg=build(2,2,5,(x,y,z)=>z<1?'a':'c');                                    // boots under trousers
+  const arm=build(1,2,5,(x,y,z)=>z<1?'o':'2');                                    // a hand under a sleeve
+  const face=['k..k'];
+  const dip=[0,0,-1,0,0,0,-1,0,0], wave=[0,.7,1,.7,0,-.7,-1,-.7,0];
+  const swing=(side,most)=>wave.map((v,f)=>({frame:f,angle:Math.round(side*most*v),offset:[0,0,dip[f]]}));
+  const still=wave.map((_,f)=>({frame:f,offset:[0,0,dip[f]]}));
+  const breath=[{frame:0},{frame:1,offset:[0,0,-1],ease:'hold'},{frame:2,ease:'hold'}];
+  await move('iso-villager',{ palette:{...wood,...skin,...tunic,...hair,k:'#18202c'}, ramps:['abcdef','mnop','1234','ghH'],
+    slices:[Array(10).fill('..........')], headings:eight, duration:140, decals:{face},
+    directions:{ sw:0, w:45, nw:90, n:135, ne:180, e:225, se:270, s:315 },
+    sockets:{ body:{at:[5,5,5]}, hipL:{at:[4,5,5],axis:'x'}, hipR:{at:[6,5,5],axis:'x'}, shoulderL:{at:[2.5,5,9.5],axis:'x'}, shoulderR:{at:[7.5,5,9.5],axis:'x'} },
+    parts:{
+      body:{ socket:'body', at:[-3,-2.5,0], slices:body, paint:[{face:'south',at:[1,3],decal:'face'}] },
+      legL:{ socket:'hipL', at:[-1,-1,-5], slices:leg }, legR:{ socket:'hipR', at:[-1,-1,-5], slices:leg },
+      armL:{ socket:'shoulderL', at:[-.5,-1,-4.5], slices:arm }, armR:{ socket:'shoulderR', at:[-.5,-1,-4.5], slices:arm } },
+    animations:{
+      walk:{ frames:8, duration:100, sockets:{ body:still, hipL:swing(1,32), hipR:swing(-1,32), shoulderL:swing(-1,26), shoulderR:swing(1,26) } },
+      idle:{ frames:2, durations:[720,240], sockets:{ body:breath, shoulderL:breath, shoulderR:breath } } } });
+}
+
+// A cannon on a stone emplacement: the gun swivels on its carriage to scan, and kicks back when it fires.
+{
+  const n=16, drum=3, brass={ B:'#5a3a1c', C:'#9a6a2a', D:'#d0a040', E:'#f6dc84' };
+  const slices=build(n,n,drum+1,(x,y,z)=>{
+    const u=2*x-n+1, v=2*y-n+1, r=u*u+v*v;
+    if (r>226) return '.';
+    if (z===drum) return r>146 ? 'u' : '.';                     // a low rim round
+    if (z===drum-1) return r>146?'u':(x+y)%4===0?'b':'c';        // a plank floor
+    return z<1?'t':(x*3+y*5+z*7)%11===0?'t':'u';
+  });
+  // The gun: a wooden carriage on two wheels, and a barrel along +y that swells at the breech and the muzzle.
+  const gun=build(8,14,7,(x,y,z)=>{
+    const across=2*x-7, up=2*z-8, bore=across*across+up*up;      // doubled distances from the barrel's line
+    const girth=y===13||y===12||y<=2?20:y<=5?13:10;
+    if (y>=1&&bore<=girth) return y===13&&bore<=4?'i':(y===11||y===3)?'C':'D';
+    if (z<=2&&y>=2&&y<=9&&(x===2||x===5)) return 'c';            // the carriage's two cheeks
+    if (z===0&&y>=2&&y<=9&&x>=2&&x<=5) return 'b';               // and its bed
+    if ((x<=1||x>=6)&&(2*y-9)*(2*y-9)+(2*z-4)*(2*z-4)<=26) return (2*y-9)*(2*y-9)+(2*z-4)*(2*z-4)<=2?'k':'b';   // a wheel each side
+    return '.';
+  });
+  await move('iso-cannon',{ palette:{...wood,...iron,...stone,...brass}, ramps:['abcdef','ijkl','stuvx','BCDE'],
+    slices, headings:eight, duration:120,
+    sockets:{ swivel:{ at:[8,8,drum] } },
+    parts:{ gun:{ socket:'swivel', at:[-4,-6,0], slices:gun } },
+    animations:{
+      scan:{ frames:8, duration:120, sockets:{ swivel:[{frame:0,angle:0},{frame:2,angle:40,ease:'out'},{frame:6,angle:-40,ease:'inOut'},{frame:8,angle:0,ease:'in'}] } },
+      fire:{ frames:5, loop:false, durations:[60,60,90,120,200], sockets:{ swivel:[{frame:0},{frame:1,offset:[0,-3,0],ease:'out'},{frame:4,ease:'inOut'}] } } } });
+}

@@ -249,7 +249,7 @@ A `pixelforge-stack` source describes a solid sprite in horizontal slices. Give 
 }
 ```
 
-`resolution` sets output pixels per source unit, an integer from 1 to 8, default **4**. The renderer projects the solid at that resolution using exact palette colours. To enlarge a finished frame, use a whole-number display scale. `projection: "iso"` puts heading zero on the 2:1 ground axes, and `cell` in place of `resolution` puts the stack on a map's grid ([below](#on-a-maps-grid)). The default `oblique` view shows the south side at zero degrees, and lets you set `squash` from 0.25 to 1 (default 0.65). `pivot: [x,y]` is the centre of a ground cell, defaulting to the middle cell. `spacing` is 1 for assembled slices, up to 8 for an exploded view. `headings` takes 1–256 distinct whole degrees from 0 to 359 in playback order, defaulting to 16 views around a turn. `duration` sets milliseconds per heading (default 80). Each frame is named `heading-<degrees>`, and `turn` loops them.
+`resolution` sets output pixels per source unit, an integer from 1 to 8, default **4**. The renderer projects the solid at that resolution using exact palette colours. To enlarge a finished frame, use a whole-number display scale. `projection: "iso"` puts heading zero on the 2:1 ground axes, and `cell` in place of `resolution` puts the stack on a map's grid ([below](#on-a-maps-grid)). The default `oblique` view shows the south side at zero degrees, and lets you set `squash` from 0.25 to 1 (default 0.65). `pivot: [x,y]` is the centre of a ground cell, defaulting to the middle cell. `spacing` is 1 for assembled slices, up to 8 for an exploded view. `headings` takes 1–256 distinct whole degrees from 0 to 359 in playback order, defaulting to 16 views around a turn. `duration` sets milliseconds per heading (default 80). Each frame is named `heading-<degrees>`, and `turn` loops them; [animations](#parts-and-animations) add their own frames after these.
 
 To paint a wheel, stripe or window, draw it straight on in `paint`. The horizontal coordinate increases with x on the north and south faces, with y on the west and east faces. Row zero is the highest slice. Each nonblank brush cell finds the first solid cell seen from that side. Depth zero paints only that face. A positive `depth` also colours that many solid cells inward, stopping at the first gap. Blank brush cells skip and later face strokes can repaint earlier strokes. A model can be up to 128 × 128 × 64 cells. Palette keys can use RGBA hex. A ray tints once on entering a continuous run of glass voxels, resumes after air, and stops at opaque geometry. PNG sheets and animated PNGs preserve partial alpha. A GIF can show glass composited onto one chosen background. The compiled frames must also fit the ordinary recipe pixel budget.
 
@@ -265,7 +265,7 @@ Declare `ramps` and the stack shades itself. A ramp is a string of palette keys 
 
 A flat face keeps its cube's direction, so a box has three clean tones. A face one cell wide is a step in a curve or a slope, and takes the direction of the surface round it: a barrel shades round, and a roof that rises a cell for every cell it steps in is one slope. Facets, paths, lofts and membranes are drawn in their own keys, and a relief takes its own `ramp`. The compiled recipe carries the ramps, so a scene's shadows and the `shade` operation move the same colours.
 
-Start a prop or a building from a shaded preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower` or `iso-wall` (`pixelbolt presets iso-cottage --out cottage.stack.json`).
+Start a prop or a building from a shaded preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower` or `iso-wall` (`pixelbolt presets iso-cottage --out cottage.stack.json`). For one with [moving parts](#parts-and-animations), start from `iso-windmill`, `iso-chest`, `iso-cannon` or `iso-villager`.
 
 ### On a map's grid
 
@@ -352,6 +352,27 @@ Agents can inspect a full sweep in one call. Pass a stack as `source` to `pixel_
 In Studio, pick a heading and choose **Lock camera** to inspect a single rotating part. Select a socket and drag **Rotate by**, or use the arrow keys for one-degree steps. Zero shows the authored pose at that heading. The camera, socket origins and other parts stay fixed. The preview fits one whole revolution, including faces with individually attached vertices. **Unlock camera** or Escape returns to the paused heading. The source, timeline and exports retain the authored motion. The same inspection is available as `pixelbolt inspect examples/lodekeeper-faceted.stack.json --rotate axle,90,45 --scale 1 --out axle.png` (socket, camera heading, added degrees).
 
 A scene can use `"assets": {"car":"copper-rally.stack.json"}` and `{"asset":"car","at":[160,120],"frame":"heading-30"}`. `at` places the stack's ground pivot in scene pixels. Stack placements default to `anchor: "frame"` and `sort: "ground"`. Give other actors and walls `sort: "ground"` to occlude the whole sprite by its ground position. Reuse one asset at multiple headings.
+
+### Parts and animations
+
+A part is a small solid of its own that rides a socket, for whatever moves on a stack: a lid, a wheel, a gun, a leg. An animation keys sockets by frame, and is baked at every heading.
+
+```json
+{
+  "sockets": { "hinge": { "at": [0, 0, 6], "axis": "x" } },
+  "parts": { "lid": { "socket": "hinge", "at": [0, 0, 0], "slices": [["ccc", "ccc"], ["ccc", "ccc"]] } },
+  "animations": { "open": { "frames": 6, "loop": false, "sockets": {
+    "hinge": [{ "frame": 0 }, { "frame": 4, "angle": 112, "ease": "out" }, { "frame": 5, "angle": 104 }] } } }
+}
+```
+
+A part has `slices` as the stack has, ground first, and may have `paint`, with the stack's decals. `at` is its lowest corner measured from the socket's origin, in cells and slices; it may be a fraction or negative, so a leg that hangs from a hip starts below it. The part moves by the socket's offset and turns about the socket's `axis` through that origin, by any angle: `z` for a turret, `x` or `y` for a hinge, a wheel or a limb. Parts, the stack, facets and glass cover one another pixel by pixel. A part takes the stack's `ramps` and light as a solid of its own, and shows its underside when it is turned up. A stack whose slices are blank can be nothing but parts, as a figure is. There are at most 32 parts, of 262,144 cells together. Sockets do not carry one another: to move several parts as one, give each socket the same offset.
+
+An animation's `frames` is its length. Each socket named in its `sockets` takes keys in increasing `frame` order, each with an `offset`, an `angle` or both, as a socket's keys by heading have. Values move in a straight line from key to key, and `ease` on a key (`hold`, `in`, `out`, `inOut`, `overshoot` or `bounce`) bends the move to it from the key before. A key at the frame count is the pose a loop comes round to and is never drawn: give it the values of frame 0. A socket the animation does not name keeps its keys by heading. `poses` keys the named poses of jointed paths the same way: `[{"frame": 0, "pose": "open"}, {"frame": 4, "pose": "hook"}]`. `duration` is milliseconds a frame (the stack's when left out), `durations` gives one for each frame, and `loop` is true unless set false.
+
+Every animation is baked at each of the stack's headings, or at its own `headings`. The heading frames come first, as in any stack. Then come each animation's frames at each heading, `<name>-<heading>-0`, `-1` and so on, and the animation `<name>-<heading>` plays them: `open-90`, `walk-225`. `"directions": {"s": 315, "e": 225}` names headings, and a name takes the place of the degrees: `walk-s`. All frames share one canvas and one anchor. A recipe holds 256 frames, headings and animations together, so an eight-frame walk at eight headings is 64 of them. Start each animation at the rest pose, a first key with no offset or angle, so a game cuts to it from the heading's own frame without a jump.
+
+Review an animation at one heading with `pixelbolt inspect villager.stack.json --animation walk-s --out walk.png`, at every heading with `--frames "walk-*"`, and watch it with `pixelbolt gif villager.stack.json --animation walk-s --out walk.gif`. A scene plays it as it plays any animation, `{"asset": "villager", "on": "ground", "cell": [3, 2], "animation": "walk-s"}`, and a `sequence` changes the animation where the placement turns. The compile's metadata lists each animation's `frames`, `loop` and `headings`, and the `directions`. Start from a preset: `iso-windmill` (sails turning on a shaft), `iso-chest` (a lid on a hinge, played once), `iso-cannon` (a gun that swivels and kicks back) or `iso-villager` (a figure of five parts that walks and idles in eight named directions).
 
 ## Sources, scenes and imports
 

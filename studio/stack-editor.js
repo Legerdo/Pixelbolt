@@ -285,14 +285,15 @@ export function stackEditor(seek, rest) {
     },
     heading(index, context) {
       if (!prepared) return;
-      heading = prepared.metadata.headings[index];
+      // `index` is a frame of the recipe: a heading, or a frame of an animation at one.
+      heading = prepared.headingOf(index);
       const name=$('stack-socket').value;
       if (name && context) {
-        const [x,y]=prepared.attachments(heading)[name];
+        const [x,y]=prepared.frame(index).points[name];
         context.fillStyle='#17202a'; context.fillRect(x-4,y-1,9,3); context.fillRect(x-1,y-4,3,9);
         context.fillStyle='#ffffff'; context.fillRect(x-3,y,7,1); context.fillRect(x,y-3,1,7);
       }
-      slider.value = String(index); $('stack-angle').textContent = `${heading}°`; comparison();
+      slider.value = String(prepared.metadata.headings.indexOf(heading)); $('stack-angle').textContent = `${heading}°`; comparison();
     }
   };
 }

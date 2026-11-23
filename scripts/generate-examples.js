@@ -1182,17 +1182,22 @@ const isoGlade = { format: 'pixelforge-scene', version: 1, name: 'iso-glade', wi
 
 // A hamlet on the same tiles, with nothing placed by pixels: the ground is one sorted map whose `heights` raise a
 // terrace, and every sprite stack (scripts/stack-presets.mjs) stands `on` it at a `cell`. The wall pieces are a tile
-// long, so they join along the terrace's two back edges and meet at the tower.
+// long, so they join along the terrace's two back edges and meet at the tower. Three of the stacks move: the mill's
+// sails turn, the cannon scans and the villagers idle, each an animation at a heading, and each loops in the scene's
+// 960 ms.
 const hamletOn = (asset, cell, heading = 0) => ({ asset, on: 'ground', cell, frame: `heading-${heading}` });
-const isoHamlet = { format: 'pixelforge-scene', version: 1, name: 'iso-hamlet', width: 288, height: 236, duration: 1000, background: '#1e2233',
-  assets: { tiles: { recipe: 'iso-tiles.json' }, ...Object.fromEntries(['cottage', 'tower', 'wall', 'pine', 'barrel', 'crate'].map(name => [name, { recipe: `iso-${name}.stack.json` }])) },
+const hamletPlays = (asset, cell, animation) => ({ asset, on: 'ground', cell, animation });
+const isoHamlet = { format: 'pixelforge-scene', version: 1, name: 'iso-hamlet', width: 288, height: 236, duration: 960, background: '#1e2233',
+  assets: { tiles: { recipe: 'iso-tiles.json' }, ...Object.fromEntries(['cottage', 'tower', 'wall', 'pine', 'barrel', 'crate', 'windmill', 'cannon', 'villager'].map(name => [name, { recipe: `iso-${name}.stack.json` }])) },
   instances: [
     { name: 'ground', at: [16, 94], sort: 'ground', ...isoMap(['gggggggg', 'gggggggg', 'gggggggg', 'ggggsggg', 'sssssggg', 'ggggsggg', 'ggggsggg', 'ggggsggg'],
       { g: { frames: ['turf', 'grass', 'grass-tufts', 'grass-flowers'], weights: [5, 3, 1, 1] }, s: { frames: ['paver', 'paver-worn'] } },
       { seed: 11, surface: isoT, solid: true, heights: ['33332...', '33332...', '33321...', '2221....', '........', '........', '........', '........'] }) },
     hamletOn('tower', [0, 0]), hamletOn('wall', [1, 0]), hamletOn('wall', [2, 0]), hamletOn('wall', [3, 0]), hamletOn('wall', [0, 1], 90), hamletOn('wall', [0, 2], 90),
     hamletOn('crate', [2.4, 1.6], 23), hamletOn('barrel', [1.4, 2.3]), hamletOn('barrel', [3.1, 2.2], 45),
-    hamletOn('pine', [6, 0], 45), hamletOn('pine', [7, 1]), hamletOn('pine', [5.6, 1.5], 135), hamletOn('pine', [0, 7], 45),
+    hamletPlays('windmill', [6.6, 0.6], 'spin-0'), hamletPlays('cannon', [1.5, 0.9], 'scan-0'),
+    hamletPlays('villager', [3.4, 4.3], 'idle-sw'), hamletPlays('villager', [4.2, 6.3], 'idle-se'),
+    hamletOn('pine', [5.2, 0.2]), hamletOn('pine', [5.6, 1.5], 135), hamletOn('pine', [0, 7], 45),
     hamletOn('cottage', [1.5, 5.25]), hamletOn('cottage', [6.25, 4.5], 270),
     hamletOn('barrel', [3.1, 6.2]), hamletOn('barrel', [3.6, 6.6], 68), hamletOn('crate', [5.3, 6.4], 68), hamletOn('crate', [5.4, 3.1])
   ] };

@@ -703,6 +703,352 @@
       },
       "maxItems": 1024
     },
+    "parts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "maxProperties": 32,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "slices": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "maxItems": 128,
+              "minItems": 1
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "description": "Equal-size top-down grids, lowest first. Dot or space is air."
+          },
+          "paint": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "face": {
+                      "enum": [
+                        "west",
+                        "east",
+                        "north",
+                        "south"
+                      ]
+                    },
+                    "at": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      "maxItems": 2,
+                      "minItems": 2
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "maxItems": 128,
+                      "minItems": 1
+                    },
+                    "depth": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 128,
+                      "description": "0 paints only the face. Positive depth colours contiguous solid cells inward."
+                    }
+                  },
+                  "required": [
+                    "face",
+                    "rows"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "face": {
+                      "enum": [
+                        "west",
+                        "east",
+                        "north",
+                        "south"
+                      ]
+                    },
+                    "at": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      "maxItems": 2,
+                      "minItems": 2
+                    },
+                    "decal": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+                    },
+                    "flipX": {
+                      "type": "boolean"
+                    },
+                    "flipY": {
+                      "type": "boolean"
+                    },
+                    "depth": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 128,
+                      "description": "0 paints only the face. Positive depth colours contiguous solid cells inward."
+                    }
+                  },
+                  "required": [
+                    "face",
+                    "decal"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "face": {
+                      "enum": [
+                        "west",
+                        "east",
+                        "north",
+                        "south"
+                      ]
+                    },
+                    "at": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      "maxItems": 2,
+                      "minItems": 2
+                    },
+                    "erase": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[x. ]+$"
+                      },
+                      "maxItems": 128,
+                      "minItems": 1
+                    }
+                  },
+                  "required": [
+                    "face",
+                    "erase"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "maxItems": 1024
+          },
+          "socket": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "description": "The socket the part rides: it moves by the socket's offset and turns about its axis."
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -512,
+              "maximum": 512
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "description": "The part's lowest corner from its socket's origin, in slice cells and slices; from the stack's own corner with no socket. Default [0, 0, 0]."
+          }
+        },
+        "required": [
+          "slices"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Solids of their own that ride sockets: each its slices, painted on its sides and shaded by the ramps like the stack."
+    },
+    "animations": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "maxProperties": 32,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+            "description": "Frames at each heading."
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60000,
+            "description": "Milliseconds a frame; the stack's duration when left out."
+          },
+          "durations": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "description": "Milliseconds for each frame, in place of duration."
+          },
+          "loop": {
+            "type": "boolean",
+            "description": "Default true."
+          },
+          "headings": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 359
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "The headings it is baked for; the stack's headings when left out."
+          },
+          "sockets": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+            },
+            "maxProperties": 64,
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "frame": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 256
+                  },
+                  "offset": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -512,
+                      "maximum": 512
+                    },
+                    "maxItems": 3,
+                    "minItems": 3
+                  },
+                  "angle": {
+                    "type": "number",
+                    "minimum": -3600,
+                    "maximum": 3600
+                  },
+                  "ease": {
+                    "enum": [
+                      "linear",
+                      "hold",
+                      "in",
+                      "out",
+                      "inOut",
+                      "overshoot",
+                      "bounce"
+                    ],
+                    "description": "How the move to this key from the one before is eased; linear when left out."
+                  }
+                },
+                "required": [
+                  "frame"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 64
+            },
+            "description": "Keys by frame for named sockets, in increasing order; a key at the frame count is the pose a loop comes round to. A socket not named here keeps its keys by heading."
+          },
+          "poses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 256
+                },
+                "pose": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+                },
+                "ease": {
+                  "enum": [
+                    "linear",
+                    "hold",
+                    "in",
+                    "out",
+                    "inOut",
+                    "overshoot",
+                    "bounce"
+                  ],
+                  "description": "How the move to this key from the one before is eased; linear when left out."
+                }
+              },
+              "required": [
+                "frame",
+                "pose"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 64,
+            "description": "Named poses of the jointed paths by frame."
+          }
+        },
+        "required": [
+          "frames"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Sockets and poses keyed by frame, baked for every heading: each plays at a heading as <name>-<heading>, or <name>-<direction> where directions names that heading, with frames <that>-0, <that>-1 and so on after the heading frames."
+    },
+    "directions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+      },
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 359
+      },
+      "description": "Names for headings, used in the names of animations and their frames: {\"south\": 180}."
+    },
     "ramps": {
       "type": "array",
       "items": {

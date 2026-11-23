@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { availableParallelism } from 'node:os';
 import { measurePresets } from './preset-pool.js';
-import { PixelError, renderProject } from './core.js';
+import { PixelError, isObject, renderProject } from './core.js';
 import { resolveReferences } from './resolve.js';
 import { compilePoses, compileAutotile, compileNormals } from './authoring.js';
 import { compileEffects } from './fx.js';
@@ -160,7 +160,13 @@ function about(entry, source, animations) {
     return `A tile set for a terrain brush (Godot TileSet, Tiled tileset): ${layers.length ? `${listNames(layers)} and the tiles where they meet` : `one terrain, ${source.mode ?? 'blob'} tiles`}${extras.length ? `, ${extras.join(', ')}` : ''}.`;
   }
   if (entry.kind === 'fx') return `Particles and effect shapes: ${listNames(names)}.`;
-  if (entry.kind === 'stack') return `${Object.hasOwn(STACK_SHOW, entry.base) ? `${STACK_SHOW[entry.base]}. ` : ''}A solid of ${source.slices.length} slices seen from every heading${source.ramps ? ', shaded by its ramps' : ''}.`;
+  if (entry.kind === 'stack') {
+    // What it shows, then what it is made of: the solid, the parts that move on it and the animations that move them.
+    const parts = isObject(source.parts) ? Object.keys(source.parts).length : 0, moving = isObject(source.animations) ? Object.keys(source.animations) : [];
+    const drawn = source.slices.some(rows => Array.isArray(rows) && rows.some(row => /[^. ]/.test(row))), count = `${parts} moving part${parts === 1 ? '' : 's'}`;
+    const made = !parts ? `A solid of ${source.slices.length} slices seen from every heading` : drawn ? `A solid with ${count}` : `${count}`;
+    return `${Object.hasOwn(STACK_SHOW, entry.base) ? `${STACK_SHOW[entry.base]}. ` : ''}${made}${moving.length ? `; ${listNames(moving)} at every heading` : source.ramps ? ', shaded by its ramps' : ''}.`;
+  }
   if (entry.kind === 'wave') return `A looping wave pattern: ${listNames(names)}.`;
   if (entry.kind === 'crystal') {
     // What grows: each habit counted with the crystals of its clusters.
@@ -352,6 +358,10 @@ const STACK_SHOW = {
   'iso-cottage': 'A cottage for an isometric map: the building to start a house, shop or hut from',
   'iso-tower': 'A round stone watchtower with battlements for an isometric map',
   'iso-wall': 'A length of battlement wall one tile long, whose pieces join along an isometric map',
+  'iso-windmill': 'A windmill whose sails turn, for an isometric map',
+  'iso-chest': 'A treasure chest whose lid opens, for an isometric map',
+  'iso-villager': 'A villager who walks and idles in eight directions: the isometric character to start from',
+  'iso-cannon': 'A cannon that swivels and fires: the turret to start a gun from',
   'copper-rally': 'A rally car: the vehicle to start a car, truck or tank from',
   'lodekeeper-faceted': 'A crane with a turning reel and a glass grab: sockets, facets and moving parts'
 };

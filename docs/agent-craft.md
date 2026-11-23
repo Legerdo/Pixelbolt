@@ -89,7 +89,7 @@ A team colour, a season, an enemy version, an arctic fox: the same sprite or cha
 
 ## Isometric
 
-For a prop, a building or a turning vehicle, use a [sprite stack](agent-guide.md#sprite-stacks) with `projection: "iso"`, and start from the nearest preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower`, `iso-wall`, or `copper-rally` for a vehicle.
+For a prop, a building or a turning vehicle, use a [sprite stack](agent-guide.md#sprite-stacks) with `projection: "iso"`, and start from the nearest preset: `iso-crate`, `iso-barrel`, `iso-pine`, `iso-cottage`, `iso-tower`, `iso-wall`, or `copper-rally` for a vehicle. For something that moves, a part on a socket and an animation baked at every heading (`help guide "Parts and animations"`), start from `iso-windmill`, `iso-chest`, `iso-cannon`, or `iso-villager` for a character that walks in eight directions.
 
 - **On a map, model at the map's pixel size.** `"cell": 1` makes sixteen slice cells one 32×16 tile and a slice one pixel high (`help guide "On a map's grid"`). Decide the size in tiles first: a crate is about half a tile, a door six cells wide and ten high, a cottage two tiles long. A piece meant to join its neighbours (a wall, a fence, a bridge) fills its tile from edge to edge.
 - **Place by cell, not by pixel.** Give the ground map a name and stand each thing `"on"` it at a `"cell"`; `heights` on the map raises terraces and what stands on them (`help workflow "Tilemaps"`). Placed `on` a cell a building is drawn with the cells under it, so a sorted ground never covers its near half as it does one placed by `at`. `examples/iso-hamlet.scene.json` is the scene to start from.

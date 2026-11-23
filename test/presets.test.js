@@ -106,8 +106,8 @@ test('the presets listing covers every source and looping recipe in examples/, m
   }
   await mcp.close();
   // 72 presets were 21 KB in full; a line each, they are under half that. A cap on the whole reply and on each line
-  // keeps a new preset from undoing it.
-  assert.ok(Buffer.byteLength(JSON.stringify(brief)) < 16384, `${Buffer.byteLength(JSON.stringify(brief))} bytes of preset listing`);
+  // keeps a new preset from undoing it: 17 KB since the four moving isometric starters made 121.
+  assert.ok(Buffer.byteLength(JSON.stringify(brief)) < 17408, `${Buffer.byteLength(JSON.stringify(brief))} bytes of preset listing`);
   assert.equal(brief.guide, `${guide} ${BRIEF_NOTE}`);
   assert.deepEqual(Object.keys(brief.presets), presets.map(entry => entry.name));
   for (const entry of presets) {
@@ -150,7 +150,7 @@ test('the presets listing covers every source and looping recipe in examples/, m
     assert.deepEqual([entry.size, entry.frames, entry.colors, entry.plays], [`${project.width}x${project.height}`, project.frames.length, colors, loops.every(Boolean) ? 'loop' : loops.some(Boolean) ? 'loops and one-shots' : 'one-shot'], entry.name);
     assert.ok(typeof entry.for === 'string' && entry.for.length > 3, `${entry.name} says what it is for`);
     // A rigid-body preset says what it shows before what it is made of, so a search by subject finds it.
-    if (entry.kind === 'stack') assert.match(entry.for, /^[A-Z][^.]+\. A solid of \d+ slices/, `${entry.name}: ${entry.for}; add its line to STACK_SHOW in src/presets.js`);
+    if (entry.kind === 'stack') assert.match(entry.for, /^[A-Z][^.]+\. (A solid of \d+ slices|A solid with \d+ moving part|\d+ moving parts)/, `${entry.name}: ${entry.for}; add its line to STACK_SHOW in src/presets.js`);
     if (entry.kind === 'bodies') assert.match(entry.for, /^[A-Z][^.]+\. (Simulated rigid bodies: |Cloth)/, `${entry.name}: ${entry.for}; add its line to BODIES_SHOW in src/presets.js`);
     for (const [name, item] of Object.entries(project.animations).slice(0, 12)) assert.equal(entry.animations[name], `${item.frames.length} frames, ${item.loop ? 'loop' : 'one-shot'}`);
     // A liquid simulation reads as an effect, never as a character's idle.

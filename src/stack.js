@@ -5,16 +5,20 @@
 // from one light: a key moves along its ramp by the way the surface faces, never to a colour outside the palette.
 // With `cell`, an iso stack lies on a tile map's grid: at the four quarter headings every cell corner is on a whole
 // pixel, so a cube is the box operation's block and stacks on neighbouring cells meet without a gap or an overlap.
-import { fail, frameFits, frameTotalProblem, isObject, pictureSheet, parseColor, readRows, renderProject, FRAME_AREA } from './core.js';
+// A part is a grid of its own that rides a socket, moved and turned about that socket's axis: each pixel's ray is taken
+// into the part's space and walked there, and the height of a hit is its depth, so parts, the stack and facets cover
+// one another pixel by pixel. An animation keys sockets and poses by frame and is baked for every heading it is given:
+// its frames follow the headings', which keep their indices, so a stack without animations compiles as it always has.
+import { fail, frameFits, frameTotalProblem, isObject, pictureSheet, parseColor, portableName, readRows, renderProject, FRAME_AREA } from './core.js';
 import { boolean, fields, integer, number, point } from './authoring.js';
 import { cosDeg, sinDeg } from './craft.js';
-import { stackGeometry, triple, placed, projectPoint, projectFacets, groundAxes, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
+import { stackGeometry, triple, placed, spun, socketKeys, projectPoint, projectFacets, groundAxes, socketPose, includeRotationBounds, stackFragments, drawFacets } from './stack-facets.js';
 
 import { appendStackReliefs, stackPaths } from './stack-paths.js';
 
 const faces = ['west', 'east', 'north', 'south'];
 const blank = key => key === '.' || key === ' ';
-const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'cell', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs', 'ramps', 'light', 'lightTurns'];
+const sourceFields = ['format', 'version', 'name', 'palette', 'slices', 'pivot', 'projection', 'squash', 'spacing', 'resolution', 'cell', 'headings', 'duration', 'decals', 'paint', 'facets', 'sockets', 'paths', 'membranes', 'poses', 'poseKeys', 'contours', 'lofts', 'reliefs', 'ramps', 'light', 'lightTurns', 'parts', 'animations', 'directions'];
 
 // A side drawing reads across x (north/south) or y (west/east); its first row is the roof.
 // Find the outermost solid cell on that line, including through an opening in the silhouette.
@@ -38,12 +42,13 @@ function surface(model, face, u, row) {
 // stripe the surface: there it leans as the solid round it does (the way out of the 5×5×5 cells about it), and along a
 // line where it goes on it does not lean at all, so a wall is upright to its top and a roof is one slope from end to
 // end. The solid stands on ground, so its lowest slice goes on below it: the foot of a slope is a low wall, not an
-// underside. The lean is fixed in the model and kept for every heading.
-const normals = [[0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0]];
-const planes = [[[1, 0, 0], [0, 1, 0]], [[0, 1, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]]];
-function surfaceNormals({ width: w, height: h, levels, cells }) {
+// underside. The lean is fixed in the model and kept for every heading. A part hangs from its socket and may show its
+// underside, so it has that sixth face and nothing goes on below it.
+const normals = [[0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1]];
+const planes = [[[1, 0, 0], [0, 1, 0]], [[0, 1, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]], [[1, 0, 0], [0, 0, 1]], [[1, 0, 0], [0, 1, 0]]];
+function surfaceNormals({ width: w, height: h, levels, cells }, grounded) {
   const known = new Map();
-  const solid = (x, y, z) => x >= 0 && x < w && y >= 0 && y < h && z < levels && cells[(Math.max(z, 0) * h + y) * w + x] !== 0;
+  const solid = (x, y, z) => x >= 0 && x < w && y >= 0 && y < h && z < levels && (grounded || z >= 0) && cells[(Math.max(z, 0) * h + y) * w + x] !== 0;
   return (index, side) => {
     const key = index * 8 + side;
     if (known.has(key)) return known.get(key);
@@ -100,15 +105,17 @@ function readTones(source, alpha) {
     }
     return tables.get(steps);
   }
-  return model => {
-    const round = surfaceNormals(model);
-    return angle => {
+  return (model, grounded = true) => {
+    const round = surfaceNormals(model, grounded);
+    // `turn` takes a direction in a part's own space to the stack's, as its socket has turned it.
+    return (angle, turn = null) => {
       const c = turns ? 1 : cosDeg(angle), s = turns ? 0 : sinDeg(angle);
-      // The roof, then west, east, north and south, each by how far it leans to the light as the camera sees it.
-      const flat = [tone(z), tone(-c * x - s * y), tone(c * x + s * y), tone(s * x - c * y), tone(c * y - s * x)];
+      const lit = n => { const [nx, ny, nz] = turn ? turn(n) : n; return tone((c * nx - s * ny) * x + (s * nx + c * ny) * y + nz * z); };
+      // The roof, then west, east, north, south and the underside, each by how far it leans to the light as the camera sees it.
+      const flat = normals.map(lit);
       return (index, face) => {
         const n = round(index, face + 1);
-        return n ? tone((c * n[0] - s * n[1]) * x + (s * n[0] + c * n[1]) * y + n[2] * z) : flat[face + 1];
+        return n ? lit(n) : flat[face + 1];
       };
     };
   };
@@ -128,17 +135,22 @@ function readModel(source) {
     alpha[key.charCodeAt(0)] = a;
     translucent ||= a < 255;
   }
-  if (!Array.isArray(source.slices) || !source.slices.length || source.slices.length > 64) fail('stack.slices', 'expected 1–64 grids, ground first');
-  let width, height, cells;
-  const levels = source.slices.length;
-  source.slices.forEach((rows, z) => {
-    const path = `stack.slices[${z}]`, grid = readRows(rows, path, source.palette, 128);
-    if (!z) { width = grid.width; height = grid.height; cells = new Uint16Array(width * height * levels); }
-    if (width !== grid.width || height !== grid.height) fail(path, 'all slices must have the same dimensions');
-    let i = z * width * height;
-    for (const row of rows) for (const key of row) cells[i++] = blank(key) || !alpha[key.charCodeAt(0)] ? 0 : key.charCodeAt(0);
-  });
-  const model = { width, height, levels, cells, alpha, translucent, geometry:stackGeometry(source), decals: faces.map(() => new Map()) };
+  // The grids of the stack or of one part, ground first, as one volume.
+  function volume(slices, path) {
+    if (!Array.isArray(slices) || !slices.length || slices.length > 64) fail(`${path}.slices`, 'expected 1–64 grids, ground first');
+    let width, height, cells;
+    const levels = slices.length;
+    slices.forEach((rows, z) => {
+      const at = `${path}.slices[${z}]`, grid = readRows(rows, at, source.palette, 128);
+      if (!z) { width = grid.width; height = grid.height; cells = new Uint16Array(width * height * levels); }
+      if (width !== grid.width || height !== grid.height) fail(at, 'all slices must have the same dimensions');
+      let i = z * width * height;
+      for (const row of rows) for (const key of row) cells[i++] = blank(key) || !alpha[key.charCodeAt(0)] ? 0 : key.charCodeAt(0);
+    });
+    return { width, height, levels, cells, decals: faces.map(() => new Map()) };
+  }
+  const model = { ...volume(source.slices, 'stack'), alpha, translucent, geometry:stackGeometry(source) };
+  const { width, height, levels } = model;
   const library = source.decals ?? {};
   if (!isObject(library) || Object.keys(library).length > 256) fail('stack.decals', 'expected at most 256 named grids');
   const grids = new Map();
@@ -150,62 +162,82 @@ function readModel(source) {
     if (libraryCells > 262144) fail('stack.decals', 'decal drawings exceed 262,144 cells');
     grids.set(name, grid);
   }
-  const paint = source.paint ?? [];
-  if (!Array.isArray(paint) || paint.length > 1024) fail('stack.paint', 'expected at most 1,024 side paintings');
   let paintCells = 0;
-  const strokes = paint.map((stroke, i) => {
-    const path = `stack.paint[${i}]`;
-    fields(stroke, ['face', 'at', 'rows', 'depth', 'decal', 'flipX', 'flipY', 'erase'], path);
-    const face = faces.indexOf(stroke.face);
-    if (face < 0) fail(`${path}.face`, `expected ${faces.join(', ')}`);
-    const [u, v] = point(stroke.at ?? [0, 0], `${path}.at`);
-    if (['rows', 'erase', 'decal'].filter(key => key in stroke).length !== 1) fail(path, 'choose one of rows, decal or erase');
-    const erase = 'erase' in stroke;
-    if (erase && 'depth' in stroke) fail(`${path}.depth`, 'an eraser removes the previous mark including its depth');
-    if (!('decal' in stroke) && ('flipX' in stroke || 'flipY' in stroke)) fail(path, 'flips apply to a named decal');
-    const grid = 'decal' in stroke ? grids.get(stroke.decal)
-      : erase ? readRows(stroke.erase, `${path}.erase`, { x: '#fff' }, 128) : readRows(stroke.rows, `${path}.rows`, source.palette, 128);
-    if (!grid) fail(`${path}.decal`, 'unknown decal');
-    const depth = integer(stroke.depth ?? 0, `${path}.depth`, 0, 128);
-    if (u < 0 || v < 0 || u + grid.width > (face < 2 ? height : width) || v + grid.height > levels) fail(path, 'painting must fit inside the side view');
-    paintCells += grid.width * grid.height;
-    if (paintCells > 262144) fail('stack.paint', 'side paintings exceed 262,144 cells');
-    let rows = grid.rows;
-    if (boolean(stroke.flipX ?? false, `${path}.flipX`)) rows = rows.map(row => [...row].reverse().join(''));
-    if (boolean(stroke.flipY ?? false, `${path}.flipY`)) rows = [...rows].reverse();
-    return { face, u, v, rows, depth, erase };
-  });
-  // Walk backwards to match each eraser cell to its preceding mark on this face.
-  // Replay surviving marks forwards so intersecting depth strokes keep their original order.
-  if (strokes.some(stroke => stroke.erase)) {
-    const skips = faces.map(() => new Uint16Array(128 * levels));
-    for (let i = strokes.length - 1; i >= 0; i--) {
-      const stroke = strokes[i], skip = skips[stroke.face];
-      stroke.rows = stroke.rows.map((row, y) => [...row].map((key, x) => {
-        if (blank(key)) return key;
-        const at = (stroke.v + y) * 128 + stroke.u + x;
-        if (stroke.erase) skip[at]++;
-        else if (skip[at]) { skip[at]--; return '.'; }
-        return key;
-      }).join(''));
+  // Side paintings on one volume: the stack's own or a part's.
+  function painted(solid, paint = [], at) {
+    const { width, height, levels, cells } = solid;
+    if (!Array.isArray(paint) || paint.length > 1024) fail(at, 'expected at most 1,024 side paintings');
+    const strokes = paint.map((stroke, i) => {
+      const path = `${at}[${i}]`;
+      fields(stroke, ['face', 'at', 'rows', 'depth', 'decal', 'flipX', 'flipY', 'erase'], path);
+      const face = faces.indexOf(stroke.face);
+      if (face < 0) fail(`${path}.face`, `expected ${faces.join(', ')}`);
+      const [u, v] = point(stroke.at ?? [0, 0], `${path}.at`);
+      if (['rows', 'erase', 'decal'].filter(key => key in stroke).length !== 1) fail(path, 'choose one of rows, decal or erase');
+      const erase = 'erase' in stroke;
+      if (erase && 'depth' in stroke) fail(`${path}.depth`, 'an eraser removes the previous mark including its depth');
+      if (!('decal' in stroke) && ('flipX' in stroke || 'flipY' in stroke)) fail(path, 'flips apply to a named decal');
+      const grid = 'decal' in stroke ? grids.get(stroke.decal)
+        : erase ? readRows(stroke.erase, `${path}.erase`, { x: '#fff' }, 128) : readRows(stroke.rows, `${path}.rows`, source.palette, 128);
+      if (!grid) fail(`${path}.decal`, 'unknown decal');
+      const depth = integer(stroke.depth ?? 0, `${path}.depth`, 0, 128);
+      if (u < 0 || v < 0 || u + grid.width > (face < 2 ? height : width) || v + grid.height > levels) fail(path, 'painting must fit inside the side view');
+      paintCells += grid.width * grid.height;
+      if (paintCells > 262144) fail('stack.paint', 'side paintings exceed 262,144 cells');
+      let rows = grid.rows;
+      if (boolean(stroke.flipX ?? false, `${path}.flipX`)) rows = rows.map(row => [...row].reverse().join(''));
+      if (boolean(stroke.flipY ?? false, `${path}.flipY`)) rows = [...rows].reverse();
+      return { face, u, v, rows, depth, erase };
+    });
+    // Walk backwards to match each eraser cell to its preceding mark on this face.
+    // Replay surviving marks forwards so intersecting depth strokes keep their original order.
+    if (strokes.some(stroke => stroke.erase)) {
+      const skips = faces.map(() => new Uint16Array(128 * levels));
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        const stroke = strokes[i], skip = skips[stroke.face];
+        stroke.rows = stroke.rows.map((row, y) => [...row].map((key, x) => {
+          if (blank(key)) return key;
+          const at = (stroke.v + y) * 128 + stroke.u + x;
+          if (stroke.erase) skip[at]++;
+          else if (skip[at]) { skip[at]--; return '.'; }
+          return key;
+        }).join(''));
+      }
+    }
+    for (const { face, u, v, rows, depth, erase } of strokes) {
+      if (erase) continue;
+      rows.forEach((row, y) => {
+        for (let x = 0; x < row.length; x++) {
+          if (blank(row[x])) continue;
+          const hit = surface(solid, face, u + x, v + y);
+          if (!hit) continue;
+          const color = row.charCodeAt(x);
+          if (alpha[color]) solid.decals[face].set(hit.at, color);
+          else solid.decals[face].delete(hit.at);
+          const fill = alpha[color] ? color : 0;
+          for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = fill;
+        }
+      });
     }
   }
-  for (const { face, u, v, rows, depth, erase } of strokes) {
-    if (erase) continue;
-    rows.forEach((row, y) => {
-      for (let x = 0; x < row.length; x++) {
-        if (blank(row[x])) continue;
-        const hit = surface(model, face, u + x, v + y);
-        if (!hit) continue;
-        const color = row.charCodeAt(x);
-        if (alpha[color]) model.decals[face].set(hit.at, color);
-        else model.decals[face].delete(hit.at);
-        const fill = alpha[color] ? color : 0;
-        for (let j = 0, at = hit.at; j < Math.min(depth, hit.remaining) && cells[at]; j++, at += hit.step) cells[at] = fill;
-      }
-    });
-  }
-  model.tones = readTones(source, alpha)?.(model);
+  painted(model, source.paint, 'stack.paint');
+  const tones = readTones(source, alpha);
+  model.tones = tones?.(model);
+  // Parts: grids of their own that ride a socket, painted on their sides like the stack and shaded by its ramps.
+  const definitions = source.parts ?? {};
+  if (!isObject(definitions) || Object.keys(definitions).length > 32) fail('stack.parts', 'expected at most 32 named parts');
+  let partCells = 0;
+  model.parts = Object.entries(definitions).map(([name, part]) => {
+    const path = `stack.parts.${name}`;
+    portableName(name, path);
+    fields(part, ['slices', 'at', 'socket', 'paint'], path);
+    if (part.socket !== undefined && !model.geometry.sockets.has(part.socket)) fail(`${path}.socket`, `unknown socket; the stack's sockets are ${[...model.geometry.sockets.keys()].join(', ') || 'none: declare one in sockets'}`);
+    const solid = volume(part.slices, path);
+    partCells += solid.width * solid.height * solid.levels;
+    if (partCells > 262144) fail('stack.parts', 'parts together exceed 262,144 cells');
+    painted(solid, part.paint, `${path}.paint`);
+    return { ...solid, name, socket: part.socket, at: triple(part.at ?? [0, 0, 0], `${path}.at`), tones: tones?.(solid, false) };
+  });
   if (source.reliefs !== undefined) {
     const spacing = integer(source.spacing ?? 1, 'stack.spacing', 1, 8);
     appendStackReliefs(source, model.geometry.facets, faces, (face, u, z, rise, path) => {
@@ -250,7 +282,7 @@ function raster(model, view, angle, pose, budget) {
   const deltaX = dx ? 1 / Math.abs(vx) : Infinity, deltaY = dy ? 1 / Math.abs(vy) : Infinity;
   const faceX = dx > 0 ? 0 : 1, faceY = dy > 0 ? 2 : 3;
   let visits = 0;
-  const layered = model.translucent || model.geometry.facets.length > 0;
+  const layered = model.translucent || model.geometry.facets.length > 0 || model.parts.length > 0;
   const fragments = layered ? stackFragments(width, height, model.alpha) : null;
   const tones = model.tones?.(angle);
   const rows = [];
@@ -299,16 +331,88 @@ function raster(model, view, angle, pose, budget) {
   }
   budget.left -= visits;
   if (!layered) return [{op:'grid', rows}];
+  for (const part of model.parts) rasterPart(part, view, angle, pose, fragments, model.alpha, budget);
   drawFacets(projectFacets(model.geometry,pose,view,angle),view,fragments,budget);
   return fragments.ops(budget);
+}
+
+// The corners of a part's box, in its socket's space.
+const corners = ({ width, height, levels, at }, spacing) => [0, width].flatMap(x => [0, height].flatMap(y => [0, (levels - 1) * spacing + 1].map(z => [at[0] + x, at[1] + y, at[2] + z])));
+
+// One part into the frame's samples. Its socket has moved and turned it, so each pixel's ray is taken into the part's
+// own space, clipped to its box and walked from cell to cell there, as the stack's own rays are. `t` counts how far
+// the ray has come down from the ground's level (it is negative above the ground), so a hit is at height -t in the
+// stack's space, which is what the samples of the stack and of facets are ordered by.
+function rasterPart(part, view, angle, pose, fragments, alpha, budget) {
+  const { width: w, height: h, levels, cells, decals } = part;
+  const { resolution, squash, spacing, anchor, pivot, width, height } = view;
+  const [c, s] = groundAxes(view, angle), n = view.grid ? .5 : 1, tall = (levels - 1) * spacing + 1;
+  const socket = part.socket ? pose.get(part.socket) : null, [ox, oy, oz] = socket?.origin ?? [0, 0, 0];
+  const into = v => (socket ? spun(socket.axis, socket.c, -socket.s, v) : v);
+  const [dx, dy, dz] = into([-s / squash * n, -c / squash * n, -1]);
+  const tones = part.tones?.(angle, socket && (v => spun(socket.axis, socket.c, socket.s, v)));
+  const stepX = Math.sign(dx), stepY = Math.sign(dy), stepZ = Math.sign(dz);
+  const deltaX = dx ? 1 / Math.abs(dx) : Infinity, deltaY = dy ? 1 / Math.abs(dy) : Infinity, deltaZ = dz ? 1 / Math.abs(dz) : Infinity;
+  // The face a ray comes in by when it steps along each axis; the underside (4) when it rises into a cell.
+  const faceX = stepX > 0 ? 0 : 1, faceY = stepY > 0 ? 2 : 3, faceZ = stepZ > 0 ? 4 : -1;
+  let x0 = width, x1 = -1, y0 = height, y1 = -1;
+  for (const xyz of corners(part, spacing)) {
+    const [u, v] = projectPoint(placed({ xyz, socket: part.socket }, pose), view, c, s);
+    x0 = Math.min(x0, Math.floor(u) - 1); x1 = Math.max(x1, Math.ceil(u) + 1);
+    y0 = Math.min(y0, Math.floor(v) - 1); y1 = Math.max(y1, Math.ceil(v) + 1);
+  }
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(width - 1, x1); y1 = Math.min(height - 1, y1);
+  let visits = 0;
+  for (let py = y0; py <= y1; py++) {
+    const sy = (py + .5 - anchor[1]) / resolution / squash;
+    for (let px = x0; px <= x1; px++) {
+      const sx = (px + .5 - anchor[0]) / resolution;
+      // Where the ray meets the ground's level, in the part's space.
+      const ground = into([pivot[0] + .5 + sx * c * n + sy * s * n - ox, pivot[1] + .5 - sx * s * n + sy * c * n - oy, -oz]);
+      const lx = ground[0] - part.at[0], ly = ground[1] - part.at[1], lz = ground[2] - part.at[2];
+      let enter = -Infinity, leave = Infinity, face = -1;
+      if (dx) { const a = -lx / dx, b = (w - lx) / dx; enter = Math.min(a, b); leave = Math.max(a, b); face = faceX; }
+      else if (lx < 0 || lx >= w) continue;
+      if (dy) { const a = -ly / dy, b = (h - ly) / dy, near = Math.min(a, b); if (near > enter) { enter = near; face = faceY; } leave = Math.min(leave, Math.max(a, b)); }
+      else if (ly < 0 || ly >= h) continue;
+      // Like the stack's roof, the face across the part's own height wins a tie at an edge.
+      if (dz) { const a = -lz / dz, b = (tall - lz) / dz, near = Math.min(a, b); if (near >= enter) { enter = near; face = faceZ; } leave = Math.min(leave, Math.max(a, b)); }
+      else if (lz < 0 || lz >= tall) continue;
+      if (!(enter < leave)) continue;
+      const probe = Math.min(enter + 1e-9, (enter + leave) / 2);
+      let x = Math.max(0, Math.min(w - 1, Math.floor(lx + dx * probe))), y = Math.max(0, Math.min(h - 1, Math.floor(ly + dy * probe))), z = Math.max(0, Math.min(tall - 1, Math.floor(lz + dz * probe)));
+      let tx = dx ? (x + (stepX > 0 ? 1 : 0) - lx) / dx : Infinity, ty = dy ? (y + (stepY > 0 ? 1 : 0) - ly) / dy : Infinity, tz = dz ? (z + (stepZ > 0 ? 1 : 0) - lz) / dz : Infinity;
+      let entry = enter, glass = false;
+      while (x >= 0 && x < w && y >= 0 && y < h && z >= 0 && z < tall) {
+        visits++;
+        const index = (z / spacing * h + y) * w + x, ink = z % spacing === 0 ? cells[index] : 0;
+        if (ink) {
+          const paint = face >= 0 && face < 4 ? decals[face].get(index) : 0, tone = tones?.(index, face);
+          const pixel = py * width + px, depth = -entry;
+          if (!glass || alpha[ink] === 255) fragments.add(pixel, depth, tone ? tone[ink] : ink);
+          if (paint && paint !== ink) fragments.add(pixel, depth, tone ? tone[paint] : paint);
+          if (alpha[ink] === 255 || alpha[paint] === 255) break;
+          glass = true;
+        } else glass = false;
+        const next = Math.min(tx, ty, tz);
+        if (next >= leave) break;
+        entry = next;
+        if (tx <= next + 1e-10) { x += stepX; tx += deltaX; face = faceX; }
+        if (ty <= next + 1e-10) { y += stepY; ty += deltaY; face = faceY; }
+        if (tz <= next + 1e-10) { z += stepZ; tz += deltaZ; face = faceZ; }
+      }
+    }
+    if (visits > budget.left) fail('stack.parts', 'stack exceeds 96 million ray steps; use fewer headings or frames, or a lower resolution');
+  }
+  budget.left -= visits;
 }
 
 export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const model = readModel(source), { width: w, height: h, levels } = model;
   const organic = stackPaths(source, model.geometry.sockets, model.geometry.facets.length);
-  function posedModel(heading, angles) {
+  function posedModel(heading, angles, timed) {
     if (!organic) return model;
-    const mesh = organic.mesh(angles ?? organic.anglesAt(heading));
+    const mesh = organic.mesh(angles ?? organic.anglesAt(heading, timed));
     return { ...model, paths:mesh.posed, geometry:{ ...model.geometry, facets:model.geometry.facets.concat(mesh.facets) } };
   }
   const projection = source.projection ?? 'oblique';
@@ -332,6 +436,57 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   const duration = integer(source.duration ?? 80, 'stack.duration', 1, 60000);
   const cameraAngle = heading => (heading + (projection === 'iso' ? 45 : 0)) % 360;
   const angles = headings.map((a, i) => cameraAngle(integer(a, `stack.headings[${i}]`, 0, 359)));
+  // Names for headings, which an animation's frames and its animation at each heading take in place of the degrees.
+  const directions = new Map();
+  if (source.directions !== undefined) {
+    if (!isObject(source.directions) || Object.keys(source.directions).length > 64) fail('stack.directions', 'expected up to 64 names, each with a heading in degrees');
+    for (const [name, heading] of Object.entries(source.directions)) {
+      portableName(name, `stack.directions.${name}`);
+      integer(heading, `stack.directions.${name}`, 0, 359);
+      if (directions.has(heading)) fail(`stack.directions.${name}`, `heading ${heading} is already named ${directions.get(heading)}`);
+      directions.set(heading, name);
+    }
+  }
+  const facing = heading => directions.get(heading) ?? String(heading);
+  // Animations: sockets and poses keyed by frame. In a frame a keyed socket follows the animation's keys and every
+  // other socket its own keys by heading; a key at the frame count is the pose a loop comes round to.
+  const clipSources = source.animations ?? {};
+  if (!isObject(clipSources) || Object.keys(clipSources).length > 32) fail('stack.animations', 'expected at most 32 named animations');
+  const clips = Object.entries(clipSources).map(([name, clip]) => {
+    const path = `stack.animations.${name}`;
+    portableName(name, path);
+    if (name === 'turn') fail(path, 'turn is the animation of the headings; choose another name');
+    fields(clip, ['frames', 'duration', 'durations', 'loop', 'headings', 'sockets', 'poses'], path);
+    const count = integer(clip.frames, `${path}.frames`, 1, 256);
+    if (clip.duration !== undefined && clip.durations !== undefined) fail(`${path}.durations`, 'give duration, for every frame, or durations, one for each frame; not both');
+    const durations = clip.durations ?? Array(count).fill(integer(clip.duration ?? duration, `${path}.duration`, 1, 60000));
+    if (!Array.isArray(durations) || durations.length !== count) fail(`${path}.durations`, `expected ${count} durations, one for each frame`);
+    durations.forEach((ms, i) => integer(ms, `${path}.durations[${i}]`, 1, 60000));
+    const seen = clip.headings ?? headings;
+    if (!Array.isArray(seen) || !seen.length || seen.length > 256 || new Set(seen).size !== seen.length) fail(`${path}.headings`, 'expected 1–256 distinct angles in degrees');
+    seen.forEach((heading, i) => integer(heading, `${path}.headings[${i}]`, 0, 359));
+    if (clip.sockets !== undefined && !isObject(clip.sockets)) fail(`${path}.sockets`, 'expected keys for named sockets');
+    const sockets = new Map();
+    for (const [socket, keys] of Object.entries(clip.sockets ?? {})) {
+      if (!model.geometry.sockets.has(socket)) fail(`${path}.sockets.${socket}`, `unknown socket; the stack's sockets are ${[...model.geometry.sockets.keys()].join(', ') || 'none: declare one in sockets'}`);
+      sockets.set(socket, socketKeys(keys, `${path}.sockets.${socket}`, 'frame', count));
+    }
+    if (clip.poses !== undefined && !organic) fail(`${path}.poses`, 'poses bend jointed paths, and this stack has none');
+    const poses = clip.poses === undefined ? [] : organic.poseKeys(clip.poses, `${path}.poses`, 'frame', count);
+    if (!sockets.size && !poses.length) fail(path, 'an animation keys a socket (sockets) or a pose (poses) by frame');
+    return { name, count, durations, loop: boolean(clip.loop ?? true, `${path}.loop`), headings: seen, sockets, poses: poses.length ? poses : null };
+  });
+  // Every frame in order: the headings, then each animation at each of its headings.
+  const plan = headings.map((heading, i) => ({ name: `heading-${heading}`, duration, heading, angle: angles[i] }));
+  for (const clip of clips) for (const heading of clip.headings) for (let frame = 0; frame < clip.count; frame++) {
+    plan.push({ name: `${clip.name}-${facing(heading)}-${frame}`, duration: clip.durations[frame], heading, angle: cameraAngle(heading), timed: { sockets: clip.sockets, poses: clip.poses, frame } });
+  }
+  if (plan.length > 256) fail('stack.animations', `${headings.length} headings and ${plan.length - headings.length} frames of animations are ${plan.length} frames; a recipe holds 256, so give an animation fewer headings (its own headings) or frames`);
+  const playing = clips.flatMap(clip => clip.headings.map(heading => `${clip.name}-${facing(heading)}`));
+  for (const names of [plan.map(frame => frame.name), playing]) {
+    const twice = names.find((name, i) => names.indexOf(name) !== i);
+    if (twice) fail('stack.animations', `two animations make the name ${twice}; rename one of them or a direction`);
+  }
   let left = 0, right = 0, bottom = 0, roof = 0;
   const tall = (levels - 1) * spacing + 1;
   // The top and bottom of the four footprint corners bound every visible cell. Round outwards
@@ -344,46 +499,62 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
       const [u,v] = projectPoint(origin,bounds,c,s);
       include(u,v);
     }
+    for (const part of shape.parts) for (const xyz of corners(part, spacing)) {
+      const [u,v] = projectPoint(placed({ xyz, socket: part.socket }, pose),bounds,c,s);
+      include(u,v);
+    }
     for (const facet of projectFacets(shape.geometry,pose,bounds,angle)) for (const [u,v] of facet.points) include(u,v);
     for (const x of sidesX) for (const y of sidesY) {
       const u = (x * c - y * s) * resolution, v = (x * s + y * c) * squash * resolution;
       include(u,v - tall * resolution); include(u,v);
     }
   }
-  for (const [index,angle] of angles.entries()) {
-    headingBounds(posedModel(headings[index]), socketPose(model.geometry.sockets,headings[index]), angle, (x,y) => {
+  for (const { heading, angle, timed } of plan) {
+    headingBounds(posedModel(heading, undefined, timed), socketPose(model.geometry.sockets, heading, timed), angle, (x,y) => {
       left = Math.min(left, Math.floor(x)); right = Math.max(right, Math.ceil(x));
       roof = Math.min(roof, Math.floor(y)); bottom = Math.max(bottom, Math.ceil(y));
     });
   }
-  if (model.geometry.facets.length || model.geometry.sockets.size || organic?.paths.size) { left-=2; right+=2; roof-=2; bottom+=2; }
+  if (model.geometry.facets.length || model.geometry.sockets.size || organic?.paths.size || model.parts.length) { left-=2; right+=2; roof-=2; bottom+=2; }
   const width = right - left, height = bottom - roof, anchor = [-left, -roof];
-  if (!frameFits(width, height) || frameTotalProblem(angles.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${angles.length} headings exceeds the recipe budget; reduce resolution, spacing or heading count`);
-  if (width * height * angles.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
+  if (!frameFits(width, height) || frameTotalProblem(plan.length, width, height)) fail('stack.resolution', `the ${width}×${height} canvas at ${resolution}× with ${clips.length ? `${plan.length} frames (${angles.length} headings and the animations)` : `${angles.length} headings`} exceeds the recipe budget; reduce resolution, spacing or heading count`);
+  if (width * height * plan.length > maxPixels) fail('scene.assets', 'sprite stacks together exceed the scene asset pixel budget');
   const view = { resolution, squash, spacing, anchor, pivot, width, height, grid }, budget = { left: 96000000 };
   // At a heading of the grid the pivot is half a pixel down from the anchor when that is what puts the footprint's far
   // corner, and so the cell corners, on whole pixels: an odd `cell` with the pivot an odd count of cells from that corner.
   const px = pivot[0] + .5, py = pivot[1] + .5, far = { 45: px + py, 135: px + h - py, 225: w - px + h - py, 315: w - px + py };
   const half = angle => grid && angle % 90 === 45 && far[angle] * resolution % 2 ? .5 : 0;
   const seen = (angle, port = view) => (half(angle) ? { ...port, anchor: [port.anchor[0], port.anchor[1] + .5] } : port);
-  const frames = new Array(angles.length);
-  const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, ...(grid && { cell: resolution }), footprint: [w, h], levels, spacing, pivot, anchor, headings };
+  const frames = new Array(plan.length);
+  // An animation is listed with its frame count and headings; it plays at a heading as `<name>-<heading>`, or
+  // `<name>-<direction>` where that heading has a name, and its frames there are that name with -0, -1 and so on.
+  const metadata = { format: 'pixelforge-stack-metadata', resolution, projection, ...(grid && { cell: resolution }), footprint: [w, h], levels, spacing, pivot, anchor, headings,
+    ...(clips.length && { animations: Object.fromEntries(clips.map(clip => [clip.name, { frames: clip.count, loop: clip.loop, headings: clip.headings }])) }),
+    ...(directions.size && { directions: source.directions }) };
+  // Frames are drawn when first asked for: the headings by their index, then the animations' frames.
   function frame(index) {
-    integer(index, 'stack.frame', 0, angles.length - 1);
+    integer(index, 'stack.frame', 0, plan.length - 1);
     if (!frames[index]) {
-      const heading = headings[index];
-      const pose = socketPose(model.geometry.sockets,heading);
-      frames[index] = {name:`heading-${heading}`, duration,
-        ...(pose.size && {points:projectSockets(pose,seen(angles[index]),angles[index])}),
-        ops:raster(posedModel(heading),seen(angles[index]),angles[index],pose,budget)};
+      const { name, duration, heading, angle, timed } = plan[index];
+      const pose = socketPose(model.geometry.sockets, heading, timed);
+      frames[index] = {name, duration,
+        ...(pose.size && {points:projectSockets(pose,seen(angle),angle)}),
+        ops:raster(posedModel(heading, undefined, timed),seen(angle),angle,pose,budget)};
     }
     return frames[index];
   }
   function recipe(index) {
-    const drawn = index === undefined ? headings.map((_, i) => frame(i)) : [frame(index)];
+    const drawn = index === undefined ? plan.map((_, i) => frame(i)) : [frame(index)];
+    const animations = { turn: { frames: (index === undefined ? drawn.slice(0, headings.length) : drawn).map(f => f.name), loop: true } };
+    if (index === undefined) {
+      let at = headings.length;
+      for (const clip of clips) for (const heading of clip.headings) {
+        animations[`${clip.name}-${facing(heading)}`] = { frames: drawn.slice(at, at + clip.count).map(f => f.name), loop: clip.loop };
+        at += clip.count;
+      }
+    }
     return { version: 1, name: source.name, width, height, anchor, palette: source.palette,
-      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames: drawn,
-      animations: { turn: { frames: drawn.map(f => f.name), loop: true } } };
+      ...(source.ramps && { ramps: source.ramps.map(ramp => [...ramp]) }), frames: drawn, animations };
   }
   // Follow the centre of the picked vertical face in model space. Keep the original sample
   // lattice and occlusion, even when the face turns away or the angle is between saved frames.
@@ -426,11 +597,14 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
   }
   const mounted = new Set(model.geometry.facets.flatMap(face => face.points.map(p => p.socket)));
   for (const path of organic?.paths.values() ?? []) mounted.add(path.socket);
+  for (const part of model.parts) mounted.add(part.socket);
+  // A part's box as the vertices of a face, for the bounds of a rotation.
+  const boxes = model.parts.map(part => ({ points: corners(part, spacing).map(xyz => ({ xyz, socket: part.socket })) }));
   const rotationSockets = [...model.geometry.sockets.keys()].filter(name => mounted.has(name));
   function rotationStudy(heading, socket) {
     const angle = cameraAngle(integer(heading, 'stack.heading', 0, 359));
     if (!rotationSockets.includes(socket)) fail('stack.rotation.socket', rotationSockets.length
-      ? 'choose a socket with attached facet vertices: ' + rotationSockets.join(', ') : 'this stack has no socket-mounted facets');
+      ? 'choose a socket with attached facet vertices or a part: ' + rotationSockets.join(', ') : 'this stack has no socket-mounted facets or parts');
     const pose = socketPose(model.geometry.sockets, heading), pivotPose = pose.get(socket);
     let x0 = left, x1 = right, y0 = roof, y1 = bottom;
     function include(x, y) {
@@ -439,7 +613,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     }
     const shape = posedModel(heading);
     if (!headings.includes(heading)) headingBounds(shape, pose, angle, include);
-    includeRotationBounds(shape.geometry.facets, socket, pivotPose, bounds, angle, include);
+    includeRotationBounds(shape.geometry.facets.concat(boxes), socket, pivotPose, bounds, angle, include);
     const viewport = seen(angle, { ...view, width: x1 - x0, height: y1 - y0, anchor: [-x0, -y0] });
     if (!frameFits(viewport.width, viewport.height)) fail('stack.rotation', 'the full rotation exceeds the frame budget; reduce the stack resolution');
     const points = projectSockets(pose, viewport, angle);
@@ -503,7 +677,7 @@ export function prepareStack(source, { maxPixels = FRAME_AREA } = {}) {
     })));
     return {version:1,name:source.name,width,height,palette:source.palette,frames,animations:{}};
   }
-  return { metadata, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, poseStudy, side: name => sideRows(model, name) };
+  return { metadata, count: plan.length, headingOf: index => plan[integer(index, 'stack.frame', 0, plan.length - 1)].heading, frame, recipe, detail, comparison, attachments, rotationSockets, rotationStudy, poseStudy, side: name => sideRows(model, name) };
 }
 
 // Both agent interfaces render the same labelled matrix. Pixel colours (including
