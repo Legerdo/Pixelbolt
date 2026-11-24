@@ -32,6 +32,8 @@ The columns follow the same playback clock so each repaired phase can be compare
 
 ![Tilda, original, agent repair and artist drawing](previews/tilda.gif)
 
+The [revised production sprite](../../showcase/tide-post/) shows Tilda with a centered front-facing bill and matching webbed feet. The comparison above records the artwork used in the blind trial.
+
 ## What remains difficult
 
 On the clean inputs the scanner listed three candidate opening groups for the surveyor, two for Marn and five for Tilda. They included spaces formed between limbs during a step. All three reviewers checked those cues and preserved the artwork. The public moving-edge tests also detect transferred outlines in the earlier station and quarry sprites, but those examples did not predict detection of the new basket and satchel fragments. Candidate equipment witnesses had a matching automatic transfer coordinate in 0/8 affected phases for each held-out sprite. An opening on the creel/boot boundary did help Marn’s reviewer find the relevant layers.
