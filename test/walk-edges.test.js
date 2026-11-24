@@ -87,3 +87,16 @@ test('a small patch under the equipment is supported by its pigment and shape',(
     {prop:[4,2],shoe:[4,5],sole:[13,5]},{shoe:[4,1]}).some(moving));
 });
 
+test('a strap hidden by foreground ink remains one connected foot drawing',()=>{
+  const drawings={prop:['ww','ww','ww'],shoe:['aaabbb','aaabbb'],sole};
+  const rows=walk(drawings,{prop:[5,4],shoe:[3,5],sole:[13,5]},
+    {shoe:[0,3]},['sole','shoe','prop']);
+  assert.ok(!rows.some(r=>r.kind==='carried-island'));
+});
+
+test('clipped trajectories do not wrap to the next row to manufacture movement',()=>{
+  const drawings={prop:['.lla','.wwa','.lla','aaaa'],shoe:['abbaa','abbaa','abbaa','.aaa.'],sole};
+  const rows=walk(drawings,positions,{shoe:[-8,0],prop:[0,0]});
+  assert.ok(!rows.some(moving));
+});
+

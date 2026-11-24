@@ -126,7 +126,7 @@ test("the guide's numbers are the motion review's own, so a change to the review
   assert.ok(page.includes(`slide ${slide(fast)[0]} px and the slide check fails`));
   assert.ok(page.includes(`here ${walk.speed} px/s (${left.speed} for the left walk)`));
   // The commands name real views and animations.
-  for (const [, view] of page.matchAll(/--view (\S+)/g)) assert.ok(['onion'].includes(view), view);
+  for (const [, view] of page.matchAll(/--view (\S+)/g)) assert.ok(['onion', 'walks'].includes(view), view);
   for (const [, name] of page.matchAll(/--(?:animation|motion) (\S+)/g)) assert.ok(Object.hasOwn(project.animations, name), name);
 });
 

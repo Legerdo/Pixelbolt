@@ -6,6 +6,8 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ### Four-direction cutout walks
 
+- Scan every phase of an editable cutout with `inspect --view walks` or `pixel_inspect` using `view: "walks"`. The report gives native coordinates for concealed joint gaps, exposed boot shafts and possible transfers of ink to a foot. It also describes standing openings and which layer covers a crossing. [Blind trial and editable characters](evals/walk-review/results.md).
+
 - Corrected detached rear boots and loose side-view heels in the Mage, Knight and Ranger walks and the knight preset. Restored missing shoulder and wrist pixels in the [Lamplighter and Watchmaker walks](showcase/lantern-walks/).
 - Track selected standing pixels through a cutout walk with `inspect --motion … --track mask.json` or `pixel_inspect`. The review identifies unexpected owners and reports which layers cover the intended drawing at each step. Use `keepWith` in the cut manifest to assign an outline shared by equipment and a moving limb. [Guide](docs/agent-guide.md#when-a-boot-crosses-a-carried-prop).
 
