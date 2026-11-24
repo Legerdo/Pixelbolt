@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { compilePoses, expandPoses } from '../src/authoring.js';
-import { renderProject } from '../src/core.js';
+import { renderProject, buildAtlas } from '../src/core.js';
+import { inspectMotion } from '../src/motion.js';
+import { importCutoutPNG } from '../src/cutout-import.js';
+import { encodePNG } from '../src/png.js';
 import { decodePNG } from '../src/import.js';
 
 const dir = new URL('../showcase/four-way-walk/', import.meta.url);
@@ -41,6 +44,80 @@ for (const name of ['mage', 'knight', 'ranger']) {
     }
   });
 }
+
+test('motion review catches a detached boot, clipped stride and sliding contact and accepts a repaired joint', () => {
+  const width = 7, height = 5, bytes = new Uint8Array(width*height*4);
+  for (const [y,row] of ['.......','..###..','.#####.','..#.#..','..#.#..'].entries())
+    for (let x = 0; x < width; x++) if (row[x] === '#') bytes.set([16,32,48,255], 4*(y*width+x));
+  const png = encodePNG(bytes,width,height);
+  const view = { feet: [[2,3,1,2],[4,3,1,2]], stride: 2, mirror: true };
+  const review = (cutout, speed) => {
+    const { source } = importCutoutPNG(png, { cutout });
+    const { recipe, metadata } = compilePoses(source);
+    return inspectMotion(renderProject(recipe), { animation: 'walk-right', metadata, speed }).motion.cutout;
+  };
+  const broken = review({ margin: 0, views: { right: { ...view, stride: 5 } } }, 70);
+  assert.ok(broken.clipped.length > 0);
+  assert.ok(broken.slide.some(s => s.pixels > 1));
+  const separated = review({ views: { right: view } }, 10);
+  assert.ok(separated.separated.length > 0);
+  const repaired = review({ views: { right: { ...view, overlap: [[2,3,3,1]] } } }, 10);
+  assert.deepEqual(repaired.separated, []);
+  assert.deepEqual(repaired.clipped, []);
+  assert.ok(repaired.slide.every(s => s.pixels === 0));
+  assert.equal(repaired.profile.exactMirror, true);
+});
+
+for (const [name, png] of [['dwarf','dwarf_f_idle_anim_f0.png'],['demon','big_demon_idle_anim_f0.png']]) {
+  test(name + ': both visible feet stay edge-connected in every walk frame', async () => {
+    const sample = new URL('../showcase/cutout-walks/', import.meta.url);
+    const json = async file => JSON.parse(await readFile(new URL(file, sample), 'utf8'));
+    const views = buildAtlas(renderProject(await json(name + '.views.pixel.json')));
+    const cutout = await json(name + '.cuts.json');
+    const { source } = importCutoutPNG(encodePNG(views.data, views.width, views.height), { atlas: views.metadata, cutout });
+    const { recipe, metadata } = compilePoses(source), project = renderProject(recipe, { owners: true });
+    const original = decodePNG(await readFile(new URL('sources/' + png, sample)));
+    const stand = project.frames.find(f => f.name === 'stand-down');
+    for (let y = 0; y < original.height; y++) {
+      const start = 4*((y+4)*project.width+4);
+      assert.deepEqual([...stand.data.slice(start,start+4*original.width)], [...original.data.slice(4*y*original.width,4*(y+1)*original.width)]);
+    }
+    for (const direction of ['up','down','left','right']) {
+      const view = inspectMotion(project, { animation: 'walk-' + direction, metadata });
+      assert.equal(view.cells.length, 8);
+      const report = view.motion.cutout;
+      assert.deepEqual(report.separated, []);
+      assert.deepEqual(report.clipped, []);
+      assert.equal(report.footJoints.length, 2);
+      for (const joint of report.footJoints) assert.ok(joint.minimumEdgePixels >= 2, direction + '/' + joint.foot);
+      if (report.profile) assert.equal(report.profile.exactMirror, name === 'demon');
+    }
+  });
+}
+
+test('a crossing boot can cover a sound joint, while a real air gap still needs repair', () => {
+  const pose = (name, nearY, farX, farY) => ({ name, parts: [
+    { name: 'body', part: 'coat', at: [2,1] },
+    { name: 'far', part: 'wideBoot', at: [farX,farY] },
+    { name: 'near', part: 'boot', at: [4,nearY] }
+  ] });
+  const steps = Array.from({ length: 8 }, (_, i) => pose('step-' + i, i === 1 ? 7 : 4, 3, 3));
+  const source = { format: 'pixelforge-poses', version: 1, name: 'crossing', width: 12, height: 12,
+    palette: { a: '#b44', b: '#222', c: '#3b3' }, parts: {
+      coat: { rows: ['aaaaaaa','aaaaaaa','aaaaaaa'] }, wideBoot: { rows: ['bbbb','bbbb','bbbb','bbbb'] },
+      boot: { rows: ['cc','cc','cc'] }
+    }, poses: [pose('stand',4,7,4), ...steps], animations: { walk: { frames: steps.map(p => p.name) } },
+    walkReview: { walk: { rest: 'stand', direction: 'right', feet: ['near','far'], speed: 5 } } };
+  const { recipe, metadata } = compilePoses(source), project = renderProject(recipe, { owners: true });
+  const options = { animation: 'walk', metadata };
+  const visible = inspectMotion(project, options).motion.cutout.footJoints[0];
+  assert.equal(visible.standingEdgePixels, 2);
+  assert.ok(visible.weak.includes('step-0'));
+  const joint = inspectMotion(project, options, recipe).motion.cutout.footJoints[0];
+  assert.ok(joint.occluded.includes('step-0'));
+  assert.deepEqual(joint.weak, ['step-1']);
+  assert.equal(joint.minimumEdgePixels, 0);
+});
 
 test('cutout roles, name collisions and supported mirroring report the authoring field', async () => {
   const source = await character('mage');

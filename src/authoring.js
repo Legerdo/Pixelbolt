@@ -169,7 +169,7 @@ export function compilePoses(source, within) {
   let written = within?.[WITHIN]?.written ?? null;
   const motions = source?.motions;
   if (motions !== undefined || source?.walkCycles !== undefined) { const input = source; source = expandPoses(source); written = writtenPoses(input, source); }
-  fields(source, ['format', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'light', 'innerLines', 'rig', 'motionInfo', 'parts', 'poses', 'animations', 'sheet'], 'poses');
+  fields(source, ['format', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'light', 'innerLines', 'rig', 'motionInfo', 'walkReview', 'parts', 'poses', 'animations', 'sheet'], 'poses');
   if (source.format !== 'pixelforge-poses' || source.version !== 1) fail('poses', 'expected version-1 pixelforge-poses');
   // Before anything is sized by it: the pass that shades inner lines made its arrays from a width nothing had checked.
   for (const side of ['width', 'height']) if (!Number.isInteger(source[side]) || source[side] < 1 || source[side] > POSE_SIDE) fail(`project.${side}`, `${source[side] === undefined ? 'missing; ' : ''}expected an integer from 1 to ${POSE_SIDE}`);
@@ -595,6 +595,22 @@ export function compilePoses(source, within) {
       start += frame.duration; return entry;
     }) };
   }
+  if (source.walkReview !== undefined) {
+    const reviews = source.walkReview;
+    if (!reviews || typeof reviews !== 'object' || Array.isArray(reviews) || Object.keys(reviews).length > 32) fail('poses.walkReview', 'expected up to 32 cutout clip annotations');
+    for (const [clip, info] of Object.entries(reviews)) {
+      const path = 'poses.walkReview.' + clip;
+      fields(info, ['rest', 'direction', 'feet', 'speed', 'mirroredFrom'], path);
+      if (!Object.hasOwn(metadata.animations, clip)) continue;
+      if (!['up','down','left','right'].includes(info.direction)) fail(path + '.direction', 'expected a facing direction');
+      identifier(info.rest, path + '.rest');
+      if (info.mirroredFrom !== undefined) identifier(info.mirroredFrom, path + '.mirroredFrom');
+      if (!Array.isArray(info.feet) || info.feet.length !== 2 || info.feet[0] === info.feet[1]) fail(path + '.feet', 'expected two distinct foot instances');
+      info.feet.forEach((foot, i) => identifier(foot, path + '.feet[' + i + ']'));
+      number(info.speed, path + '.speed', -16000, 16000);
+      metadata.animations[clip].cutout = info;
+    }
+  }
   // Drawing outside the canvas is clipped from every export, and a figure placed off the canvas compiles to empty
   // frames without an error; say so here, where the pose that does it can be named.
   const { width, height } = recipe, canvas = `${width}x${height} canvas`, cover = box => `x ${span(box[0], box[2])}, y ${span(box[1], box[3])}`;
@@ -613,6 +629,7 @@ export function compilePoses(source, within) {
     const reaches = (pose.parts ?? []).some(part => part?.reach !== undefined);
     const move = by.includes(null) ? '' : ` Moving the origin by [${by.join(', ')}], to [${origin[0] + by[0]}, ${origin[1] + by[1]}]${reaches ? ', and its reach targets with it' : ''}, brings it all inside.`;
     const message = `${gone ? `Pose "${name}" draws nothing inside the ${canvas}: all ${clip.total} of its pixels fall outside` : `Pose "${name}" draws ${clip.outside} of its ${clip.total} pixels outside the ${canvas}, where they are clipped`} (its parts cover ${cover(box)}). A part without attach stands at the pose origin [${origin.join(', ')}] plus its at.${move}${gone && written && name === rig?.rest ? ' The motion templates move this pose, so the poses they make fall outside too.' : ''}`;
+    if (source.walkReview) metadata.poses[name].clippedPixels = clip.outside;
     const warning = { path: writtenAs?.path ?? `poses.poses[${index}]`, message, outside: clip.outside, pixels: clip.total };
     clipped.push(warning);
     if (writtenAs?.motion !== undefined) generated.set(warning, { kind: 'canvas', motion: writtenAs.motion, pose: name, outside: clip.outside, total: clip.total, box: clip.box });

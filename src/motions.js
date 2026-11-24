@@ -69,6 +69,8 @@ const CUTOUT_STEP = [[2, 0, 0], [1, 0, 0], [0, 0, 2], [-1, 0, 1], [-2, 0, 0], [-
 
 function expandWalkCycles(source) {
   const cycles = source.walkCycles;
+  if (source.walkReview !== undefined) fail('poses.walkReview', 'walkCycles generates the review annotations; omit walkReview until after --expand');
+  const reviews = Object.create(null);
   if (!cycles || typeof cycles !== 'object' || Array.isArray(cycles) || Object.keys(cycles).length > 16)
     fail('poses.walkCycles', 'expected up to sixteen named walk cycles');
   if (!Array.isArray(source.poses) || source.poses.length > 256) fail('poses.poses', 'expected up to 256 authored poses');
@@ -146,9 +148,14 @@ function expandWalkCycles(source) {
         source.poses.push(pose);
       }
       animations[clip] = { frames, loop: true };
+      const facing = clipIndex ? (direction === 'right' ? 'left' : 'right') : direction;
+      reviews[clip] = { rest: cycle.rest, direction: facing, feet: cycle.feet,
+        speed: (facing === 'up' || facing === 'left' ? -1 : 1) * 500 * stride / duration,
+        ...(clipIndex && { mirroredFrom: name }) };
     }
   }
   source.animations = animations;
+  source.walkReview = reviews;
   delete source.walkCycles;
 }
 

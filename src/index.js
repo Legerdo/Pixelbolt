@@ -26,4 +26,5 @@ export { prepareScene, renderScene, sceneImage, inspectTile } from './scene.js';
 export { createSceneBundle } from './scene-export.js';
 export { createOverlay, applyOverlay, recipeFingerprint } from './overlays.js';
 export { decodePNG, importPNG } from './import.js';
+export { importCutoutPNG } from './cutout-import.js';
 export { resolveReferences, restorePaletteReference } from './resolve.js';

@@ -1,5 +1,6 @@
 // Advisory motion measurements at displayed-frame onsets. Never changes the artwork.
 import { PixelError, parseColor, stillsHaveNoAnimation } from './core.js';
+import { inspectCutoutWalk } from './cutout-review.js';
 import { angleDelta } from './pose-geometry.js';
 import { sinDeg, cosDeg, traceLine } from './craft.js';
 import { layoutText, FONT_CHARACTERS } from './font.js';
@@ -140,7 +141,7 @@ function onCanvas(metadata) {
   return { ...metadata, poses, ...(shape(metadata.rig) && Number.isInteger(metadata.rig.ground) && { rig: { ...metadata.rig, ground: metadata.rig.ground - dy } }) };
 }
 
-export function inspectMotion(project, options = {}) {
+export function inspectMotion(project, options = {}, recipe) {
   const allowed = ['animation', 'metadata', 'speed', 'ground', 'scale', 'background'];
   if (!options || typeof options !== 'object' || Array.isArray(options)) fail('options', 'expected an object');
   for (const key of Object.keys(options)) if (!allowed.includes(key)) fail(key, 'unknown field for motion review');
@@ -155,6 +156,8 @@ export function inspectMotion(project, options = {}) {
   if (ground !== null && (!Number.isInteger(ground) || ground < 0 || ground >= project.height)) fail('ground', options.ground === undefined && metadata.resized ? `the rig's ground, row ${ground} on this canvas after its resize, is outside it; pass ground` : 'expected a pixel row inside the canvas');
   const scale = options.scale ?? 4;
   if (!Number.isInteger(scale) || scale < 1 || scale > 16) fail('scale', 'expected an integer from 1 to 16');
+  const cutout = metadata?.animations?.[options.animation]?.cutout;
+  if (cutout !== undefined) return inspectCutoutWalk(project, options, metadata, cutout, recipe);
   let time = 0;
   const entries = animation.frames.map((index, position) => {
     const frame = project.frames[index], entry = { frame, position, start: time, ...poseData(metadata, frame) };
