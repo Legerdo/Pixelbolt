@@ -239,7 +239,7 @@
         "failures": {
           "standingMaterialOwner": 1,
           "walkingMaterialOwner": 8,
-          "walkingMaterialRGBA": 6,
+          "walkingMaterialRGBA": 5,
           "foregroundCrossing": 3
         },
         "poseSha256": "9ffe33fcaae86f27d96c5316216e4323d2d6b9ba87827191438469481364613c"

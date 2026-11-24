@@ -26,7 +26,7 @@ A mask expresses the artist’s choice of which visible standing pixels to follo
 
 ## Interpreting the trial
 
-Each table row used one fresh agent. The quarry informed the edge-report refinements after the first transfer. The later quarry reruns therefore measure repairs on a known difficult case. The clean quarry session on the first candidate used a work folder whose name contained `control`. The last two clean/corrupt pairs used neutral folder names. These runs do not estimate a general success rate across artists or unseen sprites.
+An offline replay from the archived submissions reproduced all 18 first and final scores, including each failure count. Each table row used one fresh agent. The quarry informed the edge-report refinements after the first transfer. The later quarry reruns therefore measure repairs on a known difficult case. The clean quarry session on the first candidate used a work folder whose name contained `control`. The last two clean/corrupt pairs used neutral folder names. These runs do not estimate a general success rate across artists or unseen sprites.
 
 The station has 44 visible lamp pixels, and the quarry has 46. Agents used their own selection shapes, some including handles or adjacent fixture pixels. Positive references genuinely lose 3 and 4 standing owners. All clean references pass. A clean underpaint variation changes six frame pixels and passes. A depth-only negative fails at 23 foreground witnesses, including 17 with matching visible colours.
 
