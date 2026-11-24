@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "name": "demon-views",
+  "width": 32,
+  "height": 36,
+  "palette": {
+    "a": "#222222ff",
+    "b": "#da4e38ff",
+    "c": "#9f294eff",
+    "d": "#fdf7edff"
+  },
+  "frames": [
+    {
+      "name": "down",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            ".................a..............",
+            "..............a.a....a..........",
+            ".............aa.a.a.a...........",
+            "........aaa..aaaaaaaa...........",
+            ".........aaaaabbccbbca..aa......",
+            "........aaaaaabbddbbdaaaa.......",
+            ".....aaaaacacabbddbbdacaa.......",
+            "......aacabbcabbaabbaabca.a.....",
+            ".......acbbbbcaaaaaaacbbaaa.....",
+            "......aaaccbbbcccccccbbbaa......",
+            "......aaccbbbbbbbbbbbbbba.......",
+            ".....aaaacababababababaaa.......",
+            ".......aaaaaaadadadadadaa.......",
+            ".........aaaaaaadaaadaaa........",
+            "..........aaaaaaaaaaaaa.........",
+            "..........aaaaaaaaaaaaa.........",
+            "..........aaaaaaaaaaaaa.........",
+            "......aa.aaaaaaaaaaaaaaa..aa....",
+            ".......aaaaaaaadaaaaadaaaaa.....",
+            "......aaaaaaadadadadadadaa......",
+            "......aaaacacababababacaa.......",
+            ".......acabbbbbbbbbbbbbca.......",
+            ".......accccbbbbbbbbbbbba.......",
+            ".......aaccbbbbcbbbbbbbbaa......",
+            "......aaccccccccccbbccbbaaa.....",
+            ".....aaacccccccccccccccca.a.....",
+            ".....a..accccaaaaaacccca........",
+            ".........acca......acca.........",
+            ".........aca.......aca..........",
+            ".........aaa.......aaa.........."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "up",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            ".................a..............",
+            "..............a.a....a..........",
+            ".............aa.a.a.a...........",
+            "........aaa..aaaaaaaa...........",
+            ".........aaaaaccccbbcca..aa.....",
+            "........aaaaacacbbbccaaaa.......",
+            ".....aaaaacacccbbcbcaacaa.......",
+            "......aacaccbcbbbcccabca.a......",
+            ".......acbbbcccbbbcccbbbaaa.....",
+            "......aaaccbbcccccccbcbbaa......",
+            "......aaccbbccaaabbbcccba.......",
+            ".....aaaaccbbbadabbccbaaa.......",
+            ".......aaaccbbacdcabccbaa.......",
+            ".........aacbbaccdccaaba........",
+            "..........aaccbaccdccba.........",
+            "..........aacbbaccdccba.........",
+            "..........aacbbaccdccba.........",
+            "......aa.aaccbbacdccbbba..aa....",
+            ".......aaaacbbaccdccbccbaaa.....",
+            "......aaaacccbaccdccbbcbaa......",
+            "......aaaacbbbaccdccbbbaa.......",
+            ".......aacbbbaccdccbbcca........",
+            ".......acccbbbaccdccbbca........",
+            ".......aaccbbbccacccbbbcaa......",
+            "......aaccccccbccccbbcccaaa.....",
+            ".....aaacccccccbbccccccca.a.....",
+            ".....a..accccaaaaaacccca........",
+            ".........acca......acca.........",
+            ".........aca.......aca..........",
+            ".........aaa.......aaa.........."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "right",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................................",
+            "................a...............",
+            ".............a.aa...a...........",
+            "............aa.aa..aa...........",
+            ".........a..aaaaaaaaa...........",
+            ".........aaaaccbbbccaaa.........",
+            "........aaacccbbbbbdba..........",
+            ".......aaccbbbcbbbdbaa..........",
+            "........acbbbcccbaaabbaa........",
+            "........aacbbbccaaaaabbbbaa.....",
+            ".......aacccbbcccccbbbbbbaa.....",
+            "........aacccbbbbbbbbbbbaa......",
+            ".......aaacbbacababababa........",
+            ".........aaabaaaaadadada........",
+            "...........aacaaaaaadada........",
+            "............acaaaaaaa...........",
+            "............acaaaaaaa...........",
+            "...........aacaaaaaaaa..........",
+            ".........aaacaaaaaaaada.........",
+            "........aaacaaaaaadadaa.........",
+            ".......aaaccaaadadadabaa........",
+            "........aaccbbababababbbaa......",
+            ".........aacbbbccccbbbbbbca.....",
+            "........aacccccbbbbbbbbbca......",
+            ".........aacccccccbbbbbbbca.....",
+            ".......aaaccccccccccbbbbba......",
+            ".......a..aaccccccccccbbca......",
+            "...........acccaaaaccccaa.......",
+            "...........acca....acca.........",
+            "...........aca.....aca..........",
+            "...........aaa.....aaa.........."
+          ]
+        }
+      ]
+    }
+  ],
+  "sheet": {
+    "columns": 4
+  }
+}

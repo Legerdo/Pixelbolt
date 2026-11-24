@@ -225,7 +225,9 @@ export function importPNG(bytes, { name = 'imported', atlas, frame, padding, fra
       const color = keyed && !image.data[at + 3] ? '#00000000' : '#' + [...image.data.subarray(at, at + 4)].map(v => v.toString(16).padStart(2, '0')).join('');
       if (color !== '#00000000') pixels.push({ x, y, color });
     }
-    return { name: names[i], duration: entry.duration ?? 100, pixels };
+    const p = entry.anchorPx;
+    const anchor = p && [p.x, p.y].every((n, axis) => Number.isInteger(n) && n >= 0 && n <= [width, height][axis]) ? [p.x, p.y] : undefined;
+    return { name: names[i], duration: entry.duration ?? 100, ...(anchor && { anchor }), pixels };
   });
   // Typical pixel art should return as compact, palette-editable grids, not thousands of literal overrides.
   // ASCII keys first, then single-code-unit Latin letters, up to the 256-colour palette limit.

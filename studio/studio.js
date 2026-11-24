@@ -97,8 +97,16 @@ const playState = () => playButton(playing);
 function reviewMotion() {
   if (motionReview) return motionReview;
   const speed = $('motion-speed').value, ground = $('motion-ground').value;
-  motionReview = inspectMotion(project, { animation: $('animation').value, metadata: poseMetadata, scale: 1,
+  const isCutout = poseMetadata?.animations?.[$('animation').value]?.cutout;
+  if (isCutout) ownedProject ??= renderProject(spec, { owners: true });
+  motionReview = inspectMotion(isCutout ? ownedProject : project, { animation: $('animation').value, metadata: poseMetadata, scale: 1,
     ...(speed !== '' && { speed: Number(speed) }), ...(ground !== '' && { ground: Number(ground) }) });
+  const cutout = motionReview.motion.cutout;
+  if (cutout) {
+    const slide = Math.max(...cutout.slide.map(foot => foot.pixels));
+    $('motion-summary').textContent = [`Foot slide ${slide} px`, `${cutout.separated.length} frames with separated pixels`, `${cutout.clipped.length} clipped frames`, ...cutout.fixes].join(' · ');
+    return motionReview;
+  }
   const names = { slide: 'Foot slide', ground: 'Ground contact', poseSpread: 'Pose changes', loopSeam: 'Loop join', armSwing: 'Arm swing', contactLegs: 'Knees at contact', kneeLift: 'Knee lift' };
   const report = motionReview.motion, details = {
     slide: `${Math.max(0, ...report.slide.map(p => p.pixels ?? 0))} px`,
@@ -138,7 +146,8 @@ function render() {
   let review;
   try { if (isMotion) review = reviewMotion(); }
   catch (error) { $('motion-summary').textContent = error.message; return; }
-  const width = isMotion ? review.nativeSheet.width : isSheet ? atlas.width : project.width, height = isMotion ? review.nativeSheet.height : isSheet ? atlas.height : project.height;
+  const motionSheet = review?.nativeSheet ?? review?.sheet;
+  const width = isMotion ? motionSheet.width : isSheet ? atlas.width : project.width, height = isMotion ? motionSheet.height : isSheet ? atlas.height : project.height;
   canvas.width = width; canvas.height = height;
   context.imageSmoothingEnabled = false;
   const animation = project.animations[$('animation').value], view = $('review-view').value;
@@ -154,7 +163,7 @@ function render() {
   }
   const parts = view === 'parts' && !isSheet && !isMotion;
   $('parts-legend').hidden = !parts;
-  const pixels = parts ? reviewParts().pixels.get(selected) ?? project.frames[selected].data : isMotion ? review.nativeSheet.data : isSheet ? atlas.data : $('onion').getAttribute('aria-pressed') === 'true' ? onionPixels(project, animation, position) : project.frames[selected].data;
+  const pixels = parts ? reviewParts().pixels.get(selected) ?? project.frames[selected].data : isMotion ? motionSheet.data : isSheet ? atlas.data : $('onion').getAttribute('aria-pressed') === 'true' ? onionPixels(project, animation, position) : project.frames[selected].data;
   context.putImageData(new ImageData(new Uint8ClampedArray(view === 'parts' ? pixels : reviewPixels(pixels, view)), width, height), 0, 0);
   if (!isSheet && !isMotion && poseMetadata && $('contacts').getAttribute('aria-pressed') === 'true') {
     const pose = poseMetadata.poses[project.frames[selected].name], ground = $('motion-ground').value;

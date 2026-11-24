@@ -4,6 +4,22 @@ Start from a native-resolution PNG with transparency. This page uses a [32 × 32
 
 Run the commands from the repository root (in the npm package, from its folder); each writes under `output/sprite-walk/`, and the CLI makes the folders. Use a new folder for another run: the CLI won't write over a file unless you pass `--force`.
 
+## Cut moving parts straight from the PNG
+
+The [cutout manifest](../showcase/four-way-walk/profile.cuts.json) marks the two legs of the bundled side-view sprite. Save this JSON as `cuts.json` and run:
+
+```json
+{"views":{"right":{"feet":[[12,23,5,8],[17,23,5,8]],"mirror":true}}}
+```
+
+```sh
+node bin/pixelbolt.js import examples/sprite-walk.png --cutout cuts.json --out output/sprite-walk/cutout.poses.json
+node bin/pixelbolt.js compile output/sprite-walk/cutout.poses.json --out output/sprite-walk/cutout.pixel.json
+node bin/pixelbolt.js render output/sprite-walk/cutout.pixel.json --out output/sprite-walk/cutout
+```
+
+This produces `stand-right`, `walk-right`, `stand-left` and `walk-left`. Use [the agent guide](agent-guide.md#cutout-walks-from-a-png) for named sheet frames, independent profiles, explicit pivots and the equivalent MCP call. The rigged example below adds painted overlap behind joints and bends at the knees.
+
 ## Import, cut and attach
 
 ```sh

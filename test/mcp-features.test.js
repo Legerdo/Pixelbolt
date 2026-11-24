@@ -368,6 +368,40 @@ test('MCP compiles pose sources and autotile templates into revisions it can ren
   mcp.input.end(); await mcp.running;
 });
 
+test('CLI and MCP cut the same editable pose source and render identical Godot files', async t => {
+  const dir = await temp(t, 'cutout'), mcp = session({ directory: path.join(dir, 'mcp'), root: dir });
+  t.after(() => { mcp.input.end(); return mcp.running; });
+  await mcp.init();
+  const png = await readFile(path.join(root, 'examples/sprite-walk.png'));
+  await writeFile(path.join(dir, 'walker.png'), png);
+  const cutout = { views: { right: { feet: [[12,23,5,8],[17,23,5,8]], mirror: true } } };
+  const manifest = JSON.stringify(cutout);
+  await writeFile(path.join(dir, 'cuts.json'), manifest);
+  const cli = (...args) => spawnSync(process.execPath, [path.join(root, 'bin/pixelbolt.js'), ...args], { cwd: dir, encoding: 'utf8' });
+  const run = (...args) => {
+    const result = cli(...args);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return JSON.parse(result.stdout);
+  };
+  assert.notEqual(cli('import','walker.png','--cutout','cuts.json','--out','cuts.json','--force').status, 0);
+  assert.equal(await readFile(path.join(dir, 'cuts.json'), 'utf8'), manifest);
+  const saved = run('import','walker.png','--cutout','cuts.json','--out','walker.poses.json');
+  const imported = await mcp.call('pixel_import', { path: 'walker.png', cutout });
+  assert.ok(imported.info.ok, imported.info.error);
+  assert.deepEqual(await readFile(imported.info.sourceFile), await readFile(path.resolve(dir, saved.source)));
+  const review = await mcp.call('pixel_inspect', { revision: imported.info.sourceRevision, view: 'motion', animation: 'walk-left' });
+  assert.ok(review.info.ok, review.info.error);
+  assert.deepEqual(review.info.motion.cutout.profile, { opposite: 'walk-right', authored: false, exactMirror: true });
+  const data = await mcp.call('pixel_import', { data: png.toString('base64'), name: 'walker', cutout });
+  assert.equal(imported.info.revision, data.info.revision);
+  run('compile','walker.poses.json','--out','walker.pixel.json');
+  run('render','walker.pixel.json','--out','game');
+  const rendered = await mcp.call('pixel_render', { revision: imported.info.revision });
+  assert.ok(rendered.info.ok, rendered.info.error);
+  for (const name of ['walker.png','walker.atlas.json','walker.tres'])
+    assert.deepEqual(await readFile(path.join(rendered.info.directory, name)), await readFile(path.join(dir, 'game', name)));
+});
+
 test('MCP imports PNGs, applies overlays, explains topics and resolves palettes only inside its root', async t => {
   const dir = await temp(t, 'imports'), mcp = session({ directory: path.join(dir, 'out'), root: dir });
   await mcp.init();

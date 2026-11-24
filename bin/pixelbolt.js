@@ -11,7 +11,7 @@ import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from 
 import { STILLS_GIF_NOTE } from '../src/gif.js';
 import { shareLink, readEmbeddedRecipe, recipeKind } from '../src/share.js';
 import { PRESET_FOLDER, listPresets, briefListing, findListing, namedLike, presetWords, presetEntries, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from '../src/presets.js';
-import { renderProject, animationGIF, asGIFShows, gifBackground, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
+import { renderProject, animationGIF, asGIFShows, gifBackground, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, importCutoutPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
 
 // A reader that stops early (`| head -1`) closes the pipe: stop quietly, as other command-line tools do. Commands print
 // their reply after writing their files, so only the rest of the reply is lost.
@@ -106,6 +106,7 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
   pixelbolt import <image.png> --out recipe.json [--atlas atlas.json | --frame 24x24 [--padding 1] [--frames N]] [--name imported]
                                            A sprite sheet becomes its frames by its atlas, or by the size of one frame;
                                            an image given neither is one frame (a still up to 4096 a side)
+                    [--cutout cuts.json]  Save a pose source with named feet, optional arms and generated walks
                     [--embedded]         Recover the recipe carried inside the PNG instead of its pixels
   pixelbolt preview [file.json] [--port N] [--open]
                                            Studio for a recipe or scene; sources open as their compiled recipe.
@@ -196,7 +197,7 @@ const OPTIONS = {
   autotile: ['out', 'metadata', 'preview', 'force'],
   scene: ['out', 'force', 'image', 'time', 'view', 'scale', 'guides', 'list-files', 'embed-recipe'],
   overlay: ['changes', 'selections', 'out', 'force'],
-  import: ['out', 'name', 'atlas', 'frame', 'padding', 'frames', 'metadata', 'force', 'embedded'],
+  import: ['out', 'name', 'atlas', 'frame', 'padding', 'frames', 'metadata', 'force', 'embedded', 'cutout'],
   presets: ['full', 'find', 'out', 'force'],
   share: [],
   skill: ['project', 'dir', 'force']
@@ -296,7 +297,7 @@ function takeStdin(input) {
   if (stdinTaken !== null && stdinTaken !== input) throw new Error(`Only one input can use stdin: ${stdinTaken} and ${input} are both given as -. Put one of them in a file and name the file.`);
   stdinTaken = input;
 }
-const STDIN_OPTIONS = { inspect: ['reference', 'metadata', 'guides'], patch: ['changes'], overlay: ['changes', 'selections'], render: ['expect'], scene: ['guides'], import: ['atlas'] };
+const STDIN_OPTIONS = { inspect: ['reference', 'metadata', 'guides'], patch: ['changes'], overlay: ['changes', 'selections'], render: ['expect'], scene: ['guides'], import: ['atlas', 'cutout'] };
 async function readProject(file, input) {
   if (!file) throw new Error('Provide a project JSON filename or - for stdin');
   let source;
@@ -597,7 +598,7 @@ try {
     } else if (command === 'import' && options.embedded) {
       if (!options.out || !/\.json$/i.test(options.out)) throw new Error('import requires --out <new.json>');
       if (!positional[0] || positional[0] === '-') throw new Error('import requires a PNG filename');
-      for (const key of ['name', 'atlas', 'frame', 'padding', 'frames', 'metadata']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --embedded`);
+      for (const key of ['name', 'atlas', 'frame', 'padding', 'frames', 'metadata', 'cutout']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --embedded`);
       const embedded = await readEmbeddedRecipe(await readFile(positional[0]));
       if (!embedded) throw new Error('This PNG carries no Pixelbolt recipe; drop --embedded to import its pixels.');
       const { version, kind, recipe } = embedded;
@@ -651,9 +652,15 @@ try {
         value = createOverlay(input.document, await readProject(options.changes, '--changes'), options.selections ? await readProject(options.selections, '--selections') : {});
       } else {
         if (!positional[0] || positional[0] === '-') throw new Error('import requires a PNG filename');
-        const imported = importPNG(await readFile(positional[0]), { name: options.name ?? nameFromFile(positional[0]), atlas: options.atlas ? await readProject(options.atlas, '--atlas') : undefined,
+        const readPNG = options.cutout === undefined ? importPNG : importCutoutPNG;
+        const imported = readPNG(await readFile(positional[0]), { name: options.name ?? nameFromFile(positional[0]), atlas: options.atlas ? await readProject(options.atlas, '--atlas') : undefined,
+          ...(options.cutout !== undefined && { cutout: await readProject(options.cutout, '--cutout') }),
           ...(options.frame !== undefined && { frame: readSize(options.frame, '--frame') }), ...(options.padding !== undefined && { padding: Number(options.padding) }), ...(options.frames !== undefined && { frames: Number(options.frames) }) });
-        value = imported.recipe; metadata = imported.provenance; notes = imported.notes;
+        value = imported.source ?? imported.recipe; metadata = imported.provenance; notes = imported.notes;
+        if (imported.source) {
+          warnings = imported.warnings;
+          made = { format: value.format, animations: Object.keys(imported.recipe.animations) };
+        }
       }
       if (options.metadata && !/\.json$/i.test(options.metadata)) throw new Error('--metadata must name a .json file');
       if (options.preview !== undefined && !/\.png$/i.test(options.preview)) throw new Error('--preview must name a new .png file');
@@ -661,8 +668,9 @@ try {
       // The test map: every tile of an autotile set in one image, as MCP pixel_compile returns it.
       const testMap = options.preview !== undefined ? inspectProject(renderProject(preview), { scale: testMapScale(preview) }).sheet : null;
       // Generated files use compact formatting: one line per frame, operation or short grid when it fits.
-      const reads = command === 'import' ? filesRead(positional[0], options.atlas) : [...inputsOf(input), ...filesRead(options.changes, options.selections)];
-      const written = await writeOutputs({ recipe: [options.out, formatJSON(value), '--out'], ...(options.metadata && { metadata: [options.metadata, formatJSON(metadata), '--metadata'] }), ...(testMap && { preview: [options.preview, encodePNG(testMap.data, testMap.width, testMap.height), '--preview'] }) }, options.force, reads);
+      const reads = command === 'import' ? filesRead(positional[0], options.atlas, options.cutout) : [...inputsOf(input), ...filesRead(options.changes, options.selections)];
+      const resultKey = command === 'import' && options.cutout !== undefined ? 'source' : 'recipe';
+      const written = await writeOutputs({ [resultKey]: [options.out, formatJSON(value), '--out'], ...(options.metadata && { metadata: [options.metadata, formatJSON(metadata), '--metadata'] }), ...(testMap && { preview: [options.preview, encodePNG(testMap.data, testMap.width, testMap.height), '--preview'] }) }, options.force, reads);
       // The metadata goes to a file or nowhere: a rig's runs to a hundred kilobytes, which no reply should carry. The
       // hint to save it comes only where a next step reads it: a rig's motion review, a tile set's masks.
       const reviewed = command === 'autotile' || (command === 'compile' && ['pixelforge-poses', 'pixelforge-autotile', undefined].includes(input.document?.format));
@@ -724,7 +732,7 @@ try {
       if (input.document.format === 'pixelforge-stack' && options.motion) throw new Error('--motion reviews character poses; inspect a stack without --motion');
       if (input.document.format === 'pixelforge-wave' && options.motion) throw new Error('--motion reviews character poses; inspect a wave without --motion');
       if (compiled && options.metadata) throw new Error('A pose source supplies its own metadata; omit --metadata');
-      const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || options.palette) && { owners: true }) });
+      const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || options.motion || options.palette) && { owners: true }) });
       const comparison = options.reference ? compareProjects(renderProject((await readResolved(options.reference, '--reference')).document, layerOptions), project) : undefined;
       const { image: referenceImage, ...comparisonReport } = comparison ?? {};
       const besideFiles = options.beside === undefined ? [] : options.beside.split(',').filter(Boolean), share = besideFiles.length ? { sheets: Math.min(9, besideFiles.length + 1) } : undefined;

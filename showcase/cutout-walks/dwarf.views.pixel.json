@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "name": "dwarf-views",
+  "width": 16,
+  "height": 28,
+  "palette": {
+    "a": "#222222ff",
+    "b": "#facb3eff",
+    "c": "#ee8e2eff",
+    "d": "#c38d70ff",
+    "e": "#d8a57dff",
+    "f": "#dc4a7bff",
+    "g": "#9f294eff"
+  },
+  "frames": [
+    {
+      "name": "down",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "..........aaaa..",
+            "........aabbba..",
+            "......aabbbbba..",
+            "....aabbbbbbba..",
+            "...abbbbbbbbba..",
+            "..acbbbbbbbba...",
+            "..acbbbbbbbba...",
+            "..acbbbbbbbba...",
+            "...acbbdddddda..",
+            "...acbdeeeeeeeaa",
+            "..aacbeebbeeebba",
+            "..aeebeeaaeeeaa.",
+            "..aeeebeaaeeeaa.",
+            "...aeeeeddeeeda.",
+            "...abbeeeeeeeea.",
+            "...acbbbbbeeeba.",
+            "...afcbbbbbbbba.",
+            "...afffbbbbbbca.",
+            "...aggaaacccca..",
+            "...aga...aga....",
+            "...aa....aa....."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "up",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "......aaaa......",
+            ".....abbbaa.....",
+            "....abbbbbba....",
+            "...acbbbbbbba...",
+            "..acbbbbbbbba...",
+            "..acbbbbbbbbba..",
+            "..acbcbbbbbcba..",
+            "..accbcbbbbcba..",
+            "...acbccbbbcca..",
+            "...accbccccbcca.",
+            "..aacbbbbbbcbaa.",
+            "..abbcbbbcbbbca.",
+            "..abbcbbbbcbbca.",
+            "...accbccbbcca..",
+            "...afacbbccaca..",
+            "...affaccccaga..",
+            "...agffaaaagga..",
+            "...agggfgfcaga..",
+            "...aggaacggga...",
+            "...aga...aga....",
+            "...aa....aa....."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "right",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".........aaa....",
+            ".......aabba....",
+            "......abbbba....",
+            ".....abbbbba....",
+            "....acbbbbba....",
+            "....acbbbbbba...",
+            "....acbbbbbba...",
+            "....acbbbbbba...",
+            "....accbbdddda..",
+            "....acbcdeeeea..",
+            "....acbeedebbaa.",
+            "....acbeeeeaeea.",
+            "....accdeeeaeeea",
+            "....accceeeedda.",
+            "....acbcbeeeeea.",
+            "....acbcbbeeea..",
+            "....agcbbbbbbba.",
+            "....afgccbbbbca.",
+            "....agffacccaa..",
+            "....aga..aga....",
+            "....aa...aa....."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "left",
+      "ops": [
+        {
+          "op": "grid",
+          "rows": [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....aaa.........",
+            "....abbaa.......",
+            "...abbbba.......",
+            "...abbbbbaa.....",
+            "...abbbbbba.....",
+            "..abbbbbbbca....",
+            "..abbbbbbbca....",
+            "..abbbbbbbca....",
+            "..addddbbbcca...",
+            ".aeeeeddcbca....",
+            "aabbeeeebca.....",
+            ".aeeaeeeebca....",
+            "aeeeaeeeecca....",
+            ".addeeeecbcaa...",
+            "..aeeeeeabbca...",
+            "..aeeebbfabcaa..",
+            "..abbbbbcfagga..",
+            "..accbbbafbbfga.",
+            "...aacccagccga..",
+            "....aga..aga....",
+            "....aa...aa....."
+          ]
+        }
+      ]
+    }
+  ],
+  "sheet": {
+    "columns": 4
+  }
+}

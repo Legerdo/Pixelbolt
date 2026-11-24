@@ -9,11 +9,45 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { crc32 } from '../src/png.js';
 import { decodePNG, importPNG } from '../src/import.js';
+import { importCutoutPNG } from '../src/cutout-import.js';
 import { renderProject } from '../src/core.js';
 import { encodePNG } from '../src/png.js';
 import { createBundle } from '../src/export.js';
 import { folderGIF } from '../src/frame-folder.js';
 import { startMCP } from '../src/mcp.js';
+
+test('cutout rest preserves visible RGBA and the atlas pivot while each named facing keeps its own pixels', () => {
+  const w = 5, h = 4, sheet = new Uint8ClampedArray(w * h * 4 * 2);
+  const faces = ['west', 'east'];
+  for (const [side, color] of [[0, 64], [1, 192]]) {
+    for (const [x, y, alpha] of [[0, 0, 0], [2, 1, 120], [1, 2, 255], [3, 2, 255], [1, 3, 255], [3, 3, 255]]) {
+      sheet.set([color, x * 16, y * 32, alpha], ((2 * w * y) + (side * w) + x) * 4);
+    }
+  }
+  const bytes = encodePNG(sheet, 2 * w, h);
+  const atlas = { meta: { pixelfx: { pivot: [2, 3] } }, frames: Object.fromEntries(faces.map((name, i) => [name, { frame: { x: i*w, y: 0, w, h } }])) };
+  const feet = [[[1, 2, 1, 1], [1, 3, 1, 1]], [3, 2, 1, 2]];
+  const cutout = { margin: 3, views: { left: { frame: 'west', feet }, right: { frame: 'east', feet, overlap: [[0,2,5,1]], duration: 75 } } };
+  const imported = importCutoutPNG(bytes, { atlas, cutout }), project = renderProject(imported.recipe);
+  assert.deepEqual(imported.recipe.anchor, [5, 6]);
+  assert.deepEqual(Object.keys(imported.recipe.animations).sort(), ['stand-left', 'stand-right', 'walk-left', 'walk-right']);
+  for (const [side, direction] of ['left', 'right'].entries()) {
+    const stand = project.frames.find(f => f.name === 'stand-' + direction).data;
+    for (let y = 0; y < project.height; y++) for (let x = 0; x < project.width; x++) {
+      const ix = x - 3, iy = y - 3, i = 4 * (iy*2*w + side*w + ix), dest = 4 * (y*project.width + x);
+      const pixel = ix >= 0 && ix < w && iy >= 0 && iy < h && sheet[i+3] ? [...sheet.slice(i,i+4)] : [0,0,0,0];
+      assert.deepEqual([...stand.slice(dest, dest+4)], pixel);
+    }
+  }
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { left: { frame: 'west', feet: [[2,1,1,1],feet[1]], overlap: [[2,1,1,1]] } } } }), /is translucent/);
+  assert.ok(project.frames.filter(f => f.name.startsWith('walk-right-')).every(f => f.duration === 75));
+  assert.ok(new Set(project.frames.filter(f => f.name.startsWith('walk-right-')).map(f => Buffer.from(f.data).toString('base64'))).size > 2);
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { down: { feet } } } }), /choose an imported frame/);
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { left: { frame: 'west', feet: [feet[0],feet[0]] } } } }), /belongs to two limbs/);
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { left: { frame: 'west', feet: [[0,0,1,1],feet[1]] } } } }), /only transparent/);
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { left: { frame: 'west', feet: [[4,0,2,1],feet[1]] } } } }), /rectangle must fit/);
+  assert.throws(() => importCutoutPNG(bytes, { atlas, cutout: { views: { ...cutout.views, left: { ...cutout.views.left, mirror: true } } } }), /opposite view/);
+});
 
 // PNGs written by hand, so every colour type, bit depth and filter is exercised without another encoder.
 const chunk = (type, data = Buffer.alloc(0)) => {
