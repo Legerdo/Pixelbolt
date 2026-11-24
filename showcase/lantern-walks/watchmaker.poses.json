@@ -21,10 +21,10 @@
   "parts": {
     "down-boot-a": {
       "rows": [
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
+        "..AA..",
+        "..ADA.",
+        "..ADA.",
+        "..ADA.",
         ".AJJA.",
         ".AJJA.",
         "AJJJJA",
@@ -34,10 +34,10 @@
     },
     "down-boot-b": {
       "rows": [
-        ".AJ.A.",
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
+        ".AA...",
+        "ACA...",
+        ".AD...",
+        ".ADCA.",
         ".AJJA.",
         ".AJJA.",
         "AJJJJA",
@@ -108,10 +108,10 @@
     },
     "up-boot-a": {
       "rows": [
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
+        "..AA..",
+        ".ADA..",
+        ".ADA..",
+        ".ADA..",
         ".AJJA.",
         ".AJJA.",
         "AJJJJA",
@@ -121,10 +121,10 @@
     },
     "up-boot-b": {
       "rows": [
-        ".A.JA.",
-        ".AJJA.",
-        ".AJJA.",
-        ".AJJA.",
+        "...AA.",
+        "...ACA",
+        ".ACDA.",
+        ".ACDA.",
         ".AJJA.",
         ".AJJA.",
         "AJJJJA",
@@ -207,10 +207,10 @@
     },
     "left-boot-a": {
       "rows": [
-        "..AJJA",
-        "..AJJA",
-        "..AJJA",
-        "..AJJA",
+        "...AA.",
+        "...ADA",
+        "...ADA",
+        "...ADA",
         "..AJJA",
         ".AJJJA",
         "AJJJJA",
@@ -220,10 +220,10 @@
     },
     "left-boot-b": {
       "rows": [
-        "..AJJA",
-        "..AJJA",
-        "..AJJA",
-        "..AJJA",
+        "...AA.",
+        "..ACA.",
+        "..ADA.",
+        "..ACA.",
         "..AJJA",
         ".AJJJA",
         "AJJJJA",
@@ -293,10 +293,10 @@
     },
     "right-boot-a": {
       "rows": [
-        "AJJA..",
-        "AJJA..",
-        "AJJA..",
-        "AJJA..",
+        ".AA...",
+        "ADA...",
+        "ADA...",
+        "ADA...",
         "AJJA..",
         "AJJJA.",
         "AJJJJA",
@@ -306,10 +306,10 @@
     },
     "right-boot-b": {
       "rows": [
-        "AJJA..",
-        "AJJA..",
-        "AJJA..",
-        "AJJA..",
+        ".AA...",
+        ".ACA..",
+        ".ADA..",
+        ".ACA..",
         "AJJA..",
         "AJJJA.",
         "AJJJJA",
