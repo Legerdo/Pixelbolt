@@ -196,6 +196,11 @@ const poses = {
       neck: { ...id, description: 'Four-legged rigs: a bone the head hangs from, turned back by half of the chest\'s turn so the head stays steadier.' } }, ['ground']),
       // The rig's legs are legs (two legs) or fore and hind (four), and chest and neck belong to four legs.
       dependentRequired: { fore: ['hind'], hind: ['fore'], chest: ['fore'], neck: ['fore'] }, not: { required: ['legs', 'fore'] } },
+    walkCycles: { type: 'object', maxProperties: 16, propertyNames: id, additionalProperties: object({
+      rest: id, direction: { enum: ['down', 'up', 'right', 'left'] },
+      feet: { ...array(id, 2), minItems: 2, uniqueItems: true }, arms: { ...array(id, 2), minItems: 2, uniqueItems: true },
+      stride: int(1, 32), lift: int(0, 16), bob: int(0, 8), duration: int(1, 60000), mirrorAs: id
+    }, ['rest', 'direction', 'feet']), description: 'Eight-frame cutout walks from drawn rest poses. Each pair names distinct root instances. A side walk can also emit its horizontal mirror.' },
     motions: { type: 'object', maxProperties: 16, propertyNames: id, additionalProperties: { oneOf: [
       ...['walk', 'trot', 'run'].map(template => object({ template: { const: template, ...(template === 'trot' && { description: 'A four-legged trot: diagonal pairs of feet.' }) }, frames: { ...int(template === 'run' ? 6 : 4, 64), multipleOf: 2 }, duration: int(1, 60000), follow, palette: motionPalette, speed: num(-1024, 1024), stride: num(1, 64), lift: num(0, 32), bob: num(0, 8), lean: int(-45, 45), swapDepth: { type: 'boolean', description: 'Exchange the draw order of paired limbs in the second half-cycle, for front or back views where the stepping limb comes nearer the camera. Default false: side views keep near limbs in front.' },
         ...(template === 'run' && { flex: int(0, 30, 'Four-legged gallop: degrees the spine curls and stretches each way (the body rocks half as far); default 10.') }) }, ['template'])),

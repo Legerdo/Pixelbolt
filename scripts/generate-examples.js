@@ -1,4 +1,4 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { compileEffects, compilePoses, compileNormals, formatJSON } from '../src/index.js';
 import { wavePresets } from './wave-presets.mjs';
 import { spellPresets } from './spell-presets.mjs';
@@ -1205,6 +1205,8 @@ const isoHamlet = { format: 'pixelforge-scene', version: 1, name: 'iso-hamlet', 
 await mkdir(new URL('../examples/', import.meta.url), { recursive: true });
 // Authored sources are pretty-printed; compiled recipes use the CLI's compact formatting.
 const authored = { 'forest-spirit': forest, 'iso-tiles': isoTiles, 'iso-glade.scene': isoGlade, 'iso-hamlet.scene': isoHamlet, ember, coin, shrine, caption, 'effects.fx': effects, 'hero-magic.fx': heroMagic, 'swing-trail.fx': swingTrail, 'fluid-blast.fx': fluidBlast, 'swing.poses': swing, 'hero.poses': hero, 'hero-sword.poses': heroSword, 'knight.poses': knight, 'fox.poses': fox, 'slime-idle.poses': slimeIdle, 'hermit-chest.poses': hermitChest, 'sprite-walk.poses': spriteWalk, 'forest-spirit.normals': spiritNormals, 'forest-spirit-lit.scene': litSpirit, ...Object.fromEntries(Object.entries(fluids).map(([name, source]) => [`${name}.fluid`, source])), ...Object.fromEntries(Object.entries(wavePresets).map(([name, source]) => [`${name}.wave`, source])), ...Object.fromEntries(Object.entries(spellPresets).map(([name, source]) => [`${name}.fx`, source])), ...Object.fromEntries(Object.entries(spellLibrary).map(([element, source]) => [`${element}-spells.fx`, source])) };
+const cutoutKnight = JSON.parse(await readFile(new URL('../showcase/four-way-walk/knight.poses.json', import.meta.url), 'utf8'));
+authored['four-way-knight.poses'] = { ...cutoutKnight, name: 'four-way-knight' };
 // Autotile sets drawn from terrain descriptions (scripts/terrain-presets.mjs).
 Object.assign(authored, terrainPresets);
 // Electric gases: arcs, lightning and plasma (scripts/plasma-presets.mjs).

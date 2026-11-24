@@ -4,6 +4,10 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ## Unreleased
 
+### Four-direction cutout walks
+
+- Pose sources accept `walkCycles` to animate drawn front, back and profile poses. Name the feet and optional arms, then compile eight steps per direction through the CLI or MCP. A side cycle can generate its mirror. [Authoring guide](docs/animate-your-sprite.md#four-direction-walks-from-drawn-parts) · [Three animated characters](showcase/four-way-walk/).
+
 ### Fixes
 
 - A `loop: true` cloth made straight into video frames (`pixelbolt sequence`, or `sequence` on `pixel_compile`) now keeps cycling for as long as `--seconds` or `--loops` asks, as its compiled recipe does. It played once and held its last pose, so the shipped `flag` froze for the second half of a two-pass clip, and `--loops 2` was refused.

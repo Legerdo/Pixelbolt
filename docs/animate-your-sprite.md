@@ -92,6 +92,26 @@ node bin/pixelbolt.js gif output/sprite-walk/sprite-walk.pixel.json --animation 
 
 `render` also notes that three of the idle's frames are the same drawing: that is the held rest the brief describes. The bundle holds the sheet `sprite-walk.png`, its `sprite-walk.atlas.json` and a Godot 4 `sprite-walk.tres`, with each frame and animation on its own. The sheet stays at native size; the review GIFs are 128 × 128.
 
-## What this doesn't do
+## Four-direction walks from drawn parts
 
-Front and back views need new drawings and hand-keyed poses: no template walks towards or away from the camera yet. `swapDepth` changes the paint order, and draft views turn a part in the picture plane; neither draws the character from another side.
+For a small top-down character, draw standing poses for the front, back and one side. Give each pose two feet and optionally two arms as separate root instances. Fill a few pixels behind joints so raising a foot or swinging an arm leaves the outline connected. Keep the same canvas and origin for every facing, with space around the artwork for a stride. The origin also sets the horizontal mirror line.
+
+Start with the bundled knight: `pixelbolt presets four-way-knight --out knight.poses.json` saves all its drawn parts and three standing views to edit.
+
+If your cuts use image coordinates, give the rest pose an origin at the character's feet and subtract it from each root part's position. For instance, on a 24-pixel-wide canvas, a boot at `[14, 17]` with origin `[12, 19]` goes at `[2, -2]`. The boot stays on the same pixel and the opposite profile reflects about x = 12. A drawn asymmetric profile can keep its own equipment on the correct side.
+
+Add `walkCycles` to the pose source. Each entry generates eight editable poses and a looping animation. This example uses the same instance names in three different rest poses. Pair the first arm with the first foot on the same side of the character so they swing in opposition.
+
+```json
+{
+  "walkCycles": {
+    "walk-down": { "rest": "stand-down", "direction": "down", "feet": ["boot-a", "boot-b"], "arms": ["arm-a", "arm-b"] },
+    "walk-up": { "rest": "stand-up", "direction": "up", "feet": ["boot-a", "boot-b"], "arms": ["arm-a", "arm-b"] },
+    "walk-right": { "rest": "stand-right", "direction": "right", "feet": ["boot-a", "boot-b"], "mirrorAs": "walk-left" }
+  }
+}
+```
+
+`stride` sets how far each foot reaches from rest in pixels (default 1 for front/back, 2 for a side). `lift` raises the returning foot (default 1), and `bob` raises the body at the passing pose (default 1). `duration` sets milliseconds per frame (default 100). Children attached to a moving part follow it. For an asymmetric character, draw its other profile and declare its own cycle facing `left`.
+
+Compile and render with the commands above. `compile --expand` also writes each step as an ordinary pose you can retouch. In Godot, assign the generated `.tres` to an `AnimatedSprite2D` and play the named animation. The [three complete examples, source sprites and animated preview](../showcase/four-way-walk/) show the input drawings and the gait.

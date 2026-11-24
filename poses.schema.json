@@ -195,6 +195,87 @@
         ]
       }
     },
+    "walkCycles": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+        "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "rest": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+          },
+          "direction": {
+            "enum": [
+              "down",
+              "up",
+              "right",
+              "left"
+            ]
+          },
+          "feet": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+              "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "arms": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+              "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "stride": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "lift": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "bob": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "duration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60000
+          },
+          "mirrorAs": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "description": "Portable name: do not use Windows device names (CON, PRN, AUX, NUL, COM1–9, LPT1–9). Frame/animation names must be unique ignoring case."
+          }
+        },
+        "required": [
+          "rest",
+          "direction",
+          "feet"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Eight-frame cutout walks from drawn rest poses. Each pair names distinct root instances. A side walk can also emit its horizontal mirror."
+    },
     "motions": {
       "type": "object",
       "maxProperties": 16,
