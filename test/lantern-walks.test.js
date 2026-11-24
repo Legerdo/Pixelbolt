@@ -33,3 +33,33 @@ for (const [name, art] of Object.entries(characters)) {
     assert.equal(stands.digest('hex'),art.original);
   });
 }
+
+test('Lamplighter: the moving boots emerge below the coat on every step', async () => {
+  const source = JSON.parse(await readFile(new URL('../showcase/lantern-walks/lamplighter.poses.json',import.meta.url)));
+  const {recipe} = compilePoses(source), project = renderProject(recipe,{owners:true});
+  const width = project.width, outline = Buffer.from(source.palette.a.slice(1),'hex');
+  const bootIds = ['footA','footB'].map(name => project.ownerNames.indexOf(name) + 1);
+  for (const frame of project.frames.filter(f => f.name.startsWith('walk-'))) {
+    const layers = recipe.frames.find(f => f.name === frame.name).layers;
+    const coat = layers.find(l => l.name === 'body').ops[0];
+    // The centre column follows the coat as it bobs. The lantern hangs lower at the side.
+    const centre = frame.anchor[0] - coat.x;
+    const hem = coat.y + recipe.symbols[coat.symbol].findLastIndex(row => row[centre] !== '.');
+    for (const boot of bootIds) {
+      let pixelsAtHem = 0;
+      for (let i = 0; i < frame.owners.length; i++) {
+        if (frame.owners[i] !== boot) continue;
+        const y = Math.floor(i / width), label = frame.name + ' at ' + [i % width,y];
+        assert.ok(y >= hem, 'exposed boot shaft above the hem: ' + label);
+        if (y === hem) {
+          pixelsAtHem++;
+          assert.equal(frame.owners[i+width],boot,'the tapered edge must lead into the boot: ' + label);
+        }
+        if (y === hem || (y <= hem+2 && !frame.data[4*(i-width)+3])) {
+          assert.deepEqual(Buffer.from(frame.data.subarray(4*i,4*i+4)),outline,'unoutlined boot corner: ' + label);
+        }
+      }
+      assert.ok(pixelsAtHem <= 1,'flat cap outside the coat: ' + frame.name);
+    }
+  }
+});

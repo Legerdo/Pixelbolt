@@ -19,9 +19,9 @@
   "parts": {
     "down-footA": {
       "rows": [
-        ".bccc.",
-        ".bbbc.",
-        ".abba.",
+        "..aa..",
+        "..aha.",
+        ".ahha.",
         ".ahha.",
         ".ahha.",
         "abhhha",
@@ -30,9 +30,9 @@
     },
     "down-footB": {
       "rows": [
-        "ccccd.",
-        "cccdd.",
-        "aaabb.",
+        ".aa...",
+        ".aha..",
+        ".ahha.",
         "ahhha.",
         "ahhhha",
         "abhhha",
@@ -96,9 +96,9 @@
     },
     "up-footA": {
       "rows": [
-        ".cccb.",
-        ".bccb.",
-        ".abba.",
+        "..aa..",
+        "..aha.",
+        ".ahha.",
         ".ahha.",
         ".ahha.",
         "ahhhba",
@@ -107,9 +107,9 @@
     },
     "up-footB": {
       "rows": [
-        ".cccbc",
-        ".ccbba",
-        ".bbaaa",
+        "..aa..",
+        "..aha.",
+        ".ahha.",
         ".ahhha",
         "ahhhha",
         "ahhhba",
@@ -173,9 +173,9 @@
     },
     "left-footA": {
       "rows": [
-        "..baaac",
-        "..bbbcc",
-        "..abbbb",
+        "....aa.",
+        "....aha",
+        "...ahha",
         "..ahhha",
         ".aghhha",
         "abhhhha",
@@ -184,9 +184,9 @@
     },
     "left-footB": {
       "rows": [
-        ".cccba",
-        ".ccbbb",
-        ".aaabb",
+        "..aa..",
+        ".aha..",
+        ".ahha.",
         ".abhha",
         ".abhha",
         "abhhha",
@@ -226,9 +226,9 @@
     },
     "right-footA": {
       "rows": [
-        "cccaa..",
-        "cccba..",
-        "aabba..",
+        ".aa....",
+        "aha....",
+        "ahha...",
         "ahhha..",
         "ahhhga.",
         "ahhhhba",
@@ -237,9 +237,9 @@
     },
     "right-footB": {
       "rows": [
-        "abbcc.",
-        "bbbcc.",
-        "abbbb.",
+        "..aa..",
+        "..aha.",
+        ".ahha.",
         "ahhba.",
         "ahhba.",
         "ahhhba",
