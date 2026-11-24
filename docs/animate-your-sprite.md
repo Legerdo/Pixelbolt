@@ -98,6 +98,8 @@ For a small top-down character, draw standing poses for the front, back and one 
 
 Start with the bundled knight: `pixelbolt presets four-way-knight --out knight.poses.json` saves all its drawn parts and three standing views to edit.
 
+If your cuts use image coordinates, give the rest pose an origin at the character's feet and subtract it from each root part's position. For instance, on a 24-pixel-wide canvas, a boot at `[14, 17]` with origin `[12, 19]` goes at `[2, -2]`. The boot stays on the same pixel and the opposite profile reflects about x = 12. A drawn asymmetric profile can keep its own equipment on the correct side.
+
 Add `walkCycles` to the pose source. Each entry generates eight editable poses and a looping animation. This example uses the same instance names in three different rest poses. Pair the first arm with the first foot on the same side of the character so they swing in opposition.
 
 ```json

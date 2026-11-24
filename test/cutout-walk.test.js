@@ -55,3 +55,27 @@ test('cutout roles, name collisions and supported mirroring report the authoring
   invalid(s => { s.walkCycles['walk-down'].mirrorAs = 'walk-up'; }, 'poses.walkCycles.walk-down.mirrorAs');
   invalid(s => { s.walkCycles['walk-right'].duration = 0; }, 'poses.walkCycles.walk-right.duration');
 });
+
+test('a mirrored walk reports an unusable pivot and accepts an off-centre interior pivot', async () => {
+  const source = await character('knight');
+  const rest = source.poses.find(p => p.name === 'stand-right');
+  for (const x of [undefined, 0, source.width, source.width + 1]) {
+    if (x === undefined) delete rest.origin;
+    else rest.origin = [x, 19];
+    assert.throws(() => expandPoses(source), err =>
+      err.path === 'poses.walkCycles.walk-right.mirrorAs' && /root part's at/.test(err.message));
+  }
+  rest.origin = [11, 19];
+  const project = renderProject(compilePoses(source).recipe);
+  const right = project.frames.find(f => f.name === 'walk-right-1');
+  const left = project.frames.find(f => f.name === 'walk-left-1');
+  assert.deepEqual(left.anchor, [11, 19]);
+  let ink = 0;
+  for (let y = 0; y < project.height; y++) for (let x = 0; x < project.width; x++) {
+    const alpha = right.data[(y * project.width + x) * 4 + 3];
+    if (!alpha) continue;
+    ink++;
+    assert.equal(left.data[(y * project.width + 21 - x) * 4 + 3], alpha);
+  }
+  assert.ok(ink > 0);
+});

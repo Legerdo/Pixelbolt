@@ -108,6 +108,11 @@ function expandWalkCycles(source) {
     const clips = [name];
     if (cycle.mirrorAs !== undefined) {
       if (!side) fail(`${path}.mirrorAs`, 'horizontal mirrors make the opposite side view; supply a drawn up or down view');
+      // Reflecting pixel x about corner p maps it to 2*p-1-x. At either canvas edge the source and
+      // its reflection cannot both be visible. An omitted pose origin normally means the top-left.
+      const pivotX = rest.origin === undefined ? 0 : rest.origin?.[0];
+      if (Number.isInteger(source.width) && Number.isInteger(pivotX) && (pivotX <= 0 || pivotX >= source.width))
+        fail(`${path}.mirrorAs`, `the rest pose "${rest.name}" reflects about x=${pivotX}, outside the interior of the ${source.width}px canvas. Place its origin between the left and right edges and subtract the origin change from each root part's at to keep the drawing in place, or draw the other profile separately`);
       clips.push(id(cycle.mirrorAs, `${path}.mirrorAs`));
     }
     if (source.poses.length + clips.length * 8 > 256) fail(path, 'expanded source exceeds 256 poses');
