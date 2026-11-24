@@ -1,7 +1,7 @@
 // Review the eight displayed cutout poses against their own rest and intended travel direction.
 // Component counts flag newly separated pixels, including a whole boot. An intentional floating
 // detail in the rest doesn't fail merely because it is present throughout the animation.
-import { fail, inspectProject } from './core.js';
+import { fail, inspectProject, renderProject } from './core.js';
 
 function islands(frame, width, height) {
   const pixels = width * height, seen = new Uint8Array(pixels), pending = new Int32Array(pixels);
@@ -43,6 +43,23 @@ function footJoin(frame, id, feet, width) {
   return { visible, joined };
 }
 
+// Recheck only the questionable poses, hiding the other foot. A boot drawn in front
+// can conceal a sound joint. Pose compilers emit self-contained layers of stamps, so
+// these frames can be drawn alone. For other recipes retain the visible-edge finding.
+function coveredJoints(recipe, weak, feet, index, threshold) {
+  if (!recipe || !weak.length) return [];
+  const frames = recipe.frames.filter(frame => weak.includes(frame.name));
+  if (frames.some(frame => frame.from !== undefined || frame.ops?.length || frame.pixels?.length || frame.translate || !frame.layers?.every(layer =>
+    layer.ops?.every(op => op.op === 'stamp')))) return [];
+  const { width, height, palette, symbols, ramps } = recipe;
+  const probe = renderProject({ version: 1, name: 'joint-review', width, height, palette, symbols,
+    ...(ramps && { ramps }), frames: frames.map(({ name, palette, layers }) => ({ name, ...(palette && { palette }),
+      layers: layers.filter(layer => layer.name !== feet[1 - index]) })) }, { owners: true });
+  const id = probe.ownerNames.indexOf(feet[index]) + 1;
+  if (!id) return [];
+  return probe.frames.filter(frame => footJoin(frame, id, [id], width).joined >= threshold).map(frame => frame.name);
+}
+
 function reflected(frames, others, width, height) {
   return frames.every((frame, n) => {
     const other = others[n], pivot = frame.anchor?.[0], otherPivot = other?.anchor?.[0];
@@ -57,7 +74,7 @@ function reflected(frames, others, width, height) {
   });
 }
 
-export function inspectCutoutWalk(project, options, metadata, info) {
+export function inspectCutoutWalk(project, options, metadata, info, recipe) {
   const { width, height } = project, clip = project.animations[options.animation];
   if (!info || !['up','down','left','right'].includes(info.direction) || !Array.isArray(info.feet) || info.feet.length !== 2 || info.feet.some(name => typeof name !== 'string') || !Number.isFinite(info.speed) || clip.frames.length !== 8)
     fail('motion.metadata', 'expected an eight-step cutout walk from the matching pose source; recompile the source and its metadata');
@@ -84,7 +101,9 @@ export function inspectCutoutWalk(project, options, metadata, info) {
         minimum = Math.min(minimum ?? contact.joined, contact.joined);
         if (contact.joined < Math.min(2, restContact.joined)) weak.push(frame.name);
       }
-      footJoints.push({ foot: info.feet[n], standingEdgePixels: restContact.joined, minimumEdgePixels: minimum, weak });
+      const occluded = coveredJoints(recipe, weak, info.feet, n, Math.min(2, restContact.joined));
+      footJoints.push({ foot: info.feet[n], standingEdgePixels: restContact.joined, minimumEdgePixels: minimum,
+        weak: weak.filter(name => !occluded.includes(name)), ...(occluded.length && { occluded }) });
     }
     if (footJoints.some(joint => joint.weak.length)) fixes.push('A visible foot loses edge contact with the body or narrows to one pixel. Keep an opaque row behind its joint or reduce the stride.');
   }

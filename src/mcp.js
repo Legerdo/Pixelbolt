@@ -433,7 +433,7 @@ export function createToolRunner({ directory, root, version }) {
         else if (inspection.view === 'motion') {
           if (layers !== undefined || reference !== undefined || beside !== undefined) throw new PixelError('arguments', 'motion review uses the complete animation; omit layers, reference and beside');
           const { view: mode, ...motionOptions } = inspection;
-          view = inspectMotion(project, { ...motionOptions, metadata, ...(speed !== undefined && { speed }), ...(ground !== undefined && { ground }) });
+          view = inspectMotion(project, { ...motionOptions, metadata, ...(speed !== undefined && { speed }), ...(ground !== undefined && { ground }) }, recipe);
         } else {
           if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined) throw new PixelError('arguments', 'speed, ground and metadata require view: motion');
           // beside: each sheet is fitted to its share of the one image.

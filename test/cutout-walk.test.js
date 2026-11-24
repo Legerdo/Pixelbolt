@@ -95,6 +95,30 @@ for (const [name, png] of [['dwarf','dwarf_f_idle_anim_f0.png'],['demon','big_de
   });
 }
 
+test('a crossing boot can cover a sound joint, while a real air gap still needs repair', () => {
+  const pose = (name, nearY, farX, farY) => ({ name, parts: [
+    { name: 'body', part: 'coat', at: [2,1] },
+    { name: 'far', part: 'wideBoot', at: [farX,farY] },
+    { name: 'near', part: 'boot', at: [4,nearY] }
+  ] });
+  const steps = Array.from({ length: 8 }, (_, i) => pose('step-' + i, i === 1 ? 7 : 4, 3, 3));
+  const source = { format: 'pixelforge-poses', version: 1, name: 'crossing', width: 12, height: 12,
+    palette: { a: '#b44', b: '#222', c: '#3b3' }, parts: {
+      coat: { rows: ['aaaaaaa','aaaaaaa','aaaaaaa'] }, wideBoot: { rows: ['bbbb','bbbb','bbbb','bbbb'] },
+      boot: { rows: ['cc','cc','cc'] }
+    }, poses: [pose('stand',4,7,4), ...steps], animations: { walk: { frames: steps.map(p => p.name) } },
+    walkReview: { walk: { rest: 'stand', direction: 'right', feet: ['near','far'], speed: 5 } } };
+  const { recipe, metadata } = compilePoses(source), project = renderProject(recipe, { owners: true });
+  const options = { animation: 'walk', metadata };
+  const visible = inspectMotion(project, options).motion.cutout.footJoints[0];
+  assert.equal(visible.standingEdgePixels, 2);
+  assert.ok(visible.weak.includes('step-0'));
+  const joint = inspectMotion(project, options, recipe).motion.cutout.footJoints[0];
+  assert.ok(joint.occluded.includes('step-0'));
+  assert.deepEqual(joint.weak, ['step-1']);
+  assert.equal(joint.minimumEdgePixels, 0);
+});
+
 test('cutout roles, name collisions and supported mirroring report the authoring field', async () => {
   const source = await character('mage');
   const invalid = (edit, path) => {

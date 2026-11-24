@@ -740,7 +740,7 @@ try {
       const drawnWith = { ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) };
       const view = poseSheet ? inspectPoseSheet(project,poseSheet,inspectOptions(options)) : options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
-        ...(options.background !== undefined && { background: options.background }) }) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);
+        ...(options.background !== undefined && { background: options.background }) }, recipe) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);
       // --beside: the same view of more recipes under this one, in one image.
       let drawn = view;
       if (options.beside !== undefined) {

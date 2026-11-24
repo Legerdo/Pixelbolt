@@ -100,7 +100,7 @@ function reviewMotion() {
   const isCutout = poseMetadata?.animations?.[$('animation').value]?.cutout;
   if (isCutout) ownedProject ??= renderProject(spec, { owners: true });
   motionReview = inspectMotion(isCutout ? ownedProject : project, { animation: $('animation').value, metadata: poseMetadata, scale: 1,
-    ...(speed !== '' && { speed: Number(speed) }), ...(ground !== '' && { ground: Number(ground) }) });
+    ...(speed !== '' && { speed: Number(speed) }), ...(ground !== '' && { ground: Number(ground) }) }, spec);
   const cutout = motionReview.motion.cutout;
   if (cutout) {
     const slide = Math.max(...cutout.slide.map(foot => foot.pixels));
