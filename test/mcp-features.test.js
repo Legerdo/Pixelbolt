@@ -229,6 +229,47 @@ test('MCP compiles the full 39-frame hero with metadata and images below one MiB
   } finally { mcp.input.end(); await mcp.running; }
 });
 
+test('whole-walk inspection agrees across CLI, MCP and saved pose sources and refuses partial selections', async t => {
+  const dir = await temp(t, 'whole-walk'), mcp = session({ directory: dir, root: dir });
+  t.after(() => { mcp.input.end(); return mcp.running; });
+  await mcp.init();
+  const sourcePath = path.join(root, 'examples/four-way-knight.poses.json');
+  const source = JSON.parse(await readFile(sourcePath, 'utf8'));
+  const cli = (...args) => spawnSync(process.execPath, [path.join(root, 'bin/pixelbolt.js'), ...args], { encoding: 'utf8' });
+  const output = path.join(dir, 'view.png'), recipe = path.join(dir, 'actor.json'), metadata = path.join(dir, 'metadata.json');
+  const options = { view: 'walks', scale: 1, background: '#807060' };
+  const draw = await mcp.call('pixel_inspect', { source, ...options });
+  assert.ok(draw.info.ok, draw.info.error);
+  assert.equal(draw.info.mode, 'walks');
+  assert.deepEqual(draw.info.walkReview.clips.map(row => row.clip), ['walk-down','walk-up','walk-right','walk-left']);
+  assert.ok(draw.info.walkReview.clips.every(row => row.frames === 8));
+  assert.deepEqual(await mcp.call('pixel_inspect', { revision: draw.info.sourceRevision, ...options }), draw);
+  const compiled = (await mcp.call('pixel_compile', { source, metadata: true })).info;
+  assert.equal(compiled.sourceRevision, draw.info.sourceRevision);
+  const saved = await mcp.call('pixel_inspect', { revision: compiled.revision, metadata: compiled.metadata, ...options });
+  assert.deepEqual(saved.info.walkReview, draw.info.walkReview);
+  assert.deepEqual(saved.result.content[1], draw.result.content[1]);
+  const cliOptions = ['--view','walks','--scale','1','--background',options.background];
+  const fromSource = cli('inspect', sourcePath, ...cliOptions, '--out', output);
+  assert.equal(fromSource.status, 0, fromSource.stdout + fromSource.stderr);
+  assert.deepEqual(JSON.parse(fromSource.stdout).walkReview, draw.info.walkReview);
+  assert.deepEqual(await readFile(output), Buffer.from(draw.result.content[1].data, 'base64'));
+  assert.equal(cli('compile', sourcePath, '--out', recipe, '--metadata', metadata).status, 0);
+  const fromRecipe = cli('inspect', recipe, ...cliOptions, '--metadata', metadata);
+  assert.equal(fromRecipe.status, 0, fromRecipe.stdout + fromRecipe.stderr);
+  assert.deepEqual(JSON.parse(fromRecipe.stdout).walkReview, draw.info.walkReview);
+  for (const [flag, value] of [['animation','walk-right'], ['step','2'], ['track','unused.json'], ['motion','walk-up']]) {
+    const refused = cli('inspect', sourcePath, ...cliOptions, '--'+flag, value);
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stdout + refused.stderr, /cannot be combined with --view walks/);
+  }
+  for (const extra of [{ animation: 'walk-right' }, { region:{x:0,y:0,w:1,h:1} }, {track:{}}, {layers:['body']}, {palette:true}]) {
+    assert.equal((await mcp.call('pixel_inspect', { source, ...options, ...extra })).result.isError, true);
+  }
+  assert.equal((await mcp.call('pixel_inspect', { revision: compiled.revision, ...options })).result.isError, true);
+  assert.equal((await mcp.call('pixel_inspect', { revision: compiled.sourceRevision, ...options, metadata: compiled.metadata })).result.isError, true);
+});
+
 test('MCP motion review accepts a pose source or a revision with explicit compile metadata', async t => {
   const dir = await temp(t, 'motion'), mcp = session({ directory: dir, root: dir }); await mcp.init();
   try {

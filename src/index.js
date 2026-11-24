@@ -11,6 +11,7 @@ export { readExpect, checkDelivery, briefCheck } from './check.js';
 export { spriteFrames, godotTiming, GODOT_MAX_FPS } from './godot.js';
 export { compilePoses, expandPoses, draftViews, compileAutotile, compileNormals, NORMAL_DIRECTIONS } from './authoring.js';
 export { inspectMotion } from './motion.js';
+export { inspectWalks } from './walk-scan.js';
 export { compileEffects } from './fx.js';
 export { compileStack, stackSide } from './stack.js';
 export { compileWaves, WAVE_KINDS } from './wave.js';

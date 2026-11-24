@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { prepareStack, inspectPoseSheet, compileStackSlices } from '../src/stack.js';
 import { inspectMotion } from '../src/motion.js';
+import { inspectWalks } from '../src/walk-scan.js';
 import { expandPoses } from '../src/authoring.js';
 import { PixelError, isObject, largestScale, columnsOfCall, meant, frameTotalProblem } from '../src/core.js';
 import { readExpect, checkDelivery, briefCheck } from '../src/check.js';
@@ -139,7 +140,9 @@ Give several offsets to see them together, e.g. --rotate spindle,0,0,90,180,270.
 --stack body+plate+fin,body+plate2 draws each group of frames laid over one another in one cell, the first at
 the bottom: parts a game stacks, seen as it stacks them. --under ground.json:tile draws that frame of another
 recipe (its first frame without :name) under every cell, repeated: a sprite on the ground it will lie on.
---view color|silhouette|grayscale|onion|tile|parts (each pixel coloured by the layer or pose part that drew it);
+--view color|silhouette|grayscale|onion|tile|parts|walks. parts colours each pixel by the layer or pose part that drew it.
+--view walks reviews every rigid walk cycle in one call. It lists native pixels, parts and phases to inspect
+alongside standing openings and foreground crossings. Use the pose source, or its compiled recipe with --metadata.
 --palette lists each palette key with its colour, its pixels and the layers or pose parts it colours (ramps
 together, dark to light): which keys to change for a colour variant;
 --beside b.json,c.json draws the same view of up to eight more recipes under this one, in the one image, each
@@ -702,7 +705,11 @@ try {
       print({ ok: true, ...bundleFiles(path.resolve(options.out), files, options), warnings: bundle.warnings, ...referenced(input) });
     } else if (command === 'inspect') {
       const layerOptions = options.layers === undefined ? {} : { layers: options.layers.split(',') };
-      if (!options.motion && ['speed', 'ground', 'metadata', 'track'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground, --metadata and --track require --motion');
+      const walks = options.view === 'walks';
+      if (walks) for (const key of Object.keys(options)) if (!['view','metadata','scale','background','out','force'].includes(key))
+        throw new Error(`--${key} cannot be combined with --view walks, which reviews every phase of every walk`);
+      if (!options.motion && ['speed', 'ground', 'track'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground and --track require --motion');
+      if (options.metadata !== undefined && !options.motion && !walks) throw new Error('--metadata requires --motion or --view walks');
       if (options.full && !options.diagnostics) throw new Error('--full goes with --diagnostics: it lists the counts of every frame');
       if (options.motion) for (const key of ['pin', 'rotate', 'frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
@@ -732,13 +739,15 @@ try {
       if (input.document.format === 'pixelforge-stack' && options.motion) throw new Error('--motion reviews character poses; inspect a stack without --motion');
       if (input.document.format === 'pixelforge-wave' && options.motion) throw new Error('--motion reviews character poses; inspect a wave without --motion');
       if (compiled && options.metadata) throw new Error('A pose source supplies its own metadata; omit --metadata');
-      const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || options.motion || options.palette) && { owners: true }) });
+      const recipe = compiled?.recipe ?? input.document, project = renderProject(recipe, { ...layerOptions, ...((options.view === 'parts' || walks || options.motion || options.palette) && { owners: true }) });
       const comparison = options.reference ? compareProjects(renderProject((await readResolved(options.reference, '--reference')).document, layerOptions), project) : undefined;
       const { image: referenceImage, ...comparisonReport } = comparison ?? {};
       const besideFiles = options.beside === undefined ? [] : options.beside.split(',').filter(Boolean), share = besideFiles.length ? { sheets: Math.min(9, besideFiles.length + 1) } : undefined;
       // What is drawn in every cell with the frames: in this recipe's cells and in the --beside recipes', the same view.
       const drawnWith = { ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) };
-      const view = poseSheet ? inspectPoseSheet(project,poseSheet,inspectOptions(options)) : options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
+      const metadata = compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined);
+      const view = walks ? inspectWalks(project, inspectOptions({scale:options.scale, background:options.background}), metadata, recipe) :
+        poseSheet ? inspectPoseSheet(project,poseSheet,inspectOptions(options)) : options.motion ? inspectMotion(project, { animation: options.motion, metadata,
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
         ...(options.track !== undefined && { track: await readJSONOption(options.track, 'track', '{"part":"body","rects":[[4,5,2,1]]}') }),
         ...(options.background !== undefined && { background: options.background }) }, recipe) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);

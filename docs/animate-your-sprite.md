@@ -130,4 +130,6 @@ Add `walkCycles` to the pose source. Each entry generates eight editable poses a
 
 `stride` sets how far each foot reaches from rest in pixels (default 1 for front/back, 2 for a side). `lift` raises the returning foot (default 1), and `bob` raises the body at the passing pose (default 1). `duration` sets milliseconds per frame (default 100). Children attached to a moving part follow it. For an asymmetric character, draw its other profile and declare its own cycle facing `left`.
 
+Inspect the complete character with `pixelbolt inspect actor.poses.json --view walks --out walks.png`. Compare the named steps and coordinates against your standing drawings, including spaces that belong inside equipment and edges where one part passes in front of another.
+
 Compile and render with the commands above. `compile --expand` also writes each step as an ordinary pose you can retouch. In Godot, assign the generated `.tres` to an `AnimatedSprite2D` and play the named animation. The [three complete examples, source sprites and animated preview](../showcase/four-way-walk/) show the input drawings and the gait.

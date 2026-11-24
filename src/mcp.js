@@ -7,6 +7,7 @@ import { PixelError, MAX_REQUEST_BYTES, CANVAS_SIDE, errorReply, isObject, rende
 import { patchRecipe } from './patch.js';
 import { createRevisionStore } from './revisions.js';
 import { inspectMotion } from './motion.js';
+import { inspectWalks } from './walk-scan.js';
 import { prepareStack, inspectPoseSheet, compileStackSlices } from './stack.js';
 import { encodePNG } from './png.js';
 import { createBundle, writeBundle, embedBundleRecipe, outputSummary, describeAnimations, formatJSON } from './export.js';
@@ -396,7 +397,10 @@ export function createToolRunner({ directory, root, version }) {
         return { content: [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), timing: briefCells(project.frames.map(({ name, duration }) => ({ name, duration }))), warnings: project.warnings, ...(project.clipping && { clipping: project.clipping }), ...(project.clippingOmitted && { clippingOmitted: project.clippingOmitted }), ...(options.fps !== undefined && { frameGrid: frameGrid(project, options.fps) }) }, resolved))] };
       } else if (name === 'pixel_inspect') {
         const { layers, reference, beside, palette, source, rotate, poseSheet, metadata: suppliedMetadata, speed, ground, ...inspection } = options;
-        let recipe, resolved, sources, stackSource, metadata = suppliedMetadata, poseWarnings = [];
+        let recipe, resolved, sources, inspectionSource, metadata = suppliedMetadata, poseWarnings = [];
+        const walks = inspection.view === 'walks';
+        if (walks) for (const key of Object.keys(options)) if (!['view','source','metadata','scale','background'].includes(key))
+          throw new PixelError(key, 'walks reviews every phase of every walk and takes only scale and background alongside the source or compiled recipe with metadata');
         if (poseSheet !== undefined) {
           for (const key of Object.keys(options)) if (!['poseSheet','source','scale','background'].includes(key))
             throw new PixelError(key,'poseSheet takes scale and background alongside the source or its revision');
@@ -405,37 +409,42 @@ export function createToolRunner({ directory, root, version }) {
           if (spec !== undefined || revision !== undefined || suppliedMetadata !== undefined) throw new PixelError('arguments', 'source replaces project, revision and metadata');
           const input = await resolveReferences(source, { baseDir: root, root });
           resolved = sources = relativeToRoot(input.files);
+          if (walks) inspectionSource = input.document;
           if (rotate !== undefined || poseSheet !== undefined) recipe = input.document;
           else if (input.document?.format === 'pixelforge-stack') throw new PixelError('rotate', 'send rotate to inspect a socket, poseSheet for named poses, or use pixel_compile for the authored turntable');
           else ({ recipe, metadata, warnings: poseWarnings = [] } = compilePoses(input.document));
         } else {
-          const motionRevision = revision !== undefined && inspection.view === 'motion';
+          const motionRevision = revision !== undefined && (walks || inspection.view === 'motion');
           ({ recipe, resolved, sources } = await recipeFrom(spec, revision, rotate !== undefined || poseSheet !== undefined || motionRevision));
           if (motionRevision && recipe.format === 'pixelforge-poses') {
             if (suppliedMetadata !== undefined) throw new PixelError('metadata', 'this pose source revision supplies its own metadata');
+            if (walks) inspectionSource = recipe;
             ({ recipe, metadata, warnings: poseWarnings = [] } = compilePoses(recipe));
           }
         }
         if (poseSheet !== undefined) {
           if (spec !== undefined || recipe?.format !== 'pixelforge-stack') throw new PixelError('poseSheet','send a sprite stack as source, or its sourceRevision as revision');
-          stackSource = recipe;
-          recipe = prepareStack(stackSource).poseStudy(poseSheet);
+          inspectionSource = recipe;
+          recipe = prepareStack(inspectionSource).poseStudy(poseSheet);
         } else if (rotate !== undefined) {
           fields(rotate, ['socket','heading','degrees'], 'rotate');
           if (spec !== undefined || recipe?.format !== 'pixelforge-stack') throw new PixelError('rotate', 'send a sprite stack as source, or its sourceRevision as revision');
           if (inspection.view === 'motion') throw new PixelError('rotate', 'motion review uses character poses; omit view: motion for a socket rotation');
-          stackSource = recipe;
-          recipe = prepareStack(stackSource).rotationStudy(rotate.heading, rotate.socket).recipe(rotate.degrees);
+          inspectionSource = recipe;
+          recipe = prepareStack(inspectionSource).rotationStudy(rotate.heading, rotate.socket).recipe(rotate.degrees);
         }
-        const project = renderProject(recipe, { ...(layers !== undefined && { layers }), ...((inspection.view === 'parts' || inspection.view === 'motion' || palette === true) && { owners: true }) });
+        const project = renderProject(recipe, { ...(layers !== undefined && { layers }), ...((walks || inspection.view === 'parts' || inspection.view === 'motion' || palette === true) && { owners: true }) });
         let view;
-        if (poseSheet !== undefined) view = inspectPoseSheet(project,poseSheet,inspection);
+        if (walks) {
+          const { view: mode, ...walkOptions } = inspection;
+          view = inspectWalks(project, walkOptions, metadata, recipe);
+        } else if (poseSheet !== undefined) view = inspectPoseSheet(project,poseSheet,inspection);
         else if (inspection.view === 'motion') {
           if (layers !== undefined || reference !== undefined || beside !== undefined) throw new PixelError('arguments', 'motion review uses the complete animation; omit layers, reference and beside');
           const { view: mode, ...motionOptions } = inspection;
           view = inspectMotion(project, { ...motionOptions, metadata, ...(speed !== undefined && { speed }), ...(ground !== undefined && { ground }) }, recipe);
         } else {
-          if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined || inspection.track !== undefined) throw new PixelError('arguments', 'speed, ground, metadata and track require view: motion');
+          if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined || inspection.track !== undefined) throw new PixelError('arguments', 'speed, ground and track require view: motion; metadata needs motion or walks');
           // beside: each sheet is fitted to its share of the one image.
           const share = Array.isArray(beside) && beside.length ? { sheets: Math.min(9, beside.length + 1) } : undefined;
           view = inspectProject(project, inspection, share);
@@ -452,7 +461,7 @@ export function createToolRunner({ directory, root, version }) {
           }
         }
         const comparison = reference === undefined ? null : compareProjects(renderProject(await read(reference), layers === undefined ? {} : { layers }), project);
-        const content = [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), ...(stackSource && { sourceRevision: revision ?? await keep(stackSource, sources) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), ...viewSummary(view), ...(palette === true && { palette: paletteUse(project) }), warnings: [...poseWarnings, ...project.warnings] }, resolved)), imageContent(view.sheet)];
+        const content = [textContent(withResolved({ ok: true, revision: await keep(recipe, sources), ...(inspectionSource && { sourceRevision: revision ?? await keep(inspectionSource, sources) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), ...viewSummary(view), ...(palette === true && { palette: paletteUse(project) }), warnings: [...poseWarnings, ...project.warnings] }, resolved)), imageContent(view.sheet)];
         if (view.nativeSheet) content.push(imageContent(view.nativeSheet));
         if (view.grids) content.push(textContent(gridText(view)));
         if (reference !== undefined) {
@@ -598,7 +607,7 @@ export function createToolRunner({ directory, root, version }) {
         // An autotile set also shows every tile over a test map, where seams and repetition show.
         const map = testMap ? inspectProject(renderProject(testMap), { scale: testMapScale(testMap) }) : null;
         const inputs = [...relativeToRoot(sourceFiles), ...(await Promise.all(referenced.map(sourcesOf))).flat()];
-        return { content: [textContent({ ok: true, revision: await keep(recipe, inputs), ...(format === 'pixelforge-stack' && (document.sockets || document.paths || document.poses) && { sourceRevision: await keep(document, inputs) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), preview: viewSummary(view), ...(map && { testMap: 'the second image: every tile of the set over a test map', ...(tilemapOf(recipe, metadata) && { tilemap: tilemapOf(recipe, metadata) }) }), ...(resized && resizeMargins(resized, [recipe.width, recipe.height]) && { margins: resizeMargins(resized, [recipe.width, recipe.height]) }), ...(kept && { kept }), warnings: [...compiled, ...(thinned?.notes ?? []), ...(cut ? [cut] : []), ...project.warnings.filter(text => !(cut && text.startsWith('Some drawing falls outside the canvas')))], ...(args.metadata === true && { metadata }) }), imageContent(view.sheet), ...(map ? [imageContent(map.sheet)] : [])], ...(preview && preview(project)) };
+        return { content: [textContent({ ok: true, revision: await keep(recipe, inputs), ...(((format === 'pixelforge-stack' && (document.sockets || document.paths || document.poses)) || (format === 'pixelforge-poses' && (document.walkCycles || document.walkReview))) && { sourceRevision: await keep(document, inputs) }), name: project.name, width: project.width, height: project.height, frames: project.frames.length, ...describeAnimations(project, recipe), preview: viewSummary(view), ...(map && { testMap: 'the second image: every tile of the set over a test map', ...(tilemapOf(recipe, metadata) && { tilemap: tilemapOf(recipe, metadata) }) }), ...(resized && resizeMargins(resized, [recipe.width, recipe.height]) && { margins: resizeMargins(resized, [recipe.width, recipe.height]) }), ...(kept && { kept }), warnings: [...compiled, ...(thinned?.notes ?? []), ...(cut ? [cut] : []), ...project.warnings.filter(text => !(cut && text.startsWith('Some drawing falls outside the canvas')))], ...(args.metadata === true && { metadata }) }), imageContent(view.sheet), ...(map ? [imageContent(map.sheet)] : [])], ...(preview && preview(project)) };
       } else if (name === 'pixel_scene') {
         const { document, files: sources } = await resolveReferences(args.scene, { baseDir: root, root, revisions: read });
         const scene = prepareScene(document), frame = renderScene(scene, { time: args.time ?? 0, lit: args.lit ?? true, density: args.density ?? false, depth: args.view === 'depth' });
@@ -724,7 +733,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
   const inspectInput = { ...projectInput, properties: {
     guides,
     ...source,
-    source: { type: 'object', description: 'Pose source for motion review, or sprite stack for rotate or poseSheet, instead of project/revision.' },
+    source: { type: 'object', description: 'Pose source for walks or motion, or stack for rotate or poseSheet. For walks, reuse sourceRevision as revision.' },
     poseSheet: { type:'object', required:['poses','headings'], additionalProperties:false, description:'Named pose rows Ã— camera headings; optional focus path, crop size and fixed socket phase. Reuse sourceRevision.',
       properties:{poses:{type:'array',items:{type:'string'},minItems:1,maxItems:16,uniqueItems:true},headings:{type:'array',items:{type:'integer',minimum:0,maximum:359},minItems:1,maxItems:16,uniqueItems:true},
         focus:{type:'string'},size:{type:'integer',minimum:8,maximum:256},phase:{type:'integer',minimum:0,maximum:359}} },
@@ -732,7 +741,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
       description:'Lock the camera and turn one socket. Send source once, then reuse sourceRevision as revision.',
       properties:{ socket:{type:'string'}, heading:{type:'integer',minimum:0,maximum:359}, degrees:{oneOf:[
         {type:'number',minimum:0,maximum:360},{type:'array',minItems:1,maxItems:256,uniqueItems:true,items:{type:'number',minimum:0,maximum:360}}]} } },
-    metadata: { type: 'object', description: 'Pose metadata from pixel_compile (metadata: true), for motion review of a compiled revision.' },
+    metadata: { type: 'object', description: 'Pose metadata from pixel_compile (metadata: true), for walks or motion review of a compiled revision.' },
     track: { type: 'object', description: 'Cutout motion: follow {part,rects,pivot?} from a stand, reporting wrong owners and normal foreground occlusions. Rects are [x,y,w,h].' },
     speed: { type: 'number', minimum: -4096, maximum: 4096, description: 'Motion view: pixels per second.' },
     ground: { type: 'integer', minimum: 0, maximum: CANVAS_SIDE - 1, description: 'Motion view: ground row.' },
@@ -745,7 +754,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
     grid: { type: 'boolean', description: 'Also return palette-key text grids with x/y rulers (at most 16,384 pixels).' },
     scale: { type: 'integer', minimum: 1, maximum: 16, description: 'Contact sheet scale. Default: the largest that fits about 1024 px, at least 1.' },
     background: { type: 'string', description: 'checker (default), transparent, a palette name or a hex color.' },
-    view: { enum: ['color', 'silhouette', 'grayscale', 'onion', 'tile', 'parts', 'motion'], description: 'onion and motion need animation; motion reports foot slide, ground error and loop joins and traces limb arcs (source or metadata adds contacts); parts colours each pixel by the layer or pose part that drew it; tile repeats each frame 3x3.' },
+    view: { enum: ['color', 'silhouette', 'grayscale', 'onion', 'tile', 'parts', 'motion', 'walks'], description: 'walks reviews every rigid walk cycle in the pose source. onion and motion need animation; motion reports gait and loop joins. parts colours pixels by their owner. tile repeats each frame 3x3.' },
     native: { type: 'boolean', description: 'Also return a 1x contact sheet.' },
     palette: { type: 'boolean', description: 'Also list each palette key with its colour, pixels and the parts it colours.' },
     diagnostics: { type: 'boolean', description: 'Advisory evidence: duplicate and empty frames, stray pixels, palette, loop joins, timing, cleanup counts.' },
@@ -773,7 +782,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
   const tools = [
     { name: 'pixel_help', description: 'Start here before drawing pixel art, sprites, tiles, icons, effects or animations. Returns a short quick start: the recipe format, the operations, the tools and the workflow. Pass a topic only when you need more: presets (ready-made fire, smoke, explosions, spells, characters and more to compile instead of drawing, a line each, or with find: "fire" only the ones those words match; full: true adds their animations), preset with name (one preset\'s source), guide (the full authoring reference and every tool option), workflow (art workflow: poses, scenes, particles, fluids, lighting), craft (short checklists: characters, effects, tiles and scenes, delivery, limits; all three list their sections, and name returns one or what mentions a word), schema (the recipe JSON Schema), example (a complete recipe), or stack, poses, scenes, autotile, fx, fluid, wave, crystal, powder, bodies or normals for those source formats\' schemas.', inputSchema: { type: 'object', properties: { topic: { enum: TOPICS }, name: { type: 'string', description: 'With topic preset: which one; with guide, workflow or craft: a section heading, or a word to find; with a schema: a path such as effects.bodies, or all.' }, full: { type: 'boolean', description: 'With topic presets: each preset\'s file and animations too.' }, find: { type: 'string', description: 'With topic presets: only the presets these words match.' } }, additionalProperties: false }, annotations: { title: 'Pixelbolt guide and schema', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: 'pixel_validate', description: 'Check a pixel art recipe for mistakes before inspecting or exporting it. Returns its revision id, size, frame timing, animations and clipping, without images or files.', inputSchema: validateInput, annotations: { title: 'Validate a pixel art recipe', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-    { name: 'pixel_inspect', description: 'Look at pixel art, a sprite or an animation frame by frame to check how it looks, without exporting. Returns a PNG contact sheet of every frame (or the chosen frames, or one animation in playback order) with each cell\'s name and duration. grid: true adds palette-key text grids for exact pixels, region zooms in, and view picks a tile, onion or motion review. Use this while iterating; call pixel_render to export.', inputSchema: inspectInput, annotations: { title: 'Inspect pixel art frames', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: 'pixel_inspect', description: 'Look at pixel art, a sprite or an animation frame by frame to check how it looks, without exporting. Returns a PNG contact sheet of every frame (or the chosen frames, or one animation in playback order) with each cell\'s name and duration. grid: true adds palette-key text grids for exact pixels, region zooms in, and view: walks locates moving seams and crossings across all facings of a cutout character. Use this while iterating; call pixel_render to export.', inputSchema: inspectInput, annotations: { title: 'Inspect pixel art frames', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: 'pixel_patch', description: 'Fix or tweak pixel art (one pixel, a colour, a frame or its timing) without redrawing it. Pass revision or project plus changes applied in order, such as {"set": "frames[blink].duration", "value": 120} or {"paint": "frames[blink]", "value": [{"x": 9, "y": 7, "color": "k"}]}; other paths look like palette.k or frames[blink].layers[body].ops[2].x2, and [*] is every item of a list (frames[*].layers[cape].palette recolours one layer in every frame). The patch is atomic and must validate. Returns the new revision, every frame whose pixels changed and a before/after PNG.', inputSchema: patchInput, annotations: { title: 'Patch pixel art', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: 'pixel_render', description: 'Export pixel art as game-ready files: sprite sheet, sprites, animations, GIFs or frames for a video. Writes a PNG sheet, atlas JSON, Godot 4 SpriteFrames (and, for an autotile set, a Godot TileSet and a Tiled tileset), frame PNGs, APNGs, CSS and a Canvas player to a new folder in the export directory, and returns the key files, a check of what was delivered and a contact sheet. Pass expect with what the user asked for, then fix every problem the check lists before handing the files on. Pass saveAs to also write files where the user asked.', inputSchema: renderInput, annotations: { title: 'Export pixel art files', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } },
     { name: 'pixel_compile', description: 'Bake a rotating sprite stack or build a character animation from parts (bipeds and four-legged animals, with idle, walk, trot, run, jump, attack and hurt templates, squash and tweens), a terrain tileset, particle effects (sparks, embers, dust, a sprite dissolving or teleporting away pixel by pixel) and spell shapes (slashes, shockwave rings, beams, lightning, magic circles, impact stars, fireballs, cel water streams and drops, auras hugging a sprite, smears trailing a sword tip), simulated smoke, fire, explosions, steam, magic swirls, water (splashes, waterfalls, drips, bubbling potions) and thick liquids (honey, slime, mud), rigid bodies (balls and blocks that bounce, stack, topple and rest, with joints, ropes and cloth), growing crystals (quartz clusters, geodes, cubes, snowflakes), falling-sand sandboxes (burning, collapse, lava meeting water, blasts), coherent interference and portal loops, or a lighting normal map. Compiles the source into an ordinary recipe revision and returns a contact sheet; metadata: true adds stack projection and ground pivot, pose joints, contacts and timing, the autotile mask table, particle counts, fluid figures, wave counts, crystal counts, body paths, joint breaks, cloth tears or normal directions.', inputSchema: { type: 'object', properties: { source: { type: 'object', description: 'A pixelforge-poses, pixelforge-autotile, pixelforge-fx, pixelforge-fluid, pixelforge-wave, pixelforge-crystal, pixelforge-powder, pixelforge-bodies, pixelforge-stack or pixelforge-normals document (see pixel_help topics). A normals source\'s recipe, or an fx symbol\'s {recipe, frame}, may be inline, a file under the server root or {"revision": id}.' }, preset: { type: 'string', description: 'Instead of source: a shipped preset by name, such as "smoke-puff" (pixel_help topic presets).' }, size: { type: 'string', description: 'A canvas size such as "32x32" for the compiled drawing: cut to the window holding the most of it, or given margins; never scaled.' }, frames: { type: 'integer', minimum: 1, maximum: 256, description: 'Keep this many evenly spaced frames of each animation that has more, playing as long as before; a count dividing a loop\'s frames keeps its step even. The way to fewer frames: lowering frames in a source cuts the effect short.' }, animation: { type: ['string', 'array'], items: { type: 'string' }, description: 'Keep only this animation (or these) of a source or preset that makes several.' }, metadata: { type: 'boolean' }, slices: { type: 'boolean', description: 'Stacks only: the slices as a sheet to stack at run time, in place of baked headings.' }, draftViews: { type: 'object', additionalProperties: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 359 }, maxItems: 16 }, description: 'Poses only, instead of compiling: draft grid parts turned to these angles, {"boot": [30, 330]}, as views to correct and paste into parts.<name>.views, with a comparison sheet.' }, sequence: { type: 'object', required: ['fps'], description: 'Bodies and falling sand only: write numbered PNG video frames (pixel_render\'s sequence options, animation naming the effect or clip) instead of a recipe; a match or clip may run past 256 frames.' } }, additionalProperties: false }, annotations: { title: 'Compile poses, tilesets, effects or fluids', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
