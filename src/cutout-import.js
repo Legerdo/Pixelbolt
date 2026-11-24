@@ -49,6 +49,24 @@ function cutView(frame, view, width, height, pivot, palette, path) {
       joins[index] = 1;
     }));
   }
+  // Extend the boot's top colour under an opaque hem. The original hem covers the shaft
+  // at rest. Copying the hem colour onto the boot would carry coat trim along with a step.
+  const depth = integer(view.extendFeet === undefined ? 0 : view.extendFeet, path + '.extendFeet', 0, height);
+  const shaftInk = depth ? new Map() : undefined;
+  if (depth) {
+    for (const foot of [1, 2]) for (let x = 0; x < width; x++) {
+      let top = 0;
+      while (top < height && owners[top * width + x] !== foot) top++;
+      if (top === height) continue;
+      for (let y = top - 1; y >= Math.max(0, top - depth); y--) {
+        const i = y * width + x;
+        if (owners[i] || rows[y][x] === '.' || !palette[rows[y][x]].endsWith('ff')) break;
+        owners[i] = foot;
+        joins[i] = 1;
+        shaftInk.set(i, rows[top][x]);
+      }
+    }
+  }
   const bounds = names.map(() => [width, height, -1, -1]);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     if (rows[y][x] === '.') continue;
@@ -59,19 +77,25 @@ function cutView(frame, view, width, height, pivot, palette, path) {
       box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y);
     }
   }
-  return bounds.flatMap(([x0, y0, x1, y1], role) => {
+  const drawings = bounds.flatMap(([x0, y0, x1, y1], role) => {
     if (x1 < x0) return [];
     const cut = [];
     for (let y = y0; y <= y1; y++) {
       let row = '';
       for (let x = x0; x <= x1; x++) {
         const index = y * width + x;
-        row += owners[index] === role || (role === 0 && joins[index]) ? rows[y][x] : '.';
+        if (owners[index] === role) row += shaftInk?.get(index) ?? rows[y][x];
+        else row += role === 0 && joins[index] ? rows[y][x] : '.';
       }
       cut.push(row);
     }
     return [{ name: names[role], rows: cut, at: [x0 - pivot[0], y0 - pivot[1]] }];
   });
+  if (depth && drawings[0]?.name === 'body') {
+    const body = drawings.shift();
+    drawings.splice(2, 0, body);
+  }
+  return drawings;
 }
 
 export function importCutoutPNG(bytes, { cutout, ...options }) {
@@ -96,7 +120,7 @@ function cutoutSource(recipe, spec) {
   const source = { format: 'pixelforge-poses', version: 1, name: recipe.name, width: width + 2 * margin, height: height + 2 * margin, palette: recipe.palette, parts: {}, poses: [], animations: {}, walkCycles: {} };
   for (const [direction, view] of Object.entries(spec.views)) {
     const path = `cutout.views.${direction}`;
-    fields(view, ['frame', 'feet', 'arms', 'overlap', 'mirror', 'stride', 'lift', 'bob', 'duration'], path);
+    fields(view, ['frame', 'feet', 'arms', 'overlap', 'extendFeet', 'mirror', 'stride', 'lift', 'bob', 'duration'], path);
     const frame = view.frame === undefined && recipe.frames.length === 1 ? recipe.frames[0] : recipe.frames.find(f => f.name === view.frame);
     if (!frame) fail(`${path}.frame`, `choose an imported frame by name: ${recipe.frames.slice(0, 12).map(f => f.name).join(', ')}`);
     const pivot = spec.pivot ?? frame.anchor ?? recipe.anchor ?? [Math.floor(width / 2), height];

@@ -18,7 +18,7 @@ node bin/pixelbolt.js compile output/sprite-walk/cutout.poses.json --out output/
 node bin/pixelbolt.js render output/sprite-walk/cutout.pixel.json --out output/sprite-walk/cutout
 ```
 
-This produces `stand-right`, `walk-right`, `stand-left` and `walk-left`. Use [the agent guide](agent-guide.md#cutout-walks-from-a-png) for named sheet frames, independent profiles, explicit pivots and the equivalent MCP call. The rigged example below adds painted overlap behind joints and bends at the knees.
+This produces `stand-right`, `walk-right`, `stand-left` and `walk-left`. Use [the agent guide](agent-guide.md#cutout-walks-from-a-png) for named sheet frames, independent profiles, explicit pivots and the equivalent MCP call. For boots that disappear beneath a coat, select their visible pixels and add `"extendFeet":2` to that facing to draw short shafts underneath. Keep the default transparent margin for room to step. The exported `anchorPx` includes the margin and locates the same point on the source drawing. The rigged example below adds painted overlap behind joints and bends at the knees.
 
 ## Import, cut and attach
 

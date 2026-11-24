@@ -6,6 +6,8 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ### Four-direction cutout walks
 
+- PNG cutouts accept `extendFeet` on a facing to keep short boots connected under a moving coat. The editable source preserves the supplied standing pixels. [PNG authoring guide](docs/agent-guide.md#cutout-walks-from-a-png).
+
 - Pose sources accept `walkCycles` to animate drawn front, back and profile poses. Name the feet and optional arms, then compile eight steps per direction through the CLI or MCP. A side cycle can generate its mirror. [Authoring guide](docs/animate-your-sprite.md#four-direction-walks-from-drawn-parts) · [Three animated characters](showcase/four-way-walk/).
 
 ### Fixes

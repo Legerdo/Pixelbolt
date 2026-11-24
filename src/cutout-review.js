@@ -105,7 +105,7 @@ export function inspectCutoutWalk(project, options, metadata, info, recipe) {
       footJoints.push({ foot: info.feet[n], standingEdgePixels: restContact.joined, minimumEdgePixels: minimum,
         weak: weak.filter(name => !occluded.includes(name)), ...(occluded.length && { occluded }) });
     }
-    if (footJoints.some(joint => joint.weak.length)) fixes.push('A visible foot loses edge contact with the body or narrows to one pixel. Keep an opaque row behind its joint or reduce the stride.');
+    if (footJoints.some(joint => joint.weak.length)) fixes.push('A visible foot loses edge contact with the body or narrows to one pixel. For an imported boot under a hem, try extendFeet: 2 on that facing and reimport. Otherwise keep an opaque row behind its joint or reduce the stride.');
   }
   const slide = info.feet.map((foot, n) => {
     // Each rigid foot stays planted from its leading contact through the opposite contact.

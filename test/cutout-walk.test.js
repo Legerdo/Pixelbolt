@@ -95,6 +95,60 @@ for (const [name, png] of [['dwarf','dwarf_f_idle_anim_f0.png'],['demon','big_de
   });
 }
 
+test('extendFeet tucks opaque shafts under the hem and respects gaps, arms and translucent pixels', () => {
+  const rows = ['..........','..######..','.##t#####.','.########.','.#.#@#t##.','..fff.gg..','..fff.gg..'];
+  const colors = { '#': [70,90,80,255], '@': [120,70,60,255], t: [140,100,90,128], f: [90,60,55,255], g: [50,40,70,255] };
+  const width = rows[0].length, height = rows.length, pixels = new Uint8Array(width * height * 4);
+  rows.forEach((row, y) => [...row].forEach((key, x) => {
+    if (colors[key]) pixels.set(colors[key], 4 * (y * width + x));
+  }));
+  const view = { feet: [[2,5,3,2], [6,5,2,2]], arms: [[4,4,1,1], [8,3,1,1]] };
+  const png = encodePNG(pixels, width, height);
+  const from = options => importCutoutPNG(png, { cutout: { margin: 0, views: { down: { ...view, ...options } } } });
+  assert.deepEqual(from({}).source, from({ extendFeet: 0 }).source);
+  const { source, recipe } = from({ extendFeet: 3 });
+  const stand = source.poses[0];
+  assert.deepEqual(stand.parts.map(part => part.name), ['footA','footB','body','armA','armB']);
+  function ink(role, x, y) {
+    const part = stand.parts.find(instance => instance.name === role);
+    const row = source.parts[part.part].rows[y - stand.origin[1] - part.at[1]];
+    const key = row?.[x - stand.origin[0] - part.at[0]];
+    return key && key !== '.' ? source.palette[key] : undefined;
+  }
+  assert.equal(ink('footA', 3, 3), '#5a3c37ff', 'exposed shaft has the boot colour');
+  assert.equal(ink('body', 3, 3), '#465a50ff', 'hem keeps its own colour');
+  assert.ok(!ink('footA', 2, 3), 'a transparent gap blocks the column');
+  assert.ok(!ink('footA', 4, 4), 'a selected arm blocks the column');
+  assert.ok(!ink('footA', 3, 2) && !ink('footB', 6, 4), 'translucent body ink stays on its original layer');
+  assert.ok(ink('footB', 7, 2) && !ink('footB', 7, 1), 'the extension stops at the requested depth');
+  const rendered = renderProject(recipe).frames.find(frame => frame.name === 'stand-down');
+  assert.deepEqual(Buffer.from(rendered.data), Buffer.from(pixels));
+  for (const bad of [null, -1, 1.5, height + 1, '2']) {
+    assert.throws(() => from({ extendFeet: bad }), err => err.path === 'cutout.views.down.extendFeet');
+  }
+});
+
+test('two rows of visible porter boot can walk under the hem without keying the individual poses', async () => {
+  const fixture = new URL('../evals/character-walks/inputs/', import.meta.url);
+  const png = await readFile(new URL('porter.png', fixture));
+  const atlas = JSON.parse(await readFile(new URL('porter.atlas.json', fixture), 'utf8'));
+  const cutout = JSON.parse(await readFile(new URL('../porter-first.cuts.json', fixture), 'utf8'));
+  delete cutout.margin;
+  for (const view of Object.values(cutout.views)) view.extendFeet = 2;
+  const { source } = importCutoutPNG(png, { atlas, cutout });
+  const { recipe, metadata } = compilePoses(source), project = renderProject(recipe, { owners: true });
+  for (const direction of Object.keys(cutout.views)) {
+    const review = inspectMotion(project, { metadata, animation: 'walk-' + direction }, recipe).motion.cutout;
+    assert.deepEqual(review.clipped, []);
+    assert.deepEqual(review.separated, []);
+    assert.equal(review.footJoints.length, 2);
+    for (const foot of review.footJoints) {
+      assert.ok(foot.standingEdgePixels >= 2);
+      assert.deepEqual(foot.weak, []);
+    }
+  }
+});
+
 test('a crossing boot can cover a sound joint, while a real air gap still needs repair', () => {
   const pose = (name, nearY, farX, farY) => ({ name, parts: [
     { name: 'body', part: 'coat', at: [2,1] },
