@@ -1,0 +1,682 @@
+{
+  "format": "pixelforge-poses",
+  "version": 1,
+  "name": "watchmaker",
+  "width": 32,
+  "height": 32,
+  "palette": {
+    "A": "#282638",
+    "B": "#b9ccc7",
+    "C": "#6c8398",
+    "D": "#36445b",
+    "E": "#83dbcc",
+    "F": "#df545f",
+    "G": "#944058",
+    "H": "#b37c46",
+    "I": "#8b674e",
+    "J": "#563e51",
+    "K": "#f2ac48",
+    "L": "#ffe7a1"
+  },
+  "parts": {
+    "down-boot-a": {
+      "rows": [
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        "AJJJJA",
+        "ACDJJA",
+        "AAAAAA"
+      ]
+    },
+    "down-boot-b": {
+      "rows": [
+        ".AJ.A.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        "AJJJJA",
+        "AJJDCA",
+        "AAAAAA"
+      ]
+    },
+    "down-shell": {
+      "rows": [
+        "......AAA.......",
+        "......ABA.......",
+        "......ACA.......",
+        "...AAAADAAAAA...",
+        "..ADCCCBBBBBBA..",
+        ".ADCCCBBBBBBBCA.",
+        ".ADCCCCCCCCBBCA.",
+        ".ADAAAAAAAAADCA.",
+        ".ADAEEADAEEADCA.",
+        ".ADAEEADAEEADCA.",
+        ".ADAAAAAAAAADCA.",
+        "..ADCCCCCCCDAA..",
+        "AADDDDDCCCDAADAA",
+        "..AAAAAAAAAAAA..",
+        "..ADCCCCCCCCAA..",
+        "..AAACCDDCCCAA..",
+        "..ADDBDCCDDCAA..",
+        "..ADCBBBBBBCAA..",
+        "..ADCCCCCCCCAA..",
+        "..AAACCCCAAAAAA.",
+        "...DDDDDDDDDA.A.",
+        "...DCCDDCCCDAJA.",
+        "...ADDDDDDDAJJA.",
+        "...AAAAAAAAACCA."
+      ]
+    },
+    "down-arm-a": {
+      "rows": [
+        "..AAA",
+        "AAFFA",
+        "AFFFA",
+        "AGGGA",
+        ".AACA",
+        "..ADA",
+        "..ADA",
+        "..ACA",
+        "..ADA",
+        "...AA"
+      ]
+    },
+    "down-arm-b": {
+      "rows": [
+        "AAA......",
+        "CBCA.....",
+        "BBCA.....",
+        "CCDAA....",
+        "CDCCA....",
+        "DDCCA....",
+        "ADCAHAA..",
+        ".IAHAAHA.",
+        "..AHA.HA.",
+        "..AHHHHA.",
+        "..AHKKKHA",
+        "..AHKLKHA",
+        "..AHKKKHA",
+        "..AHHHHA.",
+        "...AAAA.."
+      ]
+    },
+    "up-boot-a": {
+      "rows": [
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        "AJJJJA",
+        "AJJDDA",
+        "AAAAAA"
+      ]
+    },
+    "up-boot-b": {
+      "rows": [
+        ".A.JA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        ".AJJA.",
+        "AJJJJA",
+        "ADDJJA",
+        "AAAAAA"
+      ]
+    },
+    "up-shell": {
+      "rows": [
+        ".......AAA......",
+        ".......ABA......",
+        ".......ACA......",
+        "...AAAAADAAAA...",
+        "..ACBBBBBCCCDA..",
+        ".ACCBBBBCCCCDDA.",
+        ".ACBCCCCCCCCDDA.",
+        ".ACCCCCDBCCCDDA.",
+        ".ACCDCCDDCCCDDA.",
+        ".ACCCDDDDDCCDDA.",
+        ".ADCCCCCCCCCDDA.",
+        "..ADDDCCCCDDDA..",
+        "AADAADCCCDDDDDAA",
+        "..AAAAAAAAAAAA..",
+        "..AADDCCCCCCAA..",
+        "..AADCCDDCCCAA..",
+        "..AACDAAADCCAA..",
+        "..AACCABADCCAA..",
+        "..AACCAAAADCAA..",
+        ".AAADDDDDDDDAA..",
+        ".A.ADDDDDDDDD...",
+        ".AJADCCCDDCCD...",
+        ".AJJADDDDDDDA...",
+        ".ACCAAAAAAAAA..."
+      ]
+    },
+    "up-arm-a": {
+      "rows": [
+        "AAA..",
+        "AFFAA",
+        "AFFFA",
+        "AGGGA",
+        "ACAA.",
+        "ADA..",
+        "ADA..",
+        "ACA..",
+        "ADA..",
+        "AA..."
+      ]
+    },
+    "up-arm-b": {
+      "rows": [
+        "......AAA",
+        ".....ACBC",
+        ".....ACBB",
+        "....AADCC",
+        "....ACCDC",
+        "....ACCDD",
+        "..AAHACDA",
+        ".AHAAHAI.",
+        ".AH.AHA..",
+        ".AHHHHA..",
+        "AHKKKHA..",
+        "AHKLKHA..",
+        "AHKKKHA..",
+        ".AHHHHA..",
+        "..AAAA..."
+      ]
+    },
+    "left-arm-a": {
+      "rows": [
+        ".AAA.",
+        "ACDCA",
+        "ADCCA",
+        "ADDA.",
+        "ADDA.",
+        "ADCA.",
+        "ADA..",
+        "AAA.."
+      ]
+    },
+    "left-boot-a": {
+      "rows": [
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        ".AJJJA",
+        "AJJJJA",
+        "ADJJJA",
+        "AAAAAA"
+      ]
+    },
+    "left-boot-b": {
+      "rows": [
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        "..AJJA",
+        ".AJJJA",
+        "AJJJJA",
+        "ACDJJA",
+        "AAAAAA"
+      ]
+    },
+    "left-shell": {
+      "rows": [
+        ".......AAA....",
+        ".......ABA....",
+        ".......ACA....",
+        "....AAAADAAA..",
+        "...ACBBBBCCCA.",
+        "..ACCBBBCCCCCA",
+        ".ACBCCCCCACDCA",
+        "AAAAAACCCACDCA",
+        "AAEECADCCACDDA",
+        "AAEECADCCACDDA",
+        ".AAAAADDCCDDDA",
+        "..ADCCCCCDDDA.",
+        "...AADAAAAAA..",
+        "...ABCCCCCDA..",
+        "..ABCCCCCBCA..",
+        "..ABBCCDCCCA..",
+        "..ACBCCCDDDA..",
+        "..ACBCCDCCCA..",
+        "..ACDCCCCDAA..",
+        "..AAACCCCADA..",
+        "...ADDDDDDCA..",
+        "...ACCBCCCDA..",
+        "...ACCDCCDDA..",
+        "...AAAAAAAAA.."
+      ]
+    },
+    "left-arm-b": {
+      "rows": [
+        ".......AAAA.",
+        "......ACBBCA",
+        ".....ACCBBCA",
+        ".....ACCCCCA",
+        ".....ACCCDA.",
+        ".....ADCCDA.",
+        "....ACCCDA..",
+        "...AACIAA...",
+        ".AAAHAA.....",
+        ".AH.HA......",
+        "AHHHHA......",
+        "AKKKHA......",
+        "AKLKHA......",
+        "AKKKHA......",
+        "AHHHA.......",
+        "AAAAA......."
+      ]
+    },
+    "right-arm-a": {
+      "rows": [
+        ".AAA.",
+        "ACDCA",
+        "ACCDA",
+        ".ADDA",
+        ".ADDA",
+        ".ACDA",
+        "..ADA",
+        "..AAA"
+      ]
+    },
+    "right-boot-a": {
+      "rows": [
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJJA.",
+        "AJJJJA",
+        "AJJJDA",
+        "AAAAAA"
+      ]
+    },
+    "right-boot-b": {
+      "rows": [
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJA..",
+        "AJJJA.",
+        "AJJJJA",
+        "AJJDCA",
+        "AAAAAA"
+      ]
+    },
+    "right-shell": {
+      "rows": [
+        "....AAA.......",
+        "....ABA.......",
+        "....ACA.......",
+        "..AAADAAAA....",
+        ".ACCCCBBBBA...",
+        "ACCCCCCBBBCA..",
+        "ACDCACCCCCBCA.",
+        "ACDCACCCAAAAAA",
+        "ADDCACCDACEEAA",
+        "ADDCACCDACEEAA",
+        "ADDDCCDDAAAAA.",
+        ".ADDDCCCCCDA..",
+        "..AAAAAADAA...",
+        "..ADCCCCCBA...",
+        "..ACBCCCCCBA..",
+        "..ACCCDCCBBA..",
+        "..ADDDCCCBCA..",
+        "..ACCCDCCBCA..",
+        "..AADCCCCDCA..",
+        "..ADACCCCAAA..",
+        "..ACDDDDDDA...",
+        "..ADCCCBCCA...",
+        "..ADDCCDCCA...",
+        "..AAAAAAAAA..."
+      ]
+    },
+    "right-arm-b": {
+      "rows": [
+        "..AAAA..",
+        ".AFFGGA.",
+        "AFFFFGGA",
+        "AGGGGGGA",
+        ".AACCAA.",
+        "..ACCDA.",
+        "..ADCDA.",
+        "..ADCCA.",
+        "...ACDA.",
+        "...ADDA.",
+        "....AA.."
+      ]
+    }
+  },
+  "poses": [
+    {
+      "name": "stand-down",
+      "duration": 120,
+      "origin": [
+        13,
+        30
+      ],
+      "parts": [
+        {
+          "name": "boot-a",
+          "part": "down-boot-a",
+          "at": [
+            -5,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-b",
+          "part": "down-boot-b",
+          "at": [
+            3,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "shell",
+          "part": "down-shell",
+          "at": [
+            -7,
+            -29
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-a",
+          "part": "down-arm-a",
+          "at": [
+            -9,
+            -17
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-b",
+          "part": "down-arm-b",
+          "at": [
+            6,
+            -17
+          ],
+          "cleanup": false
+        }
+      ]
+    },
+    {
+      "name": "stand-up",
+      "duration": 120,
+      "origin": [
+        13,
+        30
+      ],
+      "parts": [
+        {
+          "name": "boot-a",
+          "part": "up-boot-a",
+          "at": [
+            3,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-b",
+          "part": "up-boot-b",
+          "at": [
+            -5,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "shell",
+          "part": "up-shell",
+          "at": [
+            -5,
+            -29
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-a",
+          "part": "up-arm-a",
+          "at": [
+            8,
+            -17
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-b",
+          "part": "up-arm-b",
+          "at": [
+            -11,
+            -17
+          ],
+          "cleanup": false
+        }
+      ]
+    },
+    {
+      "name": "stand-left",
+      "duration": 120,
+      "origin": [
+        13,
+        30
+      ],
+      "parts": [
+        {
+          "name": "arm-a",
+          "part": "left-arm-a",
+          "at": [
+            -5,
+            -16
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-a",
+          "part": "left-boot-a",
+          "at": [
+            -4,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-b",
+          "part": "left-boot-b",
+          "at": [
+            -1,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "shell",
+          "part": "left-shell",
+          "at": [
+            -6,
+            -29
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-b",
+          "part": "left-arm-b",
+          "at": [
+            -6,
+            -17
+          ],
+          "cleanup": false
+        }
+      ]
+    },
+    {
+      "name": "stand-right",
+      "duration": 120,
+      "origin": [
+        13,
+        30
+      ],
+      "parts": [
+        {
+          "name": "arm-a",
+          "part": "right-arm-a",
+          "at": [
+            3,
+            -16
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-a",
+          "part": "right-boot-a",
+          "at": [
+            1,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "boot-b",
+          "part": "right-boot-b",
+          "at": [
+            -2,
+            -9
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "shell",
+          "part": "right-shell",
+          "at": [
+            -5,
+            -29
+          ],
+          "cleanup": false
+        },
+        {
+          "name": "arm-b",
+          "part": "right-arm-b",
+          "at": [
+            -4,
+            -17
+          ],
+          "cleanup": false
+        }
+      ]
+    }
+  ],
+  "walkCycles": {
+    "walk-down": {
+      "rest": "stand-down",
+      "direction": "down",
+      "feet": [
+        "boot-a",
+        "boot-b"
+      ],
+      "arms": [
+        "arm-a",
+        "arm-b"
+      ],
+      "stride": 1,
+      "lift": 1,
+      "bob": 1,
+      "duration": 120
+    },
+    "walk-up": {
+      "rest": "stand-up",
+      "direction": "up",
+      "feet": [
+        "boot-a",
+        "boot-b"
+      ],
+      "arms": [
+        "arm-a",
+        "arm-b"
+      ],
+      "stride": 1,
+      "lift": 1,
+      "bob": 1,
+      "duration": 120
+    },
+    "walk-left": {
+      "rest": "stand-left",
+      "direction": "left",
+      "feet": [
+        "boot-a",
+        "boot-b"
+      ],
+      "arms": [
+        "arm-a",
+        "arm-b"
+      ],
+      "stride": 2,
+      "lift": 1,
+      "bob": 1,
+      "duration": 120
+    },
+    "walk-right": {
+      "rest": "stand-right",
+      "direction": "right",
+      "feet": [
+        "boot-a",
+        "boot-b"
+      ],
+      "arms": [
+        "arm-a",
+        "arm-b"
+      ],
+      "stride": 2,
+      "lift": 1,
+      "bob": 1,
+      "duration": 120
+    }
+  },
+  "animations": {
+    "stand-down": {
+      "frames": [
+        "stand-down"
+      ],
+      "loop": true
+    },
+    "stand-up": {
+      "frames": [
+        "stand-up"
+      ],
+      "loop": true
+    },
+    "stand-left": {
+      "frames": [
+        "stand-left"
+      ],
+      "loop": true
+    },
+    "stand-right": {
+      "frames": [
+        "stand-right"
+      ],
+      "loop": true
+    }
+  },
+  "sheet": {
+    "columns": 8,
+    "padding": 0
+  }
+}

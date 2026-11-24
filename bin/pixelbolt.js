@@ -152,7 +152,7 @@ lists every frame).
 enlarged sheet; scene --image takes the same.
 --motion name --speed px/s reviews contacts, ground, pose spread, loop seam and gait, and draws the limb arcs.
 Input may be a pose source, or a compiled recipe with --metadata meta.json. --ground row overrides the
-metadata's ground.
+metadata's ground. With a cutout walk, --track mask.json follows a part's standing pixels through occlusions.
 --max-cells 1-256 samples long sequences with explicit omission metadata; evenly spaced samples can alias with a
 repeating pattern (a strobe alternating A and B), so pick positions with --step and --offset.
 Patch: --changes holds a list applied in order: {"set": "palette.c", "value": "#8a5a2c"} (any path, as errors write them;
@@ -184,7 +184,7 @@ const FLAGS = new Set(['force', 'grid', 'native', 'diagnostics', 'palette', 'ope
 const OPTIONS = {
   init: ['force'],
   validate: ['fps'],
-  inspect: ['pin', 'rotate', 'pose-sheet', 'frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'stack', 'under'],
+  inspect: ['pin', 'rotate', 'pose-sheet', 'frames', 'animation', 'region', 'grid', 'scale', 'background', 'out', 'force', 'view', 'native', 'diagnostics', 'full', 'max-cells', 'step', 'offset', 'every', 'layers', 'reference', 'beside', 'palette', 'guides', 'motion', 'speed', 'ground', 'metadata', 'track', 'stack', 'under'],
   patch: ['changes', 'out', 'image', 'force'],
   render: ['out', 'force', 'expect', 'animation', 'list-files', 'embed-recipe', 'gif', 'gif-scale', 'look', 'scale', 'columns', 'normal'],
   gif: ['out', 'animation', 'scale', 'background', 'force', 'preset', 'size', 'frames', 'sheet', 'fps'],
@@ -702,7 +702,7 @@ try {
       print({ ok: true, ...bundleFiles(path.resolve(options.out), files, options), warnings: bundle.warnings, ...referenced(input) });
     } else if (command === 'inspect') {
       const layerOptions = options.layers === undefined ? {} : { layers: options.layers.split(',') };
-      if (!options.motion && ['speed', 'ground', 'metadata'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground and --metadata require --motion');
+      if (!options.motion && ['speed', 'ground', 'metadata', 'track'].some(key => options[key] !== undefined)) throw new Error('--speed, --ground, --metadata and --track require --motion');
       if (options.full && !options.diagnostics) throw new Error('--full goes with --diagnostics: it lists the counts of every frame');
       if (options.motion) for (const key of ['pin', 'rotate', 'frames', 'animation', 'region', 'grid', 'view', 'native', 'diagnostics', 'max-cells', 'step', 'offset', 'layers', 'reference', 'beside', 'palette', 'guides', 'stack', 'under']) if (options[key] !== undefined) throw new Error(`--${key} cannot be combined with --motion`);
       const input = await readResolved(positional[0]);
@@ -740,6 +740,7 @@ try {
       const drawnWith = { ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }), ...(options.under !== undefined && { under: await readUnder(options.under, layerOptions) }) };
       const view = poseSheet ? inspectPoseSheet(project,poseSheet,inspectOptions(options)) : options.motion ? inspectMotion(project, { animation: options.motion, metadata: compiled?.metadata ?? (options.metadata ? await readProject(options.metadata, '--metadata') : undefined),
         ...Object.fromEntries(['speed', 'ground', 'scale'].filter(key => options[key] !== undefined).map(key => [key, Number(options[key])])),
+        ...(options.track !== undefined && { track: await readJSONOption(options.track, 'track', '{"part":"body","rects":[[4,5,2,1]]}') }),
         ...(options.background !== undefined && { background: options.background }) }, recipe) : inspectProject(project, { ...inspectOptions(options), ...drawnWith }, share);
       // --beside: the same view of more recipes under this one, in one image.
       let drawn = view;
@@ -757,7 +758,7 @@ try {
       }
       const { data, ...sheet } = drawn.sheet;
       if (options.out && !/\.png$/i.test(options.out)) throw new Error('inspect --out must name a .png file');
-      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles, options.under === undefined ? undefined : underOf(options.under).file, optionFile(options.guides), optionFile(options['pose-sheet']))]);
+      const written = await writeOutputs(options.out ? { image: [options.out, encodePNG(data, sheet.width, sheet.height), '--out'], ...(view.nativeSheet && { nativeImage: [options.out.replace(/\.png$/i, '.native.png'), encodePNG(view.nativeSheet.data, view.nativeSheet.width, view.nativeSheet.height), 'The --native sheet beside --out'] }), ...(referenceImage && { referenceImage: [options.out.replace(/\.png$/i, '.reference.png'), encodePNG(referenceImage.sheet.data, referenceImage.sheet.width, referenceImage.sheet.height), 'The --reference comparison beside --out'] }) } : {}, options.force, [...inputsOf(input), ...filesRead(options.reference, options.metadata, ...besideFiles, options.under === undefined ? undefined : underOf(options.under).file, optionFile(options.guides), optionFile(options.track), optionFile(options['pose-sheet']))]);
       if (drawn.diagnostics && !options.full) drawn.diagnostics = briefDiagnostics(drawn.diagnostics);
       // Grid rows line up for reading; a short row of a table (a cell, a frame's counts, a box) stays on one line.
       print({ ok: true, ...summary(project, recipe), ...drawn, cells: briefCells(drawn.cells), warnings: [...(compiled?.warnings ?? []), ...project.warnings], sheet, nativeSheet: view.nativeSheet ? { ...view.nativeSheet, data: undefined } : undefined, ...(options.palette && { palette: paletteUse(project) }), ...(comparison && { comparison: briefComparison(comparisonReport) }), ...written, ...referenced(input) });

@@ -27,6 +27,7 @@ const routes = new Map([
   ['/pose-geometry.js', ['./pose-geometry.js', 'text/javascript; charset=utf-8']],
   ['/motions.js', ['./motions.js', 'text/javascript; charset=utf-8']],
   ['/cutout-review.js', ['./cutout-review.js', 'text/javascript; charset=utf-8']],
+  ['/cutout-track.js', ['./cutout-track.js', 'text/javascript; charset=utf-8']],
   ['/motion.js', ['./motion.js', 'text/javascript; charset=utf-8']],
   ['/autotile.js', ['./autotile.js', 'text/javascript; charset=utf-8']],
   ['/terrain.js', ['./terrain.js', 'text/javascript; charset=utf-8']],

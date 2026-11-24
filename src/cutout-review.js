@@ -2,6 +2,7 @@
 // Component counts flag newly separated pixels, including a whole boot. An intentional floating
 // detail in the rest doesn't fail merely because it is present throughout the animation.
 import { fail, inspectProject, renderProject } from './core.js';
+import { trackCutout } from './cutout-track.js';
 
 function islands(frame, width, height) {
   const pixels = width * height, seen = new Uint8Array(pixels), pending = new Int32Array(pixels);
@@ -138,6 +139,7 @@ export function inspectCutoutWalk(project, options, metadata, info, recipe) {
   const motion = { animation: options.animation, direction: info.direction, speed, duration: clip.duration, cutout: {
     standingIslands: baseline, separated, clipped, slide, ...(footJoints.length && { footJoints }), ...(profile && { profile }), fixes
   } };
+  if (options.track !== undefined) motion.cutout.track = trackCutout(project, recipe, rest, frames, options.track);
   if (options.ground !== undefined) fail('motion.ground', 'cutout review measures travel relative to the standing pose; omit ground to review this clip');
   return { ...inspectProject(project, { animation: options.animation, scale: options.scale, background: options.background, maxCells: 8 }), mode: 'motion', motion };
 }

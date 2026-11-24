@@ -435,7 +435,7 @@ export function createToolRunner({ directory, root, version }) {
           const { view: mode, ...motionOptions } = inspection;
           view = inspectMotion(project, { ...motionOptions, metadata, ...(speed !== undefined && { speed }), ...(ground !== undefined && { ground }) }, recipe);
         } else {
-          if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined) throw new PixelError('arguments', 'speed, ground and metadata require view: motion');
+          if (speed !== undefined || ground !== undefined || suppliedMetadata !== undefined || inspection.track !== undefined) throw new PixelError('arguments', 'speed, ground, metadata and track require view: motion');
           // beside: each sheet is fitted to its share of the one image.
           const share = Array.isArray(beside) && beside.length ? { sheets: Math.min(9, beside.length + 1) } : undefined;
           view = inspectProject(project, inspection, share);
@@ -733,6 +733,7 @@ export async function startMCP({ directory = 'output', root = process.cwd(), inp
       properties:{ socket:{type:'string'}, heading:{type:'integer',minimum:0,maximum:359}, degrees:{oneOf:[
         {type:'number',minimum:0,maximum:360},{type:'array',minItems:1,maxItems:256,uniqueItems:true,items:{type:'number',minimum:0,maximum:360}}]} } },
     metadata: { type: 'object', description: 'Pose metadata from pixel_compile (metadata: true), for motion review of a compiled revision.' },
+    track: { type: 'object', description: 'Cutout motion: follow {part,rects,pivot?} from a stand, reporting wrong owners and normal foreground occlusions. Rects are [x,y,w,h].' },
     speed: { type: 'number', minimum: -4096, maximum: 4096, description: 'Motion view: pixels per second.' },
     ground: { type: 'integer', minimum: 0, maximum: CANVAS_SIDE - 1, description: 'Motion view: ground row.' },
     layers: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64, description: 'Show only these named layers.' },

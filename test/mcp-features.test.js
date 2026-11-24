@@ -392,6 +392,16 @@ test('CLI and MCP cut the same editable pose source and render identical Godot f
   const review = await mcp.call('pixel_inspect', { revision: imported.info.sourceRevision, view: 'motion', animation: 'walk-left' });
   assert.ok(review.info.ok, review.info.error);
   assert.deepEqual(review.info.motion.cutout.profile, { opposite: 'walk-right', authored: false, exactMirror: true });
+  // A generated mirror still starts from the supplied, unmirrored standing coordinates.
+  const mask = { part: 'footA', pivot: [16,32], rects: [[12,23,5,8]] };
+  await writeFile(path.join(dir, 'mask.png'), JSON.stringify(mask));
+  const tracked = run('inspect','walker.poses.json','--motion','walk-left','--track','mask.png');
+  const rpc = await mcp.call('pixel_inspect', { revision: imported.info.sourceRevision, view:'motion', animation:'walk-left', track:mask });
+  assert.deepEqual(tracked.motion.cutout.track, rpc.info.motion.cutout.track);
+  assert.ok(rpc.info.motion.cutout.track.passed);
+  assert.ok(rpc.info.motion.cutout.track.checked > 0);
+  assert.notEqual(cli('inspect','walker.poses.json','--motion','walk-left','--track','mask.png','--out','mask.png','--force').status, 0);
+  assert.equal(await readFile(path.join(dir, 'mask.png'), 'utf8'), JSON.stringify(mask));
   const data = await mcp.call('pixel_import', { data: png.toString('base64'), name: 'walker', cutout });
   assert.equal(imported.info.revision, data.info.revision);
   run('compile','walker.poses.json','--out','walker.pixel.json');

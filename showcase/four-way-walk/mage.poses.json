@@ -73,6 +73,8 @@
     },
     "up-boot-a": {
       "rows": [
+        "xppx",
+        "xppx",
         "xxxx",
         "xpmp",
         "pppp"
@@ -80,6 +82,8 @@
     },
     "up-boot-b": {
       "rows": [
+        "xppx",
+        "xppx",
         "xxxx",
         "pppx",
         "pppx"
@@ -139,8 +143,8 @@
       "rows": [
         ".xxx.",
         "xppx.",
-        "xpdx.",
-        "xxddx",
+        ".xdx.",
+        ".xddx",
         ".xxxx"
       ]
     },
@@ -150,7 +154,7 @@
         "xppx.",
         "xptx.",
         "xxttx",
-        ".xxxx"
+        "..xxx"
       ]
     },
     "right-body": {
@@ -199,8 +203,8 @@
       "name": "stand-up",
       "origin": [12, 19],
       "parts": [
-        { "name": "boot-a", "part": "up-boot-a", "at": [-4, -3], "cleanup": false },
-        { "name": "boot-b", "part": "up-boot-b", "at": [0, -3], "cleanup": false },
+        { "name": "boot-a", "part": "up-boot-a", "at": [-4, -5], "cleanup": false },
+        { "name": "boot-b", "part": "up-boot-b", "at": [0, -5], "cleanup": false },
         { "name": "body", "part": "up-body", "at": [-7, -16], "cleanup": false },
         { "name": "arm-a", "part": "up-arm-a", "at": [-8, -7], "cleanup": false },
         { "name": "arm-b", "part": "up-arm-b", "at": [4, -7], "cleanup": false }

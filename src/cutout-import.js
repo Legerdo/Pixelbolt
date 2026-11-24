@@ -20,7 +20,24 @@ function visitRegion(rows, rect, path, visit) {
 function cutView(frame, view, width, height, pivot, palette, path) {
   const rows = frame.ops?.[0]?.rows;
   if (!rows?.length) fail(path, 'the selected frame has no visible palette grid');
-  const owners = new Uint8Array(width * height), names = ['body'];
+  const owners = new Uint8Array(width * height), names = ['body','footA','footB'];
+  if (view.arms !== undefined) names.push('armA','armB');
+  // The small explicit mask takes precedence over broad limb boxes. Encode role + 1
+  // so an explicit body pixel is distinguishable from an unreserved pixel.
+  let reserved;
+  if (view.keepWith !== undefined) {
+    fields(view.keepWith, names, path + '.keepWith');
+    reserved = new Uint8Array(owners.length);
+    for (const [part, rects] of Object.entries(view.keepWith)) {
+      const location = path + '.keepWith.' + part, role = names.indexOf(part) + 1;
+      if (!Array.isArray(rects) || !rects.length || rects.length > 64) fail(location, 'expected 1 to 64 source-pixel rectangles');
+      rects.forEach((rect, n) => visitRegion(rows, rect, location + '[' + n + ']', (index, x, y) => {
+        if (reserved[index] && reserved[index] !== role) fail(location, `pixel [${x}, ${y}] is reserved for two different parts`);
+        reserved[index] = role;
+        owners[index] = role - 1;
+      }));
+    }
+  }
   for (const [group, prefix] of [['feet', 'foot'], ['arms', 'arm']]) {
     if (group === 'arms' && view.arms === undefined) continue;
     const pair = view[group];
@@ -29,13 +46,13 @@ function cutView(frame, view, width, height, pivot, palette, path) {
       const location = `${path}.${group}[${i}]`;
       const rects = Array.isArray(region?.[0]) ? region : [region];
       if (rects.length > 64) fail(location, 'expected up to 64 rectangles for one limb');
-      const role = names.length;
-      names.push(prefix + (i ? 'B' : 'A'));
+      const role = names.indexOf(prefix + (i ? 'B' : 'A'));
       rects.forEach((rect, j) => visitRegion(rows, rect, `${location}[${j}]`, (index, x, y) => {
+        if (reserved?.[index]) return;
         if (owners[index] && owners[index] !== role) fail(location, `pixel [${x}, ${y}] belongs to two limbs; narrow a rectangle or split it into smaller rectangles`);
         owners[index] = role;
       }));
-      if (!owners.includes(role)) fail(location, 'this region selects only transparent pixels; inspect the source grid and move the rectangle onto the limb');
+      if (!owners.includes(role)) fail(location, reserved ? 'no visible pixels remain on this limb; inspect its rectangles and keepWith mask' : 'this region selects only transparent pixels; inspect the source grid and move the rectangle onto the limb');
     });
   }
   // Reuse the original colour behind selected joints. Only opaque pixels can be doubled without
@@ -44,7 +61,7 @@ function cutView(frame, view, width, height, pivot, palette, path) {
   if (view.overlap !== undefined) {
     if (!Array.isArray(view.overlap) || view.overlap.length > 64) fail(path + '.overlap', 'expected up to 64 joint rectangles');
     view.overlap.forEach((rect, i) => visitRegion(rows, rect, `${path}.overlap[${i}]`, (index, x, y) => {
-      if (!owners[index]) return;
+      if (!owners[index] || reserved?.[index]) return;
       if (!palette[rows[y][x]].endsWith('ff')) fail(path + '.overlap', `pixel [${x}, ${y}] is translucent; leave it out of the joint overlap to preserve the standing pose`);
       joins[index] = 1;
     }));
@@ -60,7 +77,7 @@ function cutView(frame, view, width, height, pivot, palette, path) {
       if (top === height) continue;
       for (let y = top - 1; y >= Math.max(0, top - depth); y--) {
         const i = y * width + x;
-        if (owners[i] || rows[y][x] === '.' || !palette[rows[y][x]].endsWith('ff')) break;
+        if (owners[i] || reserved?.[i] || rows[y][x] === '.' || !palette[rows[y][x]].endsWith('ff')) break;
         owners[i] = foot;
         joins[i] = 1;
         shaftInk.set(i, rows[top][x]);
@@ -120,7 +137,7 @@ function cutoutSource(recipe, spec) {
   const source = { format: 'pixelforge-poses', version: 1, name: recipe.name, width: width + 2 * margin, height: height + 2 * margin, palette: recipe.palette, parts: {}, poses: [], animations: {}, walkCycles: {} };
   for (const [direction, view] of Object.entries(spec.views)) {
     const path = `cutout.views.${direction}`;
-    fields(view, ['frame', 'feet', 'arms', 'overlap', 'extendFeet', 'mirror', 'stride', 'lift', 'bob', 'duration'], path);
+    fields(view, ['frame', 'feet', 'arms', 'overlap', 'extendFeet', 'keepWith', 'mirror', 'stride', 'lift', 'bob', 'duration'], path);
     const frame = view.frame === undefined && recipe.frames.length === 1 ? recipe.frames[0] : recipe.frames.find(f => f.name === view.frame);
     if (!frame) fail(`${path}.frame`, `choose an imported frame by name: ${recipe.frames.slice(0, 12).map(f => f.name).join(', ')}`);
     const pivot = spec.pivot ?? frame.anchor ?? recipe.anchor ?? [Math.floor(width / 2), height];

@@ -6,6 +6,9 @@ Releases before 0.9.0 are described on [GitHub Releases](https://github.com/skul
 
 ### Four-direction cutout walks
 
+- Corrected detached rear boots and loose side-view heels in the Mage, Knight and Ranger walks and the knight preset. Restored missing shoulder and wrist pixels in the [Lamplighter and Watchmaker walks](showcase/lantern-walks/).
+- Track selected standing pixels through a cutout walk with `inspect --motion … --track mask.json` or `pixel_inspect`. The review identifies unexpected owners and reports which layers cover the intended drawing at each step. Use `keepWith` in the cut manifest to assign an outline shared by equipment and a moving limb. [Guide](docs/agent-guide.md#when-a-boot-crosses-a-carried-prop).
+
 - PNG cutouts accept `extendFeet` on a facing to keep short boots connected under a moving coat. The editable source preserves the supplied standing pixels. [PNG authoring guide](docs/agent-guide.md#cutout-walks-from-a-png).
 
 - Pose sources accept `walkCycles` to animate drawn front, back and profile poses. Name the feet and optional arms, then compile eight steps per direction through the CLI or MCP. A side cycle can generate its mirror. [Authoring guide](docs/animate-your-sprite.md#four-direction-walks-from-drawn-parts) · [Three animated characters](showcase/four-way-walk/).

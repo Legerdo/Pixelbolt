@@ -10,6 +10,8 @@ Each character starts from a single 16 × 16 sprite by Kenney. The standing fron
 | Knight | [PNG](sources/knight.png) | [Pose source](knight.poses.json) |
 | Ranger | [PNG](sources/ranger.png) | [Pose source](ranger.poses.json) |
 
+The back-view boots have two rows of shaft tucked behind the outfit. When the torso rises on steps 4 and 8, the extended boot still meets the hem along four pixels. The profile heels taper where they pass behind the sleeve. Across all 96 walk frames, each visible boot forms one edge-connected shape. With the sleeve and other boot hidden, each exposed boot meets the outfit along at least two pixels.
+
 ## Build the assets
 
 From a Pixelbolt checkout containing `walkCycles`, run these commands. Substitute `knight` or `ranger` for `mage` to build the other characters. Use an empty output folder.
@@ -18,6 +20,8 @@ From a Pixelbolt checkout containing `walkCycles`, run these commands. Substitut
 node bin/pixelbolt.js compile showcase/four-way-walk/mage.poses.json --out output/mage.pixel.json
 node bin/pixelbolt.js render output/mage.pixel.json --out output/mage
 ```
+
+Run `node --test test/four-way-boot-contact.test.js` to check the boot joins and all twelve standing drawings.
 
 An agent using MCP can pass the pose JSON as `source` to `pixel_compile`, then pass the returned revision to `pixel_render`. To adjust an individual step, run `compile --expand`, edit the named pose, and compile that file.
 

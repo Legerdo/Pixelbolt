@@ -142,7 +142,7 @@ function onCanvas(metadata) {
 }
 
 export function inspectMotion(project, options = {}, recipe) {
-  const allowed = ['animation', 'metadata', 'speed', 'ground', 'scale', 'background'];
+  const allowed = ['animation', 'metadata', 'speed', 'ground', 'scale', 'background', 'track'];
   if (!options || typeof options !== 'object' || Array.isArray(options)) fail('options', 'expected an object');
   for (const key of Object.keys(options)) if (!allowed.includes(key)) fail(key, 'unknown field for motion review');
   // Stills keep their flipbook for viewing, but it is no animation to review.
@@ -158,6 +158,7 @@ export function inspectMotion(project, options = {}, recipe) {
   if (!Number.isInteger(scale) || scale < 1 || scale > 16) fail('scale', 'expected an integer from 1 to 16');
   const cutout = metadata?.animations?.[options.animation]?.cutout;
   if (cutout !== undefined) return inspectCutoutWalk(project, options, metadata, cutout, recipe);
+  if (options.track !== undefined) fail('track', 'pixel tracking requires a cutout walk; inspect its pose source and a named walk animation');
   let time = 0;
   const entries = animation.frames.map((index, position) => {
     const frame = project.frames[index], entry = { frame, position, start: time, ...poseData(metadata, frame) };
