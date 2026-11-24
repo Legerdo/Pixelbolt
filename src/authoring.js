@@ -168,7 +168,7 @@ export function compilePoses(source, within) {
   const mode = within?.[WITHIN]?.probe ? PROBE : undefined;
   let written = within?.[WITHIN]?.written ?? null;
   const motions = source?.motions;
-  if (motions !== undefined) { const input = source; source = expandPoses(source); written = writtenPoses(input, source); }
+  if (motions !== undefined || source?.walkCycles !== undefined) { const input = source; source = expandPoses(source); written = writtenPoses(input, source); }
   fields(source, ['format', 'version', 'name', 'width', 'height', 'palette', 'ramps', 'light', 'innerLines', 'rig', 'motionInfo', 'parts', 'poses', 'animations', 'sheet'], 'poses');
   if (source.format !== 'pixelforge-poses' || source.version !== 1) fail('poses', 'expected version-1 pixelforge-poses');
   // Before anything is sized by it: the pass that shades inner lines made its arrays from a width nothing had checked.
