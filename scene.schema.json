@@ -78,7 +78,7 @@
               },
               {
                 "type": "string",
-                "description": "Recipe file, resolved by the CLI relative to the scene or inside the MCP root."
+                "description": "Recipe or source file (poses, autotile, fx, fluid, wave, crystal, powder, bodies, stack), resolved and compiled by the CLI and MCP relative to the scene."
               },
               {
                 "type": "object",
@@ -108,7 +108,7 @@
                   },
                   {
                     "type": "string",
-                    "description": "Recipe file, resolved by the CLI relative to the scene or inside the MCP root."
+                    "description": "Recipe or source file (poses, autotile, fx, fluid, wave, crystal, powder, bodies, stack), resolved and compiled by the CLI and MCP relative to the scene."
                   },
                   {
                     "type": "object",
@@ -913,6 +913,41 @@
           "type": "integer",
           "minimum": 2,
           "maximum": 16
+        },
+        "dither": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Feather each lighting band into the next across this share of the step using pattern, keeping the exact same colour count (0 hard rings, default; 0.5–1 smooth dithered falloff)."
+        },
+        "pattern": {
+          "oneOf": [
+            {
+              "enum": [
+                "bayer2",
+                "bayer4",
+                "bayer8",
+                "noise",
+                "value"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "maxItems": 16,
+                "minItems": 1
+              },
+              "maxItems": 16,
+              "minItems": 1
+            }
+          ],
+          "description": "Dither pattern for lighting.dither: bayer4 (default), bayer2, bayer8, noise, value or a matrix of ranks. Anchored to scene coordinates."
         },
         "scope": {
           "enum": [

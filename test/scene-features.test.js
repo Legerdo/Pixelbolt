@@ -186,3 +186,59 @@ test('new light and placement fields fail early with paths', () => {
   const twice = room([{ follow: { instance: 'lamp' } }]); twice.instances.push({ ...twice.instances[1] });
   assert.throws(() => prepareScene(twice), error => error.path === 'scene.lighting.lights[0].follow.instance');
 });
+
+test('lighting.dither softens band transitions without inventing new colours', async () => {
+  const { sceneColors } = await import('../src/scene.js');
+  const floor = { version: 1, name: 'floor', width: 32, height: 32, palette: { g: '#408060' }, frames: [{ name: 'f', ops: [{ op: 'rect', x: 0, y: 0, w: 32, h: 32, color: 'g' }] }] };
+  const make = extra => renderScene(prepareScene({ format: 'pixelforge-scene', version: 1, name: 'dithered', width: 32, height: 32, assets: { floor }, instances: [{ asset: 'floor', at: [0, 0] }],
+    lighting: { ambient: 0.25, bands: 3, scope: 'all', lights: [{ at: [16, 16], height: 6, radius: 14, color: '#ffaa50' }], ...extra } }));
+  const plain = make({}), zero = make({ dither: 0 }), smooth = make({ dither: 1 }), bayer2 = make({ dither: 1, pattern: 'bayer2' });
+  assert.deepEqual(zero.data, plain.data, 'dither: 0 matches default exactly');
+  assert.notDeepEqual(smooth.data, plain.data, 'dither feathers transitions between bands');
+  assert.notDeepEqual(bayer2.data, smooth.data, 'pattern selects the threshold matrix');
+  // Every pixel stays on the same 3 discrete bands: no new colours are created.
+  assert.equal(sceneColors(plain.data), 3);
+  assert.equal(sceneColors(smooth.data), 3);
+  assert.equal(sceneColors(bayer2.data), 3);
+  // Outside the light's radius (diffuse === 0) stays untouched at ambient.
+  assert.deepEqual(at(smooth, 0, 0), at(plain, 0, 0));
+  assert.deepEqual(make({ dither: 0.75, pattern: [[0, 1], [1, 0]] }).data, make({ dither: 0.75, pattern: [[0, 1], [1, 0]] }).data, 'deterministic');
+  // Invalid dither and pattern fail with paths.
+  assert.throws(() => make({ dither: 1.5 }), error => error.path === 'scene.lighting.dither');
+  assert.throws(() => make({ dither: 0.5, pattern: 'ordered' }), error => error.path === 'scene.lighting.pattern');
+});
+
+test('resolveReferences compiles source-format scene assets (fluid, poses) and enforces root sandboxing', async t => {
+  const { mkdtemp, rm, writeFile, mkdir } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { resolveReferences } = await import('../src/resolve.js');
+  const { compileFluid } = await import('../src/fluid.js');
+  const { compilePoses } = await import('../src/authoring.js');
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-scene-sources-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await mkdir(path.join(dir, 'sub'));
+  await writeFile(path.join(dir, 'pal.json'), JSON.stringify({ s: '#90a0c0', k: '#141624', g: '#50a060' }));
+  const fluid = { format: 'pixelforge-fluid', version: 1, name: 'puff', width: 12, height: 12, palette: { $ref: '../pal.json' },
+    effects: { burn: { frames: 4, duration: 80, loop: false, seed: 1, emitters: [{ at: [6, 8], radius: 2, rate: 1, density: 1, velocity: [0, -1] }], look: [{ field: 'density', colors: ['s'], thresholds: [0.2], dither: 0 }] } } };
+  const poses = { format: 'pixelforge-poses', version: 1, name: 'blob', width: 8, height: 8, palette: { $ref: '../pal.json' },
+    parts: { body: { rows: ['.kk.', 'kggk', 'kggk', '.kk.'], anchor: [2, 3] } },
+    poses: [{ name: 'idle', origin: [4, 6], parts: [{ name: 'body', part: 'body' }] }] };
+  await writeFile(path.join(dir, 'sub', 'puff.fluid.json'), JSON.stringify(fluid));
+  await writeFile(path.join(dir, 'sub', 'blob.poses.json'), JSON.stringify(poses));
+  const scene = { format: 'pixelforge-scene', version: 1, name: 'direct', width: 24, height: 16, duration: 320,
+    assets: { puff: 'sub/puff.fluid.json', hero: { recipe: 'sub/blob.poses.json', normal: { format: 'pixelforge-normals', version: 1, bevel: 2 } } },
+    instances: [{ name: 'fire', asset: 'puff', at: [10, 2], animation: 'burn', lit: false }, { name: 'hero', asset: 'hero', at: [2, 4], frame: 'idle' }],
+    lighting: { ambient: 0.25, bands: 4, dither: 0.5, lights: [{ at: [16, 8], height: 6, radius: 24 }] } };
+  const { COMPILERS } = await import('../src/presets.js');
+  const resolved = await resolveReferences(scene, { baseDir: dir, root: dir, compilers: COMPILERS });
+  assert.deepEqual(resolved.files.map(file => path.basename(file)).sort(), ['blob.poses.json', 'pal.json', 'puff.fluid.json']);
+  const prepared = prepareScene(resolved.document);
+  // Matches compiling the fluid and poses sources separately.
+  const expectedFluid = compileFluid({ ...fluid, palette: { s: '#90a0c0', k: '#141624', g: '#50a060' } }).recipe;
+  const expectedPoses = compilePoses({ ...poses, palette: { s: '#90a0c0', k: '#141624', g: '#50a060' } }).recipe;
+  const manual = prepareScene({ ...scene, assets: { puff: expectedFluid, hero: { recipe: expectedPoses, normal: { format: 'pixelforge-normals', version: 1, bevel: 2 } } } });
+  assert.deepEqual(renderScene(prepared, { time: 160 }).data, renderScene(manual, { time: 160 }).data);
+  // Root sandboxing still rejects a source asset whose shared palette escapes root.
+  await assert.rejects(resolveReferences({ ...scene, assets: { puff: 'puff.fluid.json' } }, { baseDir: path.join(dir, 'sub'), root: path.join(dir, 'sub'), compilers: COMPILERS }), /must stay inside/);
+});

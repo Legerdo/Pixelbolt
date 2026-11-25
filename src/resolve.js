@@ -89,6 +89,27 @@ async function resolveEffects(document, baseDir, context) {
   }
   return document;
 }
+// A scene asset (or its `recipe` pass) may name an ordinary recipe, a stack, or (when `compilers` is passed by the
+// CLI/MCP) any source format: source formats resolve their own references relative to where they live and compile to
+// ordinary recipes on the Node side, keeping resolve.js free of compiler imports and scene exports free of bloat.
+async function loadSceneAsset(entry, baseDir, context, where) {
+  let doc = entry, dir = baseDir;
+  if (typeof entry === 'string') {
+    const file = await locate(entry, baseDir, context.root, where);
+    context.files.add(file);
+    doc = await readJSON(file, where);
+    dir = path.dirname(file);
+  } else if (isObject(entry) && Object.keys(entry).length === 1 && typeof entry.revision === 'string') {
+    if (!context.revisions) fail(where, 'revision references are only available through the MCP server');
+    doc = await context.revisions(entry.revision);
+  }
+  const format = isObject(doc) ? doc.format : undefined;
+  if (format && format !== 'pixelforge-stack' && format !== 'pixelforge-normals' && context.compilers && Object.hasOwn(context.compilers, format)) {
+    const resolved = format === 'pixelforge-fx' ? await resolveEffects(doc, dir, context) : await resolvePalette(doc, dir, context, context.sidecars[format] ?? where);
+    return context.compilers[format](resolved).recipe;
+  }
+  return resolvePalette(doc, dir, context, format === 'pixelforge-stack' ? 'stack' : where);
+}
 // A scene asset's normal pass may be a normal recipe or a pixelforge-normals source (file or inline); a normals source
 // resolves its own recipe reference relative to where it lives.
 async function loadNormal(entry, baseDir, context, where) {
@@ -112,7 +133,7 @@ async function resolveScene(scene, baseDir, context) {
   const assets = {};
   for (const [id, value] of Object.entries(scene.assets)) {
     const where = `scene.assets.${id}`;
-    const load = (entry, key) => (key === 'normal' ? loadNormal : loadRecipe)(entry, baseDir, context, key ? `${where}.${key}` : where);
+    const load = (entry, key) => (key === 'normal' ? loadNormal : key === 'emissive' ? loadRecipe : loadSceneAsset)(entry, baseDir, context, key ? `${where}.${key}` : where);
     if (isObject(value) && (value.recipe !== undefined || value.normal !== undefined || value.emissive !== undefined) && value.version === undefined) {
       assets[id] = {};
       for (const key of ['recipe', 'normal', 'emissive']) if (value[key] !== undefined) assets[id][key] = await load(value[key], key);
@@ -124,11 +145,12 @@ async function resolveScene(scene, baseDir, context) {
 /**
  * Returns the document with references inlined, plus the files it read. Works for recipes, pose sources,
  * autotile templates, effect, fluid, crystal and body sources, normal sources and scenes. `revisions(id)` supplies saved recipes for
- * `{ "revision": id }` scene assets, normal sources and effect symbols taken from a recipe's frame.
+ * `{ "revision": id }` scene assets, normal sources and effect symbols taken from a recipe's frame; `compilers` compiles
+ * source-format scene assets to ordinary recipes on the Node side.
  */
-export async function resolveReferences(document, { baseDir = process.cwd(), root, revisions } = {}) {
-  const context = { root, revisions, files: new Set(), palettes: [] };
+export async function resolveReferences(document, { baseDir = process.cwd(), root, revisions, compilers } = {}) {
   const sidecars = { 'pixelforge-stack': 'stack', 'pixelforge-poses': 'poses', 'pixelforge-autotile': 'autotile', 'pixelforge-fx': 'fx', 'pixelforge-fluid': 'fluid', 'pixelforge-wave': 'wave', 'pixelforge-crystal': 'crystal', 'pixelforge-powder': 'powder', 'pixelforge-bodies': 'bodies' };
+  const context = { root, revisions, compilers, sidecars, files: new Set(), palettes: [] };
   const resolved = document?.format === 'pixelforge-scene' ? await resolveScene(document, baseDir, context)
     : document?.format === 'pixelforge-normals' && document.recipe !== undefined ? { ...document, recipe: await loadRecipe(document.recipe, baseDir, context, 'normals.recipe') }
       : document?.format === 'pixelforge-fx' ? await resolveEffects(document, baseDir, context)

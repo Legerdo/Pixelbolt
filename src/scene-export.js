@@ -90,7 +90,7 @@ function explainSceneColors(scene, index, time, blend, original) {
   }
   if (translucent.length) parts.push(`translucent blending: ${translucent.slice(0, 4).join(', ')}${translucent.length > 4 ? ` and ${translucent.length - 4} more` : ''}`);
   const fixes = [];
-  if (scene.lighting && litColors > unlitColors) fixes.push(scene.lighting.mode === 'multiply' ? 'lower lighting.bands, use fewer overlapping coloured lights, or set lighting.mode to "ramp" to stay in the palette' : 'reduce the palette');
+  if (scene.lighting && litColors > unlitColors) fixes.push(scene.lighting.mode === 'multiply' ? 'lower lighting.bands (add lighting.dither to soften the rings), use fewer overlapping coloured lights, or set lighting.mode to "ramp" to stay in the palette' : 'reduce the palette');
   if (translucent.length) fixes.push('use fewer partial-alpha steps or fewer colours under translucent layers');
   const message = original.replace(/^gif: /, '');
   return new PixelError('gif', `${message.replace('; a GIF frame holds 256', ` (${parts.join('; ')}); a GIF frame holds 256`)}${fixes.length ? ` To fit: ${fixes.join('; ')}.` : ''}`);

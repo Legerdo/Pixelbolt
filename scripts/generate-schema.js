@@ -315,6 +315,7 @@ const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...obje
 },['format','version','name','palette','slices']),
   if:{required:['projection'],properties:{projection:{const:'iso'}}},then:{not:{required:['squash']}} };
 const assetRef = { oneOf: [ref('recipe'), { type: 'string', description: 'Recipe file, resolved by the CLI relative to the scene or inside the MCP root.' }, object({ revision: { type: 'string', pattern: '^[a-f0-9]{12}$' } }, ['revision'])] };
+const sceneAssetRef = { oneOf: [ref('recipe'), { type: 'string', description: 'Recipe or source file (poses, autotile, fx, fluid, wave, crystal, powder, bodies, stack), resolved and compiled by the CLI and MCP relative to the scene.' }, object({ revision: { type: 'string', pattern: '^[a-f0-9]{12}$' } }, ['revision'])] };
 const normalsDetail = {
   oneOf: [
     num(0, 1, 'How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette\'s shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness.'),
@@ -334,7 +335,7 @@ const normalsFields = {
   faces: { type: 'object', minProperties: 1, additionalProperties: { enum: NORMAL_KEYS }, description: 'Flat faces by colour: maps the colour recipe\'s palette keys to one direction each, so a box, wall or building gets flat planes instead of a cushion. Pixels drawn in that key\'s colour take the direction; all others are rounded as usual. Side view: tops w, fronts 5. 3/4 top-down: tops w or 8, south faces 2 or 5. Isometric 2:1: tops w, left faces z, right faces c.' }
 };
 const sceneNormals = object(normalsFields, ['format', 'version']);
-const stackAsset = { oneOf: [...assetRef.oneOf, ref('stack')] };
+const stackAsset = { oneOf: [...sceneAssetRef.oneOf, ref('stack')] };
 const normalAsset = { oneOf: [...assetRef.oneOf, ref('normals')] };
 const scene = {
   $schema: schema.$schema, title: 'Pixelbolt scene review',
@@ -371,7 +372,10 @@ const scene = {
       description: 'The scene point at the view\'s top-left corner: [x, y], or keys over time held before the first and after the last. Placements move by their parallax share of it; at [0, 0] everything is where it is written.' },
     haze: { ...object({ color: { type: 'string', pattern: opaqueHex, description: 'The colour far planes fade toward, usually the sky\'s.' }, colors: { ...array({ type: 'string', pattern: opaqueHex }, 64), minItems: 1, description: 'The only colours hazed placements may end on, with color: each faded colour becomes the nearest. List a fixed game palette, or a short ramp toward the haze for silhouettes. Without it, every colour fades exactly.' } }, ['color']),
       description: 'Atmospheric haze for placements with haze: each colour fades as a whole, never per pixel, so each becomes one colour and keeps its place among the others.' },
-    lighting: object({ ambient: { type: 'number', minimum: 0, maximum: 1 }, bands: int(2, 16), scope: { enum: ['passes', 'all'], description: 'passes (default) lights only assets with normal/emissive passes; all also lights plain assets as flat surfaces.' },
+    lighting: object({ ambient: { type: 'number', minimum: 0, maximum: 1 }, bands: int(2, 16),
+      dither: num(0, 1, 'Feather each lighting band into the next across this share of the step using pattern, keeping the exact same colour count (0 hard rings, default; 0.5–1 smooth dithered falloff).'),
+      pattern: { oneOf: [{ enum: DITHER_PATTERNS }, { ...array({ ...array(int(0, 255), 16), minItems: 1 }, 16), minItems: 1 }], description: 'Dither pattern for lighting.dither: bayer4 (default), bayer2, bayer8, noise, value or a matrix of ranks. Anchored to scene coordinates.' },
+      scope: { enum: ['passes', 'all'], description: 'passes (default) lights only assets with normal/emissive passes; all also lights plain assets as flat surfaces.' },
       mode: { enum: ['multiply', 'ramp'], description: 'multiply (default) scales colours by the light; ramp moves each colour along its recipe\'s ramps instead, so the lit scene keeps its palette (light colour then only sets brightness).' },
       steps: int(1, 8, 'Ramp lighting: steps per unit of brightness away from 1; default 2.'),
       lights: array({ ...object({ at: { ...point, description: 'Where the light is, the point on the ground under it for shadows; with follow, an offset from what it follows (default [0, 0]). Not on a sun.' }, height: int(1, 256, 'Pixels above the scene; default 24. Not on a sun.'), radius: int(1, 512, 'How far it reaches; default 96. Not on a sun.'), color,

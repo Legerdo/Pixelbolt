@@ -313,7 +313,7 @@ async function readProject(file, input) {
 // Reads a document and inlines its references relative to its own folder (stdin: the working directory).
 async function readResolved(file, input = INPUT_FILE) {
   const original = await readProject(file, input), baseDir = file === '-' ? process.cwd() : path.dirname(path.resolve(file));
-  const resolution = await resolveReferences(original, { baseDir });
+  const resolution = await resolveReferences(original, { baseDir, compilers: COMPILERS });
   return { file, original, document: resolution.document, resolution, baseDir };
 }
 // Every file an export was made from: the recipe itself and the palette and asset files it references.

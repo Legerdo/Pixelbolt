@@ -4,7 +4,7 @@
 // an iso map is drawn with that cell, right after its tile, and a placement wider than a cell is drawn in pieces, one
 // for each cell it stands on (`pieces` in renderScene), so the ground under a building never covers it.
 import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_AREA, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
-import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
+import { EASINGS, ease, pixelId, random, nearestColor, patternProblem, ditherThreshold } from './craft.js';
 import { fields, point, number, integer, compileNormals } from './authoring.js';
 import { compileStack } from './stack.js';
 import { expandTilemap, isoLayout } from './autotile.js';
@@ -432,10 +432,14 @@ export function prepareScene(source) {
   }
   let lighting = null;
   if (source.lighting !== undefined) {
-    fields(source.lighting, ['ambient', 'bands', 'lights', 'scope', 'mode', 'steps'], 'scene.lighting');
-    const { ambient = .35, bands = 5, lights = [], scope = 'passes', mode = 'multiply' } = source.lighting;
+    fields(source.lighting, ['ambient', 'bands', 'dither', 'pattern', 'lights', 'scope', 'mode', 'steps'], 'scene.lighting');
+    const { ambient = .35, bands = 5, dither = 0, pattern = 'bayer4', lights = [], scope = 'passes', mode = 'multiply' } = source.lighting;
     if (typeof ambient !== 'number' || !Number.isFinite(ambient) || ambient < 0 || ambient > 1) fail('scene.lighting.ambient', 'expected 0–1');
     integer(bands, 'scene.lighting.bands', 2, 16);
+    number(dither, 'scene.lighting.dither', 0, 1);
+    const problem = patternProblem(pattern);
+    if (problem) fail(`scene.lighting.pattern${problem[0]}`, problem[1]);
+    const threshold = dither > 0 ? ditherThreshold(pattern) : null;
     // "passes" lights only assets with normal/emissive passes; "all" also lights plain assets as flat, facing surfaces.
     if (!['passes', 'all'].includes(scope)) fail('scene.lighting.scope', 'expected passes or all');
     // "multiply" scales colours by the light; "ramp" moves each colour along its asset's ramps instead, so a lit scene
@@ -444,7 +448,7 @@ export function prepareScene(source) {
     if (source.lighting.steps !== undefined && mode !== 'ramp') fail('scene.lighting.steps', 'steps apply to ramp lighting; set mode to ramp');
     const steps = integer(source.lighting.steps ?? 2, 'scene.lighting.steps', 1, 8);
     if (!Array.isArray(lights) || lights.length > 8) fail('scene.lighting.lights', 'expected at most 8 lights');
-    lighting = { ambient, bands, scope, mode, steps, lights: lights.map((light, i) => {
+    lighting = { ambient, bands, dither, threshold, scope, mode, steps, lights: lights.map((light, i) => {
       const lp = `scene.lighting.lights[${i}]`;
       fields(light, ['at', 'height', 'radius', 'color', 'strength', 'follow', 'flicker', 'keys', 'sun'], lp);
       // A sun is a light so far away that it falls the same way everywhere, with no position, height or reach. `sun` is
@@ -693,9 +697,17 @@ export function renderScene(scene, { time = 0, lit = true, density = false, dept
             diffuse = Math.max(0, (nx * dx + ny * dy + nz * dz) / norm / distance) * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / source.radius);
           }
           // Band the light's brightness once, then tint it: banding each channel separately made a coloured light
-          // change band at different distances per channel, painting rainbow rings. Strength scales the banded light,
-          // so above 1 a flash can lift ramp-lit colours past their authored shade.
-          const band = Math.round(Math.min(1, diffuse) * (lighting.bands - 1)) / (lighting.bands - 1);
+          // change band at different distances per channel, painting rainbow rings. With dither > 0, each transition
+          // feathers between adjacent integer bands via the canvas-anchored threshold pattern without adding colours.
+          // Strength scales the banded light, so above 1 a flash can lift ramp-lit colours past their authored shade.
+          const scaled = Math.min(1, diffuse) * (lighting.bands - 1);
+          let step;
+          if (lighting.dither > 0) {
+            const low = Math.floor(scaled), frac = scaled - low, half = lighting.dither / 2;
+            const t = Math.min(1, Math.max(0, (frac - (0.5 - half)) / lighting.dither));
+            step = Math.min(lighting.bands - 1, low + (t > lighting.threshold(px, py) ? 1 : 0));
+          } else step = Math.round(scaled);
+          const band = step / (lighting.bands - 1);
           for (let c = 0; c < 3; c++) intensity[c] += band * source.strength * source.color[c] / 255;
         }
         if (lighting.mode === 'ramp') {
