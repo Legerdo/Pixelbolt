@@ -89,6 +89,21 @@ async function resolveEffects(document, baseDir, context) {
   }
   return document;
 }
+// A scene asset's normal pass may be a normal recipe or a pixelforge-normals source (file or inline); a normals source
+// resolves its own recipe reference relative to where it lives.
+async function loadNormal(entry, baseDir, context, where) {
+  let source = entry, dir = baseDir;
+  if (typeof entry === 'string') {
+    const file = await locate(entry, baseDir, context.root, where);
+    context.files.add(file);
+    source = await readJSON(file, where);
+    dir = path.dirname(file);
+  }
+  if (isObject(source) && source.format === 'pixelforge-normals') {
+    return source.recipe !== undefined ? { ...source, recipe: await loadRecipe(source.recipe, dir, context, `${where}.recipe`) } : source;
+  }
+  return typeof entry === 'string' ? resolvePalette(source, dir, context, where) : loadRecipe(entry, baseDir, context, where);
+}
 async function resolveScene(scene, baseDir, context) {
   if (!isObject(scene.assets)) return scene;
   // A theme: a palette file for the whole scene or for one asset overrides the keys the recipes share.
@@ -97,7 +112,7 @@ async function resolveScene(scene, baseDir, context) {
   const assets = {};
   for (const [id, value] of Object.entries(scene.assets)) {
     const where = `scene.assets.${id}`;
-    const load = (entry, key) => loadRecipe(entry, baseDir, context, key ? `${where}.${key}` : where);
+    const load = (entry, key) => (key === 'normal' ? loadNormal : loadRecipe)(entry, baseDir, context, key ? `${where}.${key}` : where);
     if (isObject(value) && (value.recipe !== undefined || value.normal !== undefined || value.emissive !== undefined) && value.version === undefined) {
       assets[id] = {};
       for (const key of ['recipe', 'normal', 'emissive']) if (value[key] !== undefined) assets[id][key] = await load(value[key], key);

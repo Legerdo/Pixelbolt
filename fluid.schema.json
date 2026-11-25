@@ -667,6 +667,12 @@
                   "maximum": 256,
                   "description": "Frame where a rate emitter stops; default the last. A short window (end: 3) gives a burst that keeps growing for a few frames."
                 },
+                "repeat": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 256,
+                  "description": "Repeat this emitter's burst or [start, end) window every repeat frames (must divide frames in a looping effect; a repeating rate emitter needs end with end - start < repeat)."
+                },
                 "density": {
                   "type": "number",
                   "minimum": -16,

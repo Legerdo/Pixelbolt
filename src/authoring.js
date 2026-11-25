@@ -1,5 +1,5 @@
 // Optional authoring compilers. All output is ordinary, editable version-1 recipe data.
-import { PixelError, POSE_SIDE, parseColor, paletteOverride, renderProject, describeStampRecipe, readRows, pictureSheet, fail, sameWidth } from './core.js';
+import { PixelError, POSE_SIDE, parseColor, paletteOverride, renderProject, describeStampRecipe, readRows, pictureSheet, fail, isObject, sameWidth } from './core.js';
 import { AUTOTILE_MODES, MODE_MASKS, MODE_BITS, tilePieces, templatePiece } from './autotile.js';
 import { terrainTemplate, mergeTerrain, normalTerrain, readTerrain, templateSeams, seamWarnings, testMapRecipe, layeredTestMapRecipe } from './terrain.js';
 import { slopeTiles, slopeCollision, slopeLegend, SLOPE_MAP } from './slopes.js';
@@ -1255,11 +1255,38 @@ export function compileNormals(source) {
   // the user never wrote.
   if ([spec.width, spec.height].some(side => typeof side === 'number' && side > NORMALS_SIDE)) fail('normals.recipe', `the colour recipe is ${spec.width}×${spec.height}; a pass made by the normals compiler keeps ${NORMALS_SIDE} pixels a side, so derive normals from a recipe of at most ${NORMALS_SIDE} a side; a larger scene asset takes a normal pass drawn as a recipe of its own size`);
   if (source.bevel !== undefined && (!Number.isInteger(source.bevel) || source.bevel < 1 || source.bevel > 64)) fail('normals.bevel', 'expected 1–64 pixels from the edge to the flat top; omit it to round each shape up to its thickest point');
-  const detail = source.detail ?? 0;
-  if (typeof detail !== 'number' || !Number.isFinite(detail) || detail < 0 || detail > 1) fail('normals.detail', 'expected 0 (shape only) to 1');
+  let detail = 0, ignoreList = null;
+  if (source.detail !== undefined) {
+    if (typeof source.detail === 'number') {
+      if (!Number.isFinite(source.detail) || source.detail < 0 || source.detail > 1) fail('normals.detail', 'expected 0 (shape only) to 1');
+      detail = source.detail;
+    } else if (isObject(source.detail)) {
+      fields(source.detail, ['amount', 'ignore'], 'normals.detail');
+      detail = source.detail.amount;
+      if (typeof detail !== 'number' || !Number.isFinite(detail) || detail < 0 || detail > 1) fail('normals.detail.amount', 'expected 0 (shape only) to 1');
+      if (source.detail.ignore !== undefined) {
+        if (!Array.isArray(source.detail.ignore) || !source.detail.ignore.length || source.detail.ignore.length > 64) fail('normals.detail.ignore', 'expected 1–64 palette keys of the colour recipe');
+        ignoreList = source.detail.ignore;
+      }
+    } else fail('normals.detail', 'expected 0 (shape only) to 1, or { amount, ignore }');
+  }
   const project = renderProject(spec), { width: w, height: h } = project, size = w * h;
   if (source.name === undefined && project.name.length > 57) fail('normals.name', `${project.name}-normal would exceed 64 characters; name the normal recipe`);
   const name = source.name ?? `${project.name}-normal`;
+  // Palette keys excluded from detail height relief: they keep the underlying rounded surface instead of embossing
+  // sharp craters (eyes, dark markings, outlines).
+  const ignored = new Map(), ignoredBy = ignoreList ? Object.create(null) : null;
+  if (ignoreList) {
+    for (const [i, key] of ignoreList.entries()) {
+      const path = `normals.detail.ignore[${i}]`;
+      if (typeof key !== 'string' || !Object.hasOwn(project.palette, key)) fail(path, `${JSON.stringify(key)} is not a palette key of ${project.name}`);
+      if (Object.hasOwn(ignoredBy, key)) fail(path, `${JSON.stringify(key)} is listed twice`);
+      const rgba = parseColor(key, project.palette), id = rgba.join(',');
+      if (!rgba[3]) fail(path, `${JSON.stringify(key)} is transparent and draws no pixels to ignore`);
+      if (!ignored.has(id)) ignored.set(id, { key, pixels: 0 });
+      ignoredBy[key] = ignored.get(id);
+    }
+  }
   // Flat faces by colour: each named palette key's exact colour, as drawn, takes one direction.
   // `faced` maps a colour to its direction and pixel count; keys that share a colour share the face.
   const faced = new Map(), facedBy = Object.create(null);
@@ -1325,12 +1352,41 @@ export function compileNormals(source) {
         for (let j = k; j <= end; j++) { distance[index(j, line)] = 3 * (inset + Math.min(j - k + 0.5, end - j + 0.5)); half[index(j, line)] = whole; }
       }
     }
+    let relief = null;
+    if (ignored.size) {
+      const skip = new Uint8Array(size), sum = new Float64Array(thickest.length), cnt = new Int32Array(thickest.length);
+      relief = new Float64Array(size);
+      for (let i = 0; i < size; i++) if (solid(i)) {
+        const at4 = i * 4, hit = ignored.get(`${data[at4]},${data[at4 + 1]},${data[at4 + 2]},${data[at4 + 3]}`);
+        if (hit) { skip[i] = 1; hit.pixels++; }
+        else { const b = brightness(data, at4); relief[i] = b; sum[shape[i]] += b; cnt[shape[i]]++; }
+      }
+      if (detail > 0) {
+        for (let i = 0; i < size; i++) if (skip[i]) relief[i] = cnt[shape[i]] ? sum[shape[i]] / cnt[shape[i]] : 0.5;
+        // Relax ignored markings toward their surrounding solid neighbours' detail height, so markings lie flush on
+        // the rounded surface instead of carving sharp craters. Fixed passes and pure arithmetic keep it deterministic.
+        const next = new Float64Array(relief);
+        for (let pass = 0; pass < 8; pass++) {
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            if (!skip[i]) continue;
+            let total = 0, n = 0;
+            for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+              const nx = wrap ? ((x + dx) % w + w) % w : x + dx, ny = wrap ? ((y + dy) % h + h) % h : y + dy;
+              if (nx >= 0 && ny >= 0 && nx < w && ny < h && solid(ny * w + nx)) { total += relief[ny * w + nx]; n++; }
+            }
+            if (n) next[i] = total / n;
+          }
+          relief.set(next);
+        }
+      }
+    }
     const height = new Float64Array(size);
     for (let i = 0; i < size; i++) if (solid(i)) {
       // A shape with no transparent pixel around it (a filled tile) has no rim and stays flat apart from detail.
       const whole = half ? half[i] : Number.isFinite(thickest[shape[i]]) ? thickest[shape[i]] / 3 : 0, reach = source.bevel === undefined ? whole : half ? Math.min(source.bevel, whole) : source.bevel;
       const t = reach ? Math.min(distance[i] / 3, reach) / reach : 1;
-      height[i] = reach * Math.sqrt(1 - (1 - t) * (1 - t)) + detail * 2 * brightness(data, i * 4);
+      height[i] = reach * Math.sqrt(1 - (1 - t) * (1 - t)) + detail * 2 * (relief ? relief[i] : brightness(data, i * 4));
     }
     const at = (x, y) => {
       if (wrap) { x = ((x % w) + w) % w; y = ((y % h) + h) % h; } else { x = Math.max(0, Math.min(w - 1, x)); y = Math.max(0, Math.min(h - 1, y)); }
@@ -1359,8 +1415,13 @@ export function compileNormals(source) {
   const used = keys.filter(key => counts[key]);
   const recipe = { version: 1, name, width: w, height: h, palette: Object.fromEntries(keys.map(key => [key, encodeNormal(NORMAL_DIRECTIONS[key])])), frames, ...(spec.animations !== undefined && { animations: spec.animations }), ...(spec.sheet !== undefined && { sheet: spec.sheet }) };
   renderProject(recipe);
-  // A faced key that no frame draws is usually a typo or a key recoloured by a frame palette.
+  // A faced or ignored key that no frame draws is usually a typo or a key recoloured by a frame palette.
   const unmatched = Object.keys(facedBy).filter(key => !facedBy[key].pixels);
-  return plain({ recipe, metadata: { format: 'pixelforge-normals-metadata', version: 1, encoding: 'RGB = (XYZ + 1) × 127.5; +X right, +Y down, +Z toward the viewer', bevel: source.bevel ?? 'each shape to its thickest point', detail, ...(source.axis && { axis: source.axis }), ...(source.faces !== undefined && { faces: Object.fromEntries(Object.entries(facedBy).map(([key, face]) => [key, { direction: face.way, pixels: face.pixels }])) }), directions: Object.fromEntries(keys.map(key => [key, NORMAL_DIRECTIONS[key].map(v => Math.round(v * 1e4) / 1e4)])), pixels: Object.fromEntries(used.map(key => [key, counts[key]])) },
-    ...(unmatched.length && { warnings: unmatched.map(key => `faces.${key}: no pixel is drawn in ${JSON.stringify(key)}'s colour, so it faces nothing; check the key, or a frame palette that recolours it.`) }) });
+  const unmatchedIgnore = ignoredBy ? Object.keys(ignoredBy).filter(key => !ignoredBy[key].pixels) : [];
+  const warnings = [
+    ...unmatched.map(key => `faces.${key}: no pixel is drawn in ${JSON.stringify(key)}'s colour, so it faces nothing; check the key, or a frame palette that recolours it.`),
+    ...unmatchedIgnore.map(key => `detail.ignore.${key}: no pixel is drawn in ${JSON.stringify(key)}'s colour, so nothing was ignored; check the key, or a frame palette that recolours it.`)
+  ];
+  return plain({ recipe, metadata: { format: 'pixelforge-normals-metadata', version: 1, encoding: 'RGB = (XYZ + 1) × 127.5; +X right, +Y down, +Z toward the viewer', bevel: source.bevel ?? 'each shape to its thickest point', detail: ignoredBy ? { amount: detail, ignore: Object.keys(ignoredBy) } : detail, ...(source.axis && { axis: source.axis }), ...(source.faces !== undefined && { faces: Object.fromEntries(Object.entries(facedBy).map(([key, face]) => [key, { direction: face.way, pixels: face.pixels }])) }), directions: Object.fromEntries(keys.map(key => [key, NORMAL_DIRECTIONS[key].map(v => Math.round(v * 1e4) / 1e4)])), pixels: Object.fromEntries(used.map(key => [key, counts[key]])) },
+    ...(warnings.length && { warnings }) });
 }

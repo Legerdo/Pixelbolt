@@ -12,7 +12,7 @@ import { embedBundleRecipe, sameFiles, outputSummary, describeAnimations } from 
 import { STILLS_GIF_NOTE } from '../src/gif.js';
 import { shareLink, readEmbeddedRecipe, recipeKind } from '../src/share.js';
 import { PRESET_FOLDER, listPresets, briefListing, findListing, namedLike, presetWords, presetEntries, findPreset, loadPreset, compilePreset, presetNext, COMPILERS } from '../src/presets.js';
-import { renderProject, animationGIF, asGIFShows, gifBackground, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, importCutoutPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
+import { renderProject, animationGIF, asGIFShows, gifBackground, createSequence, frameGrid, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, prepareScene, renderScene, sceneImage, sceneColors, createBundle, writeBundle, inspectProject, briefDiagnostics, briefCells, briefComparison, errorReply, tilemapOf, stackViews, paletteUse, compareProjects, patchRecipe, encodePNG, compilePoses, draftViews, compileAutotile, formatJSON, createSceneBundle, createOverlay, applyOverlay, importPNG, importCutoutPNG, resolveReferences, restorePaletteReference, testMapScale } from '../src/index.js';
 
 // A reader that stops early (`| head -1`) closes the pipe: stop quietly, as other command-line tools do. Commands print
 // their reply after writing their files, so only the rest of the reply is lost.
@@ -30,8 +30,8 @@ const HELP = `Pixelbolt — text to pixels, without dependencies
                                            their sections; name one to print it (help craft "Characters"), or give a
                                            word to print the paragraphs that mention it (help guide text). A schema
                                            prints its outline; a path prints one part (help bodies effects.bodies)
-  pixelbolt validate <file.json|-> [--fps 30]
-                                           Validate and describe a project; --fps lists durations off that video frame grid
+  pixelbolt validate <file.json|-> [more.json ...] [--fps 30]
+                                           Validate and describe one or more projects; --fps lists durations off that video frame grid
   pixelbolt inspect <file.json|-> [--out sheet.png] [--grid] [--stack a+b,a+c] [--under other.json:frame]
                                            See every frame; writes only --out
   pixelbolt patch <file.json|-> --changes <changes.json|-> [--out new.json] [--image diff.png]
@@ -519,7 +519,7 @@ try {
     const { positional, options } = parseArgs(rest, command);
     // presets --find water splash: the words after the first belong to the search, quoted or not.
     if (command === 'presets' && typeof options.find === 'string' && positional.length) options.find = [options.find, ...positional.splice(0)].join(' ');
-    if (positional.length > 1) throw new Error('Too many positional arguments');
+    if (positional.length > 1 && command !== 'validate') throw new Error('Too many positional arguments');
     if (!Object.hasOwn(OPTIONS, command)) throw new Error(`Unknown command: ${command}. Run pixelbolt help.`);
     for (const key of Object.keys(options)) if (!OPTIONS[command].includes(key)) throw new Error(`--${key} is not supported by ${command}${optionMiss(key, command)}`);
     if (['schema', 'mcp'].includes(command) && positional.length) throw new Error(`${command} does not accept a filename`);
@@ -697,7 +697,7 @@ try {
       const scale = options.scale === undefined ? Math.max(1, Math.min(8, Math.floor(768 / Math.max(frame.width, frame.height)))) : Number(options.scale);
       const image = sceneImage(frame, { mode, scale, ...(options.guides !== undefined && { guides: await readGuidesOption(options.guides) }) });
       const written = await writeOutputs({ image: [options.image, encodePNG(image.data, image.width, image.height), '--image'] }, options.force, [...inputsOf(input), ...filesRead(options.guides?.trimStart().startsWith('{') ? undefined : options.guides)]);
-      print({ ok: true, name: input.document.name, width: frame.width, height: frame.height, duration: scene.duration, time, scale, view: mode, placements: frame.placements.length, ...(frame.depth && { depth: frame.depth }), ...(image.guides && { guides: image.guides }), ...(frame.lights && { lights: frame.lights }), ...(frame.shadows && { shadows: frame.shadows }), ...(frame.camera && { camera: frame.camera }), ...(frame.haze && { haze: frame.haze }), warnings: frame.warnings, ...written, ...referenced(input) });
+      print({ ok: true, name: input.document.name, width: frame.width, height: frame.height, duration: scene.duration, time, scale, view: mode, colors: sceneColors(frame.data), placements: frame.placements.length, ...(frame.depth && { depth: frame.depth }), ...(image.guides && { guides: image.guides }), ...(frame.lights && { lights: frame.lights }), ...(frame.shadows && { shadows: frame.shadows }), ...(frame.camera && { camera: frame.camera }), ...(frame.haze && { haze: frame.haze }), warnings: frame.warnings, ...written, ...referenced(input) });
     } else if (command === 'scene') {
       if (!options.out) throw new Error('scene requires --out <directory>, or --image <file.png> for one view');
       folderOut('scene', options.out, 'for one image of the scene use --image <file.png>; --out writes a bundle folder');
@@ -874,6 +874,24 @@ try {
       const { data, ...gif } = folderGIF(positional[0], { fps: options.fps, ...(options.loops !== undefined && { loops: Number(options.loops) }), ...(options.background !== undefined && { background: options.background }), ...(options.prefix !== undefined && { prefix: options.prefix }) });
       const written = await writeOutputs({ file: [options.out, data, '--out'] }, options.force);
       print({ ok: true, ...gif, bytes: data.length, ...written });
+    } else if (command === 'validate' && positional.length > 1) {
+      if (positional.includes('-')) throw new Error('Stdin (-) cannot be combined with multiple files in validate');
+      const results = [];
+      let allOk = true;
+      for (const file of positional) {
+        try {
+          const input = await readResolved(file);
+          if (input.document?.format === 'pixelforge-stack') input.document = COMPILERS[input.document.format](input.document).recipe;
+          recipeOnly(command, input.document, file);
+          const project = renderProject(input.document);
+          results.push({ file: shown(path.resolve(file)), ok: true, ...summary(project, input.document), ...(options.fps !== undefined && { frameGrid: frameGrid(project, options.fps) }), ...referenced(input) });
+        } catch (error) {
+          allOk = false;
+          results.push({ file: shown(path.resolve(file)), ok: false, ...errorReply(error) });
+        }
+      }
+      print({ ok: allOk, files: results });
+      if (!allOk) process.exitCode = 1;
     } else {
       const input = await readResolved(positional[0]);
       if (input.document?.format === 'pixelforge-stack') input.document = COMPILERS[input.document.format](input.document).recipe;

@@ -315,13 +315,33 @@ const stack = { $schema: schema.$schema, title:'Pixelbolt sprite stack', ...obje
 },['format','version','name','palette','slices']),
   if:{required:['projection'],properties:{projection:{const:'iso'}}},then:{not:{required:['squash']}} };
 const assetRef = { oneOf: [ref('recipe'), { type: 'string', description: 'Recipe file, resolved by the CLI relative to the scene or inside the MCP root.' }, object({ revision: { type: 'string', pattern: '^[a-f0-9]{12}$' } }, ['revision'])] };
+const normalsDetail = {
+  oneOf: [
+    num(0, 1, 'How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette\'s shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness.'),
+    object({
+      amount: num(0, 1, 'How far lighter colours stand out of the surface, up to 2 pixels.'),
+      ignore: { ...array({ type: 'string', minLength: 1, maxLength: 64 }, 64), minItems: 1, uniqueItems: true, description: 'Palette keys of the colour recipe excluded from detail relief (eyes, dark markings, outlines): they follow the surrounding rounded surface instead of embossing sharp craters.' }
+    }, ['amount'])
+  ],
+  description: 'How far lighter colours stand out of the surface, up to 2 pixels (0–1), or { amount, ignore } to exclude listed palette keys from embossing.'
+};
+const normalsFields = {
+  format: { const: 'pixelforge-normals' }, version: { const: 1 }, name: { ...id, description: 'Name of the normal recipe; default <recipe name>-normal.' },
+  recipe: { ...assetRef, description: 'The colour recipe: inline, a file resolved by the CLI relative to this source (or inside the MCP root), or {"revision": id} through MCP. A pass made by the normals compiler keeps 256 pixels a side; a larger scene asset takes a normal pass drawn as a recipe of its own size.' },
+  bevel: int(1, 64, 'Pixels from the edge to the flat top. Default: each shape rounds all the way to its thickest point, like a cushion.'),
+  axis: { enum: ['vertical', 'horizontal'], description: 'A cylinder instead of a cushion. vertical: a barrel, pillar or trunk standing up, each row rounded from its left end to its right, so it leans left and right and never up or down. horizontal: a log lying down.' },
+  detail: normalsDetail,
+  faces: { type: 'object', minProperties: 1, additionalProperties: { enum: NORMAL_KEYS }, description: 'Flat faces by colour: maps the colour recipe\'s palette keys to one direction each, so a box, wall or building gets flat planes instead of a cushion. Pixels drawn in that key\'s colour take the direction; all others are rounded as usual. Side view: tops w, fronts 5. 3/4 top-down: tops w or 8, south faces 2 or 5. Isometric 2:1: tops w, left faces z, right faces c.' }
+};
+const sceneNormals = object(normalsFields, ['format', 'version']);
 const stackAsset = { oneOf: [...assetRef.oneOf, ref('stack')] };
+const normalAsset = { oneOf: [...assetRef.oneOf, ref('normals')] };
 const scene = {
   $schema: schema.$schema, title: 'Pixelbolt scene review',
   ...object({ format: { const: 'pixelforge-scene' }, version: { const: 1 }, name: id, width: { ...int(1, 1024), description: 'The view, up to 1024 a side and 262,144 pixels in all.' }, height: int(1, 1024), background: color, duration: int(1, 60000),
     palette: themePalette('A theme for every asset: colours for palette keys the recipes share (keys a recipe lacks are ignored), or a palette file resolved by the CLI and MCP.'),
     cues: { type: 'object', maxProperties: 64, propertyNames: id, additionalProperties: int(0, 60000), description: 'Named times in milliseconds; sequence and trajectory times may say "name", "name+90" or "name-20".' },
-    assets: { type: 'object', maxProperties: 64, description: 'Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.', additionalProperties: { oneOf: [stackAsset, object({ recipe: stackAsset, normal: assetRef, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
+    assets: { type: 'object', maxProperties: 64, description: 'Together at most 4,194,304 pixels, every frame of every pass, so an overlay over a still backdrop of its size gets one frame fewer: 71 of 320×180, 31 of 480×270.', additionalProperties: { oneOf: [stackAsset, object({ recipe: stackAsset, normal: normalAsset, emissive: assetRef, palette: themePalette('A theme for this asset, applied after the scene palette.') }, ['recipe'])] } },
     instances: array(object({ name: { type: 'string' }, asset: { type: 'string' }, at: { ...point, description: 'Where it stands, in scene pixels. Give at, or on and cell.' },
       on: { type: 'string', description: 'Name of a tilemap placement to stand on, with cell, instead of at.' },
       cell: { ...array(num(-256, 512), 2), minItems: 2, description: '[column, row] on that map: the centre of an iso cell\'s diamond, or the middle of a square cell\'s bottom edge. Halves stand between cells. On a raised cell it is drawn that much higher and keeps its place in the order.' },
@@ -362,7 +382,7 @@ const scene = {
         keys: { ...array(object({ time: cueTime(60000, 'Milliseconds or a named cue such as "strike+70".'), strength: num(0, 8, 'Default: the light\'s strength.'), radius: int(1, 512, 'Default: the light\'s radius.'), ease: { ...ease, description: `Shape of the change from this key to the next: ${ease.description}` } }, ['time']), 64), minItems: 1,
           description: 'Strength and radius over time, held before the first key and after the last: a flash on a hit, a lamp that lights later. Times increase strictly.' }
       }), anyOf: [{ required: ['at'] }, { required: ['follow'] }, { required: ['sun'] }] }, 8) })
-  }, ['format', 'version', 'name', 'width', 'height', 'assets', 'instances']), $defs: { ...schema.$defs, recipe: sceneRecipe, stack }
+  }, ['format', 'version', 'name', 'width', 'height', 'assets', 'instances']), $defs: { ...schema.$defs, recipe: sceneRecipe, stack, normals: sceneNormals }
 };
 // A terrain draws an autotile template from a description: a fill repeated every tile and an edge per side.
 const paletteKey = { type: 'string', minLength: 1, maxLength: 1, description: 'A one-character palette key (template rows hold one character per pixel).' };
@@ -579,6 +599,7 @@ const fluidEmitter = object({
   burst: num(0.01, 64, 'Add the amounts once, at start (each cycle when looping), times this strength.'),
   rate: num(0.01, 64, 'Every frame from start until end, raise the covered cells toward the amounts times this strength, so a steady source holds its level.'),
   start: int(0, 255, 'Frame of the burst or first emission; default 0.'), end: int(1, 256, 'Frame where a rate emitter stops; default the last. A short window (end: 3) gives a burst that keeps growing for a few frames.'),
+  repeat: int(2, 256, 'Repeat this emitter\'s burst or [start, end) window every repeat frames (must divide frames in a looping effect; a repeating rate emitter needs end with end - start < repeat).'),
   density: num(-16, 16, 'Gas: smoke added or held (default 0); negative drains. Liquid: share of each covered cell filled with water, 0–1 (default 1); negative drains that share of the particles there each frame.'),
   temperature: num(-16, 16, 'Gas: heat added or held; heat rises by buoyancy and maps to fire ramps. Default 0. Liquid with heat: the temperature of the water it adds (default the air\'s, heat.ambient).'),
   falloff: num(0, 1, 'The amounts fall off from the centre toward the rim: 1 at the centre, 1 - falloff at the edge of the disc (or the ellipse inside the box), so a puff is densest in the middle. Default 0, a flat disc or box.'),
@@ -1047,12 +1068,6 @@ const powder = {
 const normals = {
   $schema: schema.$schema, title: 'Pixelbolt normal pass',
   description: 'Derives a lighting normal pass from a colour recipe and compiles it to an ordinary recipe aligned with it (same size, frame names and durations, animations and atlas layout), ready for a scene asset\'s normal and editable like any recipe. Each separate shape is rounded from its silhouette, lighter colours can be raised by detail, and every pixel takes the nearest of 17 directions: palette key 5 faces the viewer, the keypad digits 1–4 and 6–9 lean 30° the way they sit around 5, and q w e a d z x c lean 60° the same way.',
-  ...object({ format: { const: 'pixelforge-normals' }, version: { const: 1 }, name: { ...id, description: 'Name of the normal recipe; default <recipe name>-normal.' },
-    recipe: { ...assetRef, description: 'The colour recipe: inline, a file resolved by the CLI relative to this source (or inside the MCP root), or {"revision": id} through MCP. A pass made by the normals compiler keeps 256 pixels a side; a larger scene asset takes a normal pass drawn as a recipe of its own size.' },
-    bevel: int(1, 64, 'Pixels from the edge to the flat top. Default: each shape rounds all the way to its thickest point, like a cushion.'),
-    axis: { enum: ['vertical', 'horizontal'], description: 'A cylinder instead of a cushion. vertical: a barrel, pillar or trunk standing up, each row rounded from its left end to its right, so it leans left and right and never up or down. horizontal: a log lying down.' },
-    detail: num(0, 1, 'How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette\'s shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness.'),
-    faces: { type: 'object', minProperties: 1, additionalProperties: { enum: NORMAL_KEYS }, description: 'Flat faces by colour: maps the colour recipe\'s palette keys to one direction each, so a box, wall or building gets flat planes instead of a cushion. Pixels drawn in that key\'s colour take the direction; all others are rounded as usual. Side view: tops w, fronts 5. 3/4 top-down: tops w or 8, south faces 2 or 5. Isometric 2:1: tops w, left faces z, right faces c.' }
-  }, ['format', 'version', 'recipe']), $defs: { ...schema.$defs, recipe: recipeSchema }
+  ...object(normalsFields, ['format', 'version', 'recipe']), $defs: { ...schema.$defs, recipe: recipeSchema }
 };
 for (const [file, value] of [['stack.schema.json', stack], ['poses.schema.json', poses], ['scene.schema.json', scene], ['autotile.schema.json', autotile], ['fx.schema.json', fx], ['fluid.schema.json', fluid], ['wave.schema.json', wave], ['crystal.schema.json', crystal], ['powder.schema.json', powder], ['bodies.schema.json', bodies], ['normals.schema.json', normals]]) await writeFile(new URL(`../${file}`, import.meta.url), JSON.stringify(value, null, 2) + '\n');

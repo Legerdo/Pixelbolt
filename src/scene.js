@@ -5,7 +5,7 @@
 // for each cell it stands on (`pieces` in renderScene), so the ground under a building never covers it.
 import { renderProject, parseColor, animationPosition, tileRepeat, tileReport, rampShifter, reviewPixels, scalePixels, readGuides, drawGuides, CANVAS_SIDE, FRAME_AREA, FRAME_PIXELS, frameFits, frameAreaProblem, fail } from './core.js';
 import { EASINGS, ease, pixelId, random, nearestColor } from './craft.js';
-import { fields, point, number, integer } from './authoring.js';
+import { fields, point, number, integer, compileNormals } from './authoring.js';
 import { compileStack } from './stack.js';
 import { expandTilemap, isoLayout } from './autotile.js';
 
@@ -187,21 +187,30 @@ export function prepareScene(source) {
     }
   }
   if (!source.assets || Array.isArray(source.assets) || typeof source.assets !== 'object' || Object.keys(source.assets).length > 64) fail('scene.assets', 'expected at most 64 inlined assets');
-  // Bake stack assets once, as whole sprites with a ground pivot shared by every heading.
-  const stackNames = new Set();
+  // Bake stack assets once, as whole sprites with a ground pivot shared by every heading, and derive any
+  // pixelforge-normals passes inline (omitting recipe derives from this asset's own colour recipe).
+  const stackNames = new Set(), compiledWarnings = [];
   const assetSpecs = { ...source.assets };
   let stackBudget = FRAME_AREA;
   for (const [id, value] of Object.entries(assetSpecs)) {
     const stack = value?.recipe ?? value;
-    if (stack?.format !== 'pixelforge-stack') continue;
-    const { recipe } = compileStack(stack, { maxPixels: stackBudget });
-    stackBudget -= recipe.width * recipe.height * recipe.frames.length;
-    assetSpecs[id] = value.recipe ? { ...value, recipe } : recipe;
-    stackNames.add(id);
+    if (stack?.format === 'pixelforge-stack') {
+      const { recipe } = compileStack(stack, { maxPixels: stackBudget });
+      stackBudget -= recipe.width * recipe.height * recipe.frames.length;
+      assetSpecs[id] = value.recipe ? { ...value, recipe } : recipe;
+      stackNames.add(id);
+    }
+    const entry = assetSpecs[id];
+    if (entry?.normal?.format === 'pixelforge-normals') {
+      const normalSource = entry.normal.recipe === undefined ? { ...entry.normal, recipe: entry.recipe } : entry.normal;
+      const compiled = compileNormals(normalSource);
+      assetSpecs[id] = { ...entry, normal: compiled.recipe };
+      if (compiled.warnings) compiledWarnings.push(...compiled.warnings.map(message => `${id}.normal: ${message}`));
+    }
   }
   // Ramp shifters per asset (kept apart from the passes, which exports iterate as images).
   // used: the pixels each asset's passes render (every frame of each), which together stay within 4,194,304.
-  const assets = Object.create(null), shifts = Object.create(null), warnings = [], used = new Map(); let sourceArea = 0;
+  const assets = Object.create(null), shifts = Object.create(null), warnings = [...compiledWarnings], used = new Map(); let sourceArea = 0;
   // Every asset's pixels a frame (over all its passes) and in all, counted before any renders, so a refusal names a
   // frame count that fits beside the whole scene, not only the passes before it.
   const whole = new Map(); let sceneArea = 0;
@@ -1087,6 +1096,21 @@ export function sceneImage(view, { mode = 'color', scale = 1, guides } = {}) {
   } else out = scalePixels(native, width, height, s);
   if (checked) drawGuides(out, w, { left: 0, top: 0, w, h }, s, { x: 0, y: 0 }, checked);
   return { data: out, width: w, height: h, ...(checked && { guides: checked }) };
+}
+// Counts distinct visible RGB colours in an RGBA buffer, matching GIF's colour table when blended onto `background`
+// (or 1-bit alpha at 50% when omitted). Used for scene preview reporting and GIF 256-colour diagnostics.
+export function sceneColors(data, background = null) {
+  const colors = new Set();
+  for (let at = 0; at < data.length; at += 4) {
+    const alpha = data[at + 3];
+    if (background) {
+      const r = (data[at] * alpha + background[0] * (255 - alpha) + 127) / 255 | 0;
+      const g = (data[at + 1] * alpha + background[1] * (255 - alpha) + 127) / 255 | 0;
+      const b = (data[at + 2] * alpha + background[2] * (255 - alpha) + 127) / 255 | 0;
+      colors.add(r << 16 | g << 8 | b);
+    } else if (alpha >= 128) colors.add(data[at] << 16 | data[at + 1] << 8 | data[at + 2]);
+  }
+  return colors.size;
 }
 // Kept for compatibility: the 3x3 repeat plus the same advisory seam evidence as `inspect --view tile`.
 export function inspectTile(project, frameName = project.frames[0].name) {

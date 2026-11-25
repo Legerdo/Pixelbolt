@@ -1946,3 +1946,27 @@ test('a live runner steps and draws a hero-sized steam plume while it is pushed'
   assert.equal(shown.rgba.length, 128 * 60 * 4); assert.equal(shown.keys.length, 60);
   assert.ok(shown.keys.some(row => /[sw]/.test(row)), 'the plume drew nothing');
 });
+
+test('emitter repeat schedules periodic windows and bursts identically to separate emitters', () => {
+  const puff = { at: [8, 12], radius: 2, rate: 1, density: 0.8, temperature: 0.6, velocity: [0, -1] };
+  const repeated = compileFluid(gas({ frames: 24, loop: true, emitters: [{ ...puff, start: 0, end: 2, repeat: 8 }], look: smoke }));
+  const separate = compileFluid(gas({ frames: 24, loop: true, emitters: [{ ...puff, start: 0, end: 2 }, { ...puff, start: 8, end: 10 }, { ...puff, start: 16, end: 18 }], look: smoke }));
+  assert.deepEqual(repeated.recipe.frames, separate.recipe.frames, 'repeating rate window matches explicit emitters');
+  // Periodic burst emitter matches separate bursts at start, start + repeat, ...
+  const pop = { at: [8, 12], radius: 2, burst: 1, density: 1, velocity: [0, -1] };
+  const repBurst = compileFluid(gas({ frames: 24, loop: true, emitters: [{ ...pop, start: 2, repeat: 8 }], look: smoke }));
+  const sepBurst = compileFluid(gas({ frames: 24, loop: true, emitters: [{ ...pop, start: 2 }, { ...pop, start: 10 }, { ...pop, start: 18 }], look: smoke }));
+  assert.deepEqual(repBurst.recipe.frames, sepBurst.recipe.frames, 'repeating burst matches explicit bursts');
+  // A looping window wrapping across its repeat boundary and a one-shot staying off before start both work.
+  const wrapped = compileFluid(gas({ frames: 16, loop: true, emitters: [{ ...puff, start: 6, end: 9, repeat: 8 }], look: smoke }));
+  assert.equal(wrapped.recipe.frames.length, 16);
+  const oneshot = compileFluid(gas({ frames: 16, loop: false, emitters: [{ ...puff, start: 4, end: 6, repeat: 8 }], look: smoke }));
+  assert.deepEqual(oneshot.recipe.frames.slice(0, 4).map(f => (f.ops ?? []).length), [0, 0, 0, 0], 'one-shot stays quiet before start');
+  assert.ok((oneshot.recipe.frames[4].ops ?? []).length > 0 && (oneshot.recipe.frames[12].ops ?? []).length > 0);
+  // Validation: repeat must divide frames in a loop, rate emitters need end, and window must be shorter than repeat.
+  const bad = (emitter, where, message) => assert.throws(() => compileFluid(gas({ frames: 24, loop: true, emitters: [emitter], look: smoke })), error => error instanceof PixelError && error.path === where && message.test(error.message), where);
+  bad({ ...puff, start: 0, end: 2, repeat: 5 }, 'fluid.effects.plume.emitters[0].repeat', /must divide 24/);
+  bad({ ...puff, start: 0, repeat: 8 }, 'fluid.effects.plume.emitters[0].repeat', /needs end/);
+  bad({ ...puff, start: 0, end: 8, repeat: 8 }, 'fluid.effects.plume.emitters[0].repeat', /never turns off/);
+  bad({ ...puff, start: 0, end: 1, repeat: 1 }, 'fluid.effects.plume.emitters[0].repeat', /2 to 24/);
+});

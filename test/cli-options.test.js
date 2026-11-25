@@ -195,3 +195,20 @@ test('validate on a source says what the file is and how to check it, and the pa
   assert.ok(briefCheck(check).problems.length >= 1);
   assert.equal(checkDelivery(project, { recipe, expect: readExpect({ width: project.width, height: project.height }) }).ok, true);
 });
+
+test('validate accepts multiple recipe files in one call and reports each result', async t => {
+  const dir = await temp(t, 'validate-multi'), at = name => path.join(dir, name);
+  const good = cli('validate', 'examples/coin.json', 'examples/forest-spirit.json');
+  assert.equal(good.status, 0, good.stderr);
+  const passed = JSON.parse(good.stdout);
+  assert.equal(passed.ok, true);
+  assert.deepEqual(passed.files.map(entry => [entry.ok, entry.name]), [[true, 'coin'], [true, 'forest-spirit']]);
+  await writeFile(at('broken.json'), JSON.stringify({ version: 1, name: 'bad', width: 0, height: 4, frames: [{ name: 'a' }] }));
+  const mixed = cli('validate', 'examples/coin.json', at('broken.json'), 'examples/forest-spirit.json');
+  assert.equal(mixed.status, 1);
+  const report = JSON.parse(mixed.stdout);
+  assert.equal(report.ok, false);
+  assert.deepEqual(report.files.map(entry => entry.ok), [true, false, true]);
+  assert.equal(report.files[1].path, 'project.width');
+  assert.match(refused(cli('validate', '-', 'examples/coin.json')).error, /cannot be combined with multiple files/);
+});

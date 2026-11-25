@@ -446,3 +446,34 @@ test('asGIFShows is each frame as its GIF holds it: blended onto a background, o
     for (let at = 3; at < shown.length; at += 4) assert.ok(shown[at] === 0 || shown[at] === 255, 'alpha is all or nothing');
   }
 });
+
+test('sceneGIF breaks down over-256-colour refusals by lighting and translucent layers, and scene --image reports colors', async t => {
+  const { prepareScene, renderScene, sceneColors } = await import('../src/scene.js');
+  const { sceneGIF } = await import('../src/scene-export.js');
+  // 48 distinct colours in horizontal bands: fits easily unlit, but 12-band multiply lighting across each row passes 256.
+  const palette = Object.fromEntries(Array.from({ length: 48 }, (_, i) => [`c${i}`, `#${((i * 5 + 16) & 255).toString(16).padStart(2, '0')}${((240 - i * 4) & 255).toString(16).padStart(2, '0')}${((80 + i * 3) & 255).toString(16).padStart(2, '0')}`]));
+  const stripes = { version: 1, name: 'stripes', width: 48, height: 48, palette, frames: [{ name: 'a', duration: 100, ops: Array.from({ length: 48 }, (_, i) => ({ op: 'rect', x: 0, y: i, w: 48, h: 1, color: `c${i}` })) }] };
+  const litScene = { format: 'pixelforge-scene', version: 1, name: 'too-lit', width: 48, height: 48, duration: 80, assets: { stripes }, instances: [{ name: 'bg', asset: 'stripes', at: [0, 0] }],
+    lighting: { ambient: 0.2, bands: 12, scope: 'all', lights: [{ at: [4, 24], height: 6, radius: 44, color: '#ffaa55' }, { at: [44, 24], height: 6, radius: 44, color: '#5599ff' }] } };
+  assert.throws(() => sceneGIF(prepareScene(litScene)), error => error instanceof PixelError && error.path === 'gif'
+    && /unlit: 48; lighting \(multiply, 12 bands, 2 lights\): \+\d+/.test(error.message)
+    && /a GIF frame holds 256 and Pixelbolt does not quantize/.test(error.message)
+    && /lighting\.mode to "ramp"/.test(error.message));
+  // Unlit scene exceeding 256 colours via translucent overlay names the translucent placement.
+  const basePalette = Object.fromEntries(Array.from({ length: 140 }, (_, i) => [`b${i}`, `#${((i * 7 + 10) & 255).toString(16).padStart(2, '0')}${((i * 11 + 20) & 255).toString(16).padStart(2, '0')}${((i * 13 + 30) & 255).toString(16).padStart(2, '0')}`]));
+  const wall = { version: 1, name: 'wall', width: 140, height: 4, palette: basePalette, frames: [{ name: 'a', ops: Array.from({ length: 140 }, (_, i) => ({ op: 'rect', x: i, y: 0, w: 1, h: 4, color: `b${i}` })) }] };
+  const mist = { version: 1, name: 'mist', width: 140, height: 4, palette: { m: '#ffffff60', n: '#80c0ff90' }, frames: [{ name: 'a', ops: [{ op: 'rect', x: 0, y: 0, w: 140, h: 2, color: 'm' }, { op: 'rect', x: 0, y: 2, w: 140, h: 1, color: 'n' }] }] };
+  const mistyScene = { format: 'pixelforge-scene', version: 1, name: 'misty', width: 140, height: 4, duration: 80, assets: { wall, mist }, instances: [{ name: 'wall', asset: 'wall', at: [0, 0] }, { name: 'steam', asset: 'mist', at: [0, 0] }] };
+  assert.throws(() => sceneGIF(prepareScene(mistyScene)), error => error instanceof PixelError && error.path === 'gif'
+    && /translucent blending: steam/.test(error.message) && /a GIF frame holds 256 and Pixelbolt does not quantize/.test(error.message));
+  // CLI `scene --image` reports the rendered frame's colour count.
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'pixelbolt-scene-colors-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const preview = spawnSync(process.execPath, ['bin/pixelbolt.js', 'scene', 'examples/forest-spirit-lit.scene.json', '--image', path.join(dir, 'view.png')], { cwd: root, encoding: 'utf8' });
+  assert.equal(preview.status, 0, preview.stderr);
+  const info = JSON.parse(preview.stdout);
+  assert.ok(Number.isInteger(info.colors) && info.colors > 0 && info.colors <= 256, JSON.stringify(info));
+  const { resolveReferences } = await import('../src/resolve.js');
+  const resolved = (await resolveReferences(JSON.parse(await readFile(path.join(root, 'examples/forest-spirit-lit.scene.json'), 'utf8')), { baseDir: path.join(root, 'examples') })).document;
+  assert.equal(info.colors, sceneColors(renderScene(prepareScene(resolved)).data));
+});

@@ -23,7 +23,7 @@ export { JOINT_TYPES } from './constraints.js';
 export { DITHER_PATTERNS, EASINGS, ease, ditherThreshold, cleanupIds, rotateRows, draftTurn, ruleVariants, rewriteIds } from './craft.js';
 export { BLOB_MASKS, CARDINAL_MASKS, neighbourMask, quadrantPieces, templatePiece, tilemapEntry, tilemapOf } from './autotile.js';
 export { readTerrain, drawTerrain, terrainTemplate, templateSeams, seamWarnings, testMapRecipe, testMapScale, TEST_MAP } from './terrain.js';
-export { prepareScene, renderScene, sceneImage, inspectTile } from './scene.js';
+export { prepareScene, renderScene, sceneImage, sceneColors, inspectTile } from './scene.js';
 export { createSceneBundle } from './scene-export.js';
 export { createOverlay, applyOverlay, recipeFingerprint } from './overlays.js';
 export { decodePNG, importPNG } from './import.js';

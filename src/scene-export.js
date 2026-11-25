@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareScene, renderScene, sceneImage, sceneHaze, scenePlanes, wholeDraws, parallaxOf, MAX_PLANE } from './scene.js';
+import { prepareScene, renderScene, sceneImage, sceneColors, sceneHaze, scenePlanes, wholeDraws, parallaxOf, MAX_PLANE } from './scene.js';
 import { framesGIF, gifBackground, asGIFShows, MAX_FRAMES_PIXELS } from './gif.js';
 import { parseFrameRate } from './sequence.js';
 import { encodePNG } from './png.js';
-import { buildAtlas, inspectProject, namesAnimations, largestScale, fail } from './core.js';
+import { PixelError, buildAtlas, inspectProject, namesAnimations, largestScale, fail } from './core.js';
 import { spriteFrames, canvasTexture, normalsYUp, tileSets, parallaxScene } from './godot.js';
 import { tileSource } from './export.js';
 import { tiledTileset, tiledMap } from './tiled.js';
@@ -35,10 +35,16 @@ export function sceneGIF(scene, { fps, scale = 1, background, sheet = false } = 
     fail('fps', `${head}; ${slower >= 1 ? `fps ${slower}${scale > 1 ? ' at scale 1' : ''} is the largest that fits, or shorten the scene` : 'shorten the scene'}`);
   }
   const blend = gifBackground(background), at = (k, enlarge) => sceneImage(renderScene(scene, { time: k * frameMs }), { scale: enlarge });
+  let failed = -1;
   function* frames() {
-    for (let k = 0; k < count; k++) { const image = at(k, scale); yield { data: image.data, width: image.width, height: image.height, name: `frame ${k + 1}` }; }
+    for (let k = 0; k < count; k++) { failed = k; const image = at(k, scale); yield { data: image.data, width: image.width, height: image.height, name: `frame ${k + 1}` }; }
   }
-  const gif = framesGIF(frames(), { fps: rate, background: blend });
+  let gif;
+  try { gif = framesGIF(frames(), { fps: rate, background: blend }); }
+  catch (error) {
+    if (error instanceof PixelError && error.path === 'gif' && failed >= 0 && error.message.includes('a GIF frame holds 256')) throw explainSceneColors(scene, failed, failed * frameMs, blend, error.message);
+    throw error;
+  }
   if (sheet) {
     const shown = Array.from({ length: count }, (_, k) => ({ name: `frame ${k + 1}`, duration: Math.round(frameMs), get data() { return asGIFShows(at(k, 1).data, blend); } }));
     gif.sheet = inspectProject({ width: gif.width / scale, height: gif.height / scale, palette: {}, frames: shown, animations: {} }, { maxCells: 256 });
@@ -59,6 +65,35 @@ export function sceneGIF(scene, { fps, scale = 1, background, sheet = false } = 
   if (even) gif.notes.push(even);
   if (once.length) gif.notes.push(`${once.slice(0, 6).join(', ')}${once.length > 6 ? ` and ${once.length - 6} more` : ''} ${once.length === 1 ? 'plays' : 'play'} once and ${once.length === 1 ? 'holds its' : 'hold their'} last frame, then ${once.length === 1 ? 'starts' : 'start'} again where the GIF repeats: a one-shot animation in a loop. A patch of animations.<name> with "loop": true and "direction": "pingpong" makes a swing go there and back.`);
   return gif;
+}
+
+// Breaks down why a scene frame passed GIF's 256-colour limit, run only when framesGIF refuses a frame: compares the
+// unlit frame with the lit one, names any translucent placements that blended partial alpha on that frame, and suggests
+// concrete ways to bring the frame under 256 colours without quantizing.
+function explainSceneColors(scene, index, time, blend, original) {
+  const unlit = renderScene(scene, { time, lit: false, draws: true }), unlitColors = sceneColors(unlit.data, blend);
+  const lit = scene.lighting ? renderScene(scene, { time, lit: true }) : unlit, litColors = scene.lighting ? sceneColors(lit.data, blend) : unlitColors;
+  const translucent = [];
+  for (const draw of unlit.draws) {
+    if (draw.shade) continue;
+    const frame = scene.assets[draw.asset].recipe.frames[draw.frame].data;
+    let partial = false;
+    for (let at = 3; at < frame.length; at += 4) if (frame[at] > 0 && frame[at] < 255) { partial = true; break; }
+    if (!partial) continue;
+    const name = scene.instances[draw.instance].name ?? draw.asset;
+    if (!translucent.includes(name)) translucent.push(name);
+  }
+  const parts = [`unlit: ${unlitColors}`];
+  if (scene.lighting && litColors > unlitColors) {
+    const lights = scene.lighting.lights.length;
+    parts.push(`lighting (${scene.lighting.mode}, ${scene.lighting.bands} bands, ${lights} light${lights === 1 ? '' : 's'}): +${litColors - unlitColors}`);
+  }
+  if (translucent.length) parts.push(`translucent blending: ${translucent.slice(0, 4).join(', ')}${translucent.length > 4 ? ` and ${translucent.length - 4} more` : ''}`);
+  const fixes = [];
+  if (scene.lighting && litColors > unlitColors) fixes.push(scene.lighting.mode === 'multiply' ? 'lower lighting.bands, use fewer overlapping coloured lights, or set lighting.mode to "ramp" to stay in the palette' : 'reduce the palette');
+  if (translucent.length) fixes.push('use fewer partial-alpha steps or fewer colours under translucent layers');
+  const message = original.replace(/^gif: /, '');
+  return new PixelError('gif', `${message.replace('; a GIF frame holds 256', ` (${parts.join('; ')}); a GIF frame holds 256`)}${fixes.length ? ` To fit: ${fixes.join('; ')}.` : ''}`);
 }
 
 // What a note says when the frame rate splits the frames of the animations the placements play (those of more than one

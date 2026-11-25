@@ -151,15 +151,24 @@ function readFollow(value, path, listed) {
 }
 function readEmitter(emitter, path, context, listed) {
   const { frames, loop, liquid } = context;
-  fields(emitter, ['name', 'at', 'radius', 'area', 'burst', 'rate', 'start', 'end', 'density', 'temperature', 'falloff', 'velocity', 'expand', 'vortex', 'noise', 'flicker', 'pulse', 'orbit', 'follow', 'sparks', 'carry'], path);
+  fields(emitter, ['name', 'at', 'radius', 'area', 'burst', 'rate', 'start', 'end', 'repeat', 'density', 'temperature', 'falloff', 'velocity', 'expand', 'vortex', 'noise', 'flicker', 'pulse', 'orbit', 'follow', 'sparks', 'carry'], path);
   if (emitter.name !== undefined) identifier(emitter.name, `${path}.name`);
   if ((emitter.burst === undefined) === (emitter.rate === undefined)) fail(path, 'use exactly one of burst (added once, at start) or rate (added every frame from start until end)');
   const start = integer(emitter.start ?? 0, `${path}.start`, 0, frames - 1);
   if (emitter.end !== undefined && emitter.rate === undefined) fail(`${path}.end`, 'end applies to rate emitters');
   const end = integer(emitter.end ?? frames, `${path}.end`, start + 1, frames);
+  const burst = emitter.burst !== undefined;
+  let repeat = null;
+  if (emitter.repeat !== undefined) {
+    repeat = integer(emitter.repeat, `${path}.repeat`, 2, frames);
+    if (loop && frames % repeat !== 0) fail(`${path}.repeat`, `a looping effect repeats every ${frames} frames, so repeat must divide ${frames}`);
+    if (!burst) {
+      if (emitter.end === undefined) fail(`${path}.repeat`, 'a repeating rate emitter needs end to bound each window');
+      if (end - start >= repeat) fail(`${path}.repeat`, `the window (${start} to ${end}, ${end - start} frames) is at least repeat (${repeat}), so it never turns off`);
+    }
+  }
   if (emitter.radius !== undefined && emitter.area !== undefined) fail(path, 'use radius (a disc) or area (a box), not both');
   if (emitter.temperature !== undefined && liquid && !context.heat) fail(`${path}.temperature`, 'temperature drives gases; a liquid has a temperature only with heat (phase changes)');
-  const burst = emitter.burst !== undefined;
   // A gas emitter may throw its smoke on heavy carriers instead of putting it in the air (dust, a skid's smoke).
   let carry = null;
   if (emitter.carry !== undefined) {
@@ -170,7 +179,7 @@ function readEmitter(emitter, path, context, listed) {
     carry = { drag: number(emitter.carry.drag ?? 0.1, `${path}.carry.drag`, 0, 1), release: number(emitter.carry.release ?? 0.2, `${path}.carry.release`, 0.01, 1), gravity: emitter.carry.gravity === undefined ? [0, 0] : pair(emitter.carry.gravity, `${path}.carry.gravity`, -2, 2) };
   }
   return {
-    name: emitter.name, at: pair(emitter.at, `${path}.at`, -256, 512), start, end, burst, carry,
+    name: emitter.name, at: pair(emitter.at, `${path}.at`, -256, 512), start, end, repeat, loop, burst, carry,
     strength: burst ? number(emitter.burst, `${path}.burst`, 0.01, 64) : number(emitter.rate, `${path}.rate`, 0.01, 64),
     radius: emitter.area === undefined ? number(emitter.radius ?? 2, `${path}.radius`, 0.5, 64) : null,
     area: emitter.area === undefined ? null : pair(emitter.area, `${path}.area`, 1, 128),
@@ -1809,7 +1818,14 @@ function emitterState(e, index, cycle, seed, along = cycle, factor = 1) {
   const flicker = (px, py) => (e.flicker ? strength * (1 + e.flicker * (2 * valueNoise(seed, index, cycle, SALT.flicker, px, py) - 1)) : strength);
   return { x, y, flicker };
 }
-const active = (e, cycle) => e.burst ? cycle === e.start : cycle >= e.start && cycle < e.end;
+const active = (e, cycle) => {
+  if (e.repeat) {
+    if (!e.loop && cycle < e.start) return false;
+    const offset = ((cycle - e.start) % e.repeat + e.repeat) % e.repeat;
+    return e.burst ? offset === 0 : offset < e.end - e.start;
+  }
+  return e.burst ? cycle === e.start : cycle >= e.start && cycle < e.end;
+};
 // How many places, about a pixel apart, a moving rate emitter is laid at over the frame that ends on `cycle`: along its
 // orbit, and along the way of the obstacle it follows (none across a cut).
 function laidSteps(e, cycle) {

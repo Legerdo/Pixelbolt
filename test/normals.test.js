@@ -192,3 +192,46 @@ test("a trimmed sheet's normal map is drawn on the colour sheet's own cells, and
   // An untrimmed sheet keeps every frame in its own whole-canvas grid cell, transparent border included, as before.
   assert.deepEqual(readCells(await createBundle({ ...colour, sheet: { trim: false } }, { normal })).c.sort(), ['0,0,0,0', String(faces.c)]);
 });
+
+test('detail.ignore keeps excluded markings flush on the surface while other colours still emboss', () => {
+  // A dark stripe in a mid-grey tile craters with detail: 1, but stays flat when d is in detail.ignore.
+  const marked = Array.from({ length: 6 }, () => 'kkddkk');
+  assert.notDeepEqual(rowsOf(derive(recipe(marked), { detail: 1 })), Array(6).fill('555555'));
+  assert.deepEqual(rowsOf(derive(recipe(marked), { detail: { amount: 1, ignore: ['d'] } })), Array(6).fill('555555'));
+  // A raised stripe beside an ignored dark marking still embosses while the marking stays flush.
+  const both = Array.from({ length: 7 }, () => 'kddkkll');
+  const mixed = derive(recipe(both), { detail: { amount: 1, ignore: ['d'] } });
+  assert.equal(rowsOf(mixed)[3].slice(0, 4), '5555', 'ignored dark marking stays flat');
+  assert.notEqual(rowsOf(mixed)[3].slice(4), '555', 'non-ignored bright stripe still embosses');
+  assert.deepEqual(mixed.metadata.detail, { amount: 1, ignore: ['d'] });
+  assert.deepEqual(derive(recipe(both), { detail: { amount: 1, ignore: ['d'] } }), mixed, 'deterministic');
+  // Unmatched ignored keys warn; invalid detail objects fail with exact paths.
+  const unused = derive(recipe(Array.from({ length: 4 }, () => 'kkkk')), { detail: { amount: 0.5, ignore: ['d'] } });
+  assert.ok(unused.warnings.some(w => /detail\.ignore\.d/.test(w)));
+  for (const [detail, where] of [
+    [{ amount: 1.5 }, 'normals.detail.amount'],
+    [{ amount: 0.5, ignore: [] }, 'normals.detail.ignore'],
+    [{ amount: 0.5, ignore: ['missing'] }, 'normals.detail.ignore[0]'],
+    [{ amount: 0.5, ignore: ['k', 'k'] }, 'normals.detail.ignore[1]'],
+    ['bad', 'normals.detail']
+  ]) assert.throws(() => derive(recipe(marked), { detail }), error => error instanceof PixelError && error.path === where, where);
+});
+
+test('scenes accept pixelforge-normals inline (deriving from the asset recipe) and by file reference', async t => {
+  const { createSceneBundle } = await import('../src/scene-export.js');
+  const colour = recipe(disc(12)), expectedNormal = derive(colour, { bevel: 3 }).recipe;
+  const baseScene = normal => ({ format: 'pixelforge-scene', version: 1, name: 'inline-norm', width: 12, height: 12, assets: { ball: { recipe: colour, normal } }, instances: [{ asset: 'ball', at: [0, 0] }], lighting: { ambient: 0.1, bands: 16, lights: [{ at: [0, 6], height: 6, radius: 64 }] } });
+  const precompiled = renderScene(prepareScene(baseScene(expectedNormal)));
+  const derivedInline = renderScene(prepareScene(baseScene({ format: 'pixelforge-normals', version: 1, bevel: 3 })));
+  assert.deepEqual(derivedInline.data, precompiled.data);
+  // Resolving a scene that points normal at a .normals.json file works end to end and exports normal passes.
+  const dir = await temp(t, 'scene-normals');
+  await writeFile(path.join(dir, 'ball.json'), JSON.stringify(colour));
+  await writeFile(path.join(dir, 'ball.normals.json'), JSON.stringify({ format: 'pixelforge-normals', version: 1, recipe: 'ball.json', bevel: 3 }));
+  const sceneFile = { format: 'pixelforge-scene', version: 1, name: 'file-norm', width: 12, height: 12, assets: { ball: { recipe: 'ball.json', normal: 'ball.normals.json' } }, instances: [{ asset: 'ball', at: [0, 0] }], lighting: { ambient: 0.1, bands: 16, lights: [{ at: [0, 6], height: 6, radius: 64 }] } };
+  const { document, files } = await resolveReferences(sceneFile, { baseDir: dir });
+  assert.deepEqual(files.map(file => path.basename(file)).sort(), ['ball.json', 'ball.normals.json']);
+  assert.deepEqual(renderScene(prepareScene(document)).data, precompiled.data);
+  const bundle = await createSceneBundle(document);
+  assert.ok(bundle.files.has('assets/0/normal.png') && bundle.files.has('assets/0/normal_y_up.png') && bundle.files.has('assets/0/canvas_texture.tres'));
+});

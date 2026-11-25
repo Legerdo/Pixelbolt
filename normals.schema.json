@@ -54,10 +54,42 @@
       "description": "A cylinder instead of a cushion. vertical: a barrel, pillar or trunk standing up, each row rounded from its left end to its right, so it leans left and right and never up or down. horizontal: a log lying down."
     },
     "detail": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "description": "How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette's shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness."
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette's shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "amount": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "How far lighter colours stand out of the surface, up to 2 pixels."
+            },
+            "ignore": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "Palette keys of the colour recipe excluded from detail relief (eyes, dark markings, outlines): they follow the surrounding rounded surface instead of embossing sharp craters."
+            }
+          },
+          "required": [
+            "amount"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "How far lighter colours stand out of the surface, up to 2 pixels (0–1), or { amount, ignore } to exclude listed palette keys from embossing."
     },
     "faces": {
       "type": "object",

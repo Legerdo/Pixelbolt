@@ -149,6 +149,9 @@
                       "revision"
                     ],
                     "additionalProperties": false
+                  },
+                  {
+                    "$ref": "#/$defs/normals"
                   }
                 ]
               },
@@ -4652,6 +4655,129 @@
           ]
         }
       }
+    },
+    "normals": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "pixelforge-normals"
+        },
+        "version": {
+          "const": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+          "description": "Name of the normal recipe; default <recipe name>-normal."
+        },
+        "recipe": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/recipe"
+            },
+            {
+              "type": "string",
+              "description": "Recipe file, resolved by the CLI relative to the scene or inside the MCP root."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{12}$"
+                }
+              },
+              "required": [
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "The colour recipe: inline, a file resolved by the CLI relative to this source (or inside the MCP root), or {\"revision\": id} through MCP. A pass made by the normals compiler keeps 256 pixels a side; a larger scene asset takes a normal pass drawn as a recipe of its own size."
+        },
+        "bevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Pixels from the edge to the flat top. Default: each shape rounds all the way to its thickest point, like a cushion."
+        },
+        "axis": {
+          "enum": [
+            "vertical",
+            "horizontal"
+          ],
+          "description": "A cylinder instead of a cushion. vertical: a barrel, pillar or trunk standing up, each row rounded from its left end to its right, so it leans left and right and never up or down. horizontal: a log lying down."
+        },
+        "detail": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "How far lighter colours stand out of the surface, up to 2 pixels: 0 (default) keeps only the silhouette's shape; 0.5–1 embosses textured surfaces such as brick, bark or rock. A colour on a ramp counts its step along the ramp, any other its brightness."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "How far lighter colours stand out of the surface, up to 2 pixels."
+                },
+                "ignore": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "description": "Palette keys of the colour recipe excluded from detail relief (eyes, dark markings, outlines): they follow the surrounding rounded surface instead of embossing sharp craters."
+                }
+              },
+              "required": [
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "How far lighter colours stand out of the surface, up to 2 pixels (0–1), or { amount, ignore } to exclude listed palette keys from embossing."
+        },
+        "faces": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "enum": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "q",
+              "w",
+              "e",
+              "a",
+              "d",
+              "z",
+              "x",
+              "c"
+            ]
+          },
+          "description": "Flat faces by colour: maps the colour recipe's palette keys to one direction each, so a box, wall or building gets flat planes instead of a cushion. Pixels drawn in that key's colour take the direction; all others are rounded as usual. Side view: tops w, fronts 5. 3/4 top-down: tops w or 8, south faces 2 or 5. Isometric 2:1: tops w, left faces z, right faces c."
+        }
+      },
+      "required": [
+        "format",
+        "version"
+      ],
+      "additionalProperties": false
     }
   }
 }

@@ -18,7 +18,7 @@ import { readExpect, checkDelivery, briefCheck } from './check.js';
 import { createSequence, createSceneSequence, createBodiesSequence, createPowderSequence, figuresSummary, frameGrid } from './sequence.js';
 import { compilePoses, draftViews, fields } from './authoring.js';
 import { testMapScale } from './terrain.js';
-import { prepareScene, renderScene, sceneImage } from './scene.js';
+import { prepareScene, renderScene, sceneImage, sceneColors } from './scene.js';
 import { createSceneBundle, sceneGIF } from './scene-export.js';
 import { importPNG } from './import.js';
 import { importCutoutPNG } from './cutout-import.js';
@@ -613,7 +613,7 @@ export function createToolRunner({ directory, root, version }) {
         const scene = prepareScene(document), frame = renderScene(scene, { time: args.time ?? 0, lit: args.lit ?? true, density: args.density ?? false, depth: args.view === 'depth' });
         const scale = args.scale ?? Math.max(1, Math.min(8, Math.floor(768 / Math.max(frame.width, frame.height))));
         const image = sceneImage(frame, { mode: args.view ?? 'color', scale, guides: args.guides });
-        const summary = { ok: true, name: document.name, width: frame.width, height: frame.height, duration: scene.duration, time: args.time ?? 0, scale, placements: frame.placements.length, tilemaps: frame.placements.filter(p => p.tilemap).map(p => ({ name: p.name, tiles: p.tiles })), ...(frame.depth && { depth: frame.depth }), ...(frame.lights && { lights: frame.lights }), ...(frame.shadows && { shadows: frame.shadows }), ...(frame.camera && { camera: frame.camera }), ...(frame.haze && { haze: frame.haze }), warnings: frame.warnings, ...(sources.length && { resolved: sources.map(file => path.relative(root, file).split(path.sep).join('/')) }) };
+        const summary = { ok: true, name: document.name, width: frame.width, height: frame.height, duration: scene.duration, time: args.time ?? 0, scale, colors: sceneColors(frame.data), placements: frame.placements.length, tilemaps: frame.placements.filter(p => p.tilemap).map(p => ({ name: p.name, tiles: p.tiles })), ...(frame.depth && { depth: frame.depth }), ...(frame.lights && { lights: frame.lights }), ...(frame.shadows && { shadows: frame.shadows }), ...(frame.camera && { camera: frame.camera }), ...(frame.haze && { haze: frame.haze }), warnings: frame.warnings, ...(sources.length && { resolved: sources.map(file => path.relative(root, file).split(path.sep).join('/')) }) };
         // The sequence is built before anything is written, so a refused one leaves no folder behind.
         const frames = args.sequence === undefined ? null : checkSequenceSize(createSceneSequence(scene, document.name, args.sequence));
         // One new folder holds whatever the call writes: the scene bundle, the sequence, or both.
