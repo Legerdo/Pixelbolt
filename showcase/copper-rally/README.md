@@ -20,9 +20,21 @@ node bin/pixelbolt.js gif examples/copper-rally.stack.json --scale 2 --backgroun
 
 ![The same car and four cones on a 2:1 isometric pit lane](pit-lane.png)
 
-The [pit lane scene](pit-lane.mjs) switches the car to `projection: "iso"`. Each cone uses the same stack. The cone nearest the camera covers part of the car, and the car covers the cones on the far side. Run the second command to see the ground order and count the overlapping pixels.
+The [pit lane scene](pit-lane.mjs) switches the car to `projection: "iso"`. The cones share one stack. Both cones along the near verge cover the car, including the cone beside the rear wheel. The car covers the two along the far verge. The depth view reports how many pixels overlap.
 
 ```sh
 node showcase/copper-rally/pit-lane.mjs | node bin/pixelbolt.js scene - --scale 2 --image output/pit-lane.png
 node showcase/copper-rally/pit-lane.mjs | node bin/pixelbolt.js scene - --view depth --image output/pit-lane-depth.png
+```
+
+### Ground-plane collision at 1×
+
+![The car clips one cone into a second, then passes behind a stationary cone](cone-run.gif)
+
+At 0.96 s the front bumper sends the first cone across the lane. At 1.36 s the second starts sliding towards the verge. From 2.00 to 2.80 s the stationary cone overlaps the passing car.
+
+`--cone-run` simulates a heavy bevelled car and three square cone bases on a flat floor. It projects the body tracks into scene trajectories and selects the nearest stack heading as each cone spins. The shot uses the order across the road to draw the near cones in front of the full length of the car. The GIF plays at the scene's native 320 × 192 pixels, 25 frames per second.
+
+```sh
+node showcase/copper-rally/pit-lane.mjs --cone-run | node bin/pixelbolt.js gif - --fps 25 --scale 1 --out output/cone-run.gif
 ```
